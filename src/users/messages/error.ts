@@ -1,0 +1,15 @@
+export const EMAIL_EXISTS = 'User with the given email already exists';
+export const PHONE_EXISTS = 'User with the given phone already exists';
+export const USER_NOT_FOUND = 'User not found';
+export const USER_EXISTS_ALREADY = 'User already exists in this school';
+export const INVALID_CREDENTIALS = 'Invalid credentials';
+export const USER_ALREADY_ACTIVATED = 'User is already activated';
+export const USER_ALREADY_DEACTIVATED = 'User is already deactivated';
+export const INVALID_CURRENT_PASSWORD = 'Invalid current password';
+export const TWO_FA_ALREADY_ENABLED = '2FA is already enabled for this user';
+export const TWO_FA_ALREADY_DISABLED = '2FA is already disabled for this user';
+export const CONTACT_ADMIN = 'System error, please contact admin.';
+export const SCHOOL_ALREADY_EXISTS = 'School already exists in this location';
+export const SCHOOL_NOT_FOUND = 'School not found';
+export const USER_NOT_IN_SCHOOL = 'User is not a member of this school';
+export const CANNOT_DELETE_SUPER_ADMIN = 'Cannot delete a super-admin user';
