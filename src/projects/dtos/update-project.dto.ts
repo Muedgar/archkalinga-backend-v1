@@ -45,7 +45,10 @@ export class UpdateProjectDto {
   @IsOptional()
   status?: ProjectStatus;
 
-  @ApiPropertyOptional({ example: 'uuid-of-new-template' })
+  @ApiPropertyOptional({
+    example: 'uuid-of-new-template',
+    description: 'Allowed only before project tasks have been created.',
+  })
   @IsUUID()
   @IsOptional()
   templateId?: string;
@@ -54,7 +57,7 @@ export class UpdateProjectDto {
     type: [String],
     example: ['uuid-1', 'uuid-2', 'uuid-3'],
     description:
-      'Replaces the active member list. Removed members are soft-removed, new ones are added.',
+      'Replaces the active member list. Removed members are soft-removed, new ones are added with the default Contributor project role.',
   })
   @IsArray()
   @IsUUID('all', { each: true })

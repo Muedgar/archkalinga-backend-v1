@@ -8,5 +8,5 @@ export class UpdateUserDTO {
   @ApiPropertyOptional() @IsOptional() @IsString() title?: string;
   @ApiPropertyOptional() @IsOptional() @IsEmail() email?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() status?: boolean;
-  @ApiPropertyOptional() @IsOptional() @IsUUID('4') roleId?: string;
+  @ApiPropertyOptional({ description: 'UUID of the workspace role to assign' }) @IsOptional() @IsUUID('4') roleId?: string;
 }

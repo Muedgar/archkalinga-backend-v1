@@ -21,8 +21,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   /**
-   * Loads the user with organization + role (including permissions matrix)
-   * so downstream guards can enforce RBAC without an extra DB query.
+   * Loads the user with organization + workspace role (including permissions matrix)
+   * so downstream workspace guards can enforce RBAC without an extra DB query.
    */
   async validate(payload: JwtPayload): Promise<Omit<User, 'password'>> {
     const user = await this.userRepo.findOne({

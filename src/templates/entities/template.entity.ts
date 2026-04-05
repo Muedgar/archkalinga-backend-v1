@@ -1,7 +1,7 @@
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany, Unique } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { Organization } from 'src/organizations/entities/organization.entity';
-import { TemplatePhase } from './template-phase.entity';
+import { TemplateTask } from './template-task.entity';
 
 @Entity('templates')
 @Unique(['organizationId', 'name'])
@@ -22,8 +22,8 @@ export class Template extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
   organizationId: string;
 
-  @OneToMany(() => TemplatePhase, (phase) => phase.template, {
+  @OneToMany(() => TemplateTask, (task) => task.template, {
     cascade: ['insert', 'update'],
   })
-  phases: TemplatePhase[];
+  tasks: TemplateTask[];
 }

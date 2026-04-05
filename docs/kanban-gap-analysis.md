@@ -37,7 +37,7 @@ This plan proposes milestones that preserve the existing architecture while incr
 
 ### 3.1 Data Model
 
-- Missing fields on `KanbanTask`: description, status, assigneeIds, subtasks, createdAt, updatedAt.
+- Missing fields on `KanbanTask`: description, status, assignedMembers, reportee, subtasks, createdAt, updatedAt.
 - Missing `rank` on `KanbanColumn` (needed for stable column ordering).
 - `columnOrder` currently manual list; should be derived from column ranks or computed from them.
 

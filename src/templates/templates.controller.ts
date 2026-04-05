@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -22,6 +23,7 @@ import { LogActivity, ResponseMessage } from 'src/common/decorators';
 import { CreateTemplateDto, UpdateTemplateDto } from './dtos';
 import {
   TEMPLATE_CREATED,
+  TEMPLATE_DELETED,
   TEMPLATE_FETCHED,
   TEMPLATES_FETCHED,
   TEMPLATE_UPDATED,
@@ -36,7 +38,11 @@ export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a template for the current organization' })
+  @ApiOperation({
+    summary: 'Create a template for the current organization',
+    description:
+      'Workspace-scoped action. Requires templateManagement.create on the caller\'s workspace role.',
+  })
   @ApiResponse({ status: 201, description: 'Template created' })
   @ResponseMessage(TEMPLATE_CREATED)
   @UseGuards(PermissionGuard)
@@ -47,7 +53,11 @@ export class TemplatesController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List templates in the current organization' })
+  @ApiOperation({
+    summary: 'List templates in the current organization',
+    description:
+      'Workspace-scoped action. Requires templateManagement.view on the caller\'s workspace role.',
+  })
   @ApiResponse({ status: 200, description: 'Paginated list of templates' })
   @ResponseMessage(TEMPLATES_FETCHED)
   @UseGuards(PermissionGuard)
@@ -57,8 +67,12 @@ export class TemplatesController {
   }
 
   @Get(':identifier')
-  @ApiOperation({ summary: 'Get a template by id or current frontend name identifier' })
-  @ApiResponse({ status: 200, description: 'Template object with phases' })
+  @ApiOperation({
+    summary: 'Get a template by id or name',
+    description:
+      'Workspace-scoped action. Requires templateManagement.view on the caller\'s workspace role.',
+  })
+  @ApiResponse({ status: 200, description: 'Template object with recursive tasks' })
   @ResponseMessage(TEMPLATE_FETCHED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'view')
@@ -67,7 +81,11 @@ export class TemplatesController {
   }
 
   @Patch(':identifier')
-  @ApiOperation({ summary: 'Update a template by id or current frontend name identifier' })
+  @ApiOperation({
+    summary: 'Update a template by id or name',
+    description:
+      'Workspace-scoped action. Requires templateManagement.update on the caller\'s workspace role.',
+  })
   @ApiResponse({ status: 200, description: 'Template updated' })
   @ResponseMessage(TEMPLATE_UPDATED)
   @UseGuards(PermissionGuard)
@@ -83,5 +101,20 @@ export class TemplatesController {
       dto,
       user.organizationId,
     );
+  }
+
+  @Delete(':identifier')
+  @ApiOperation({
+    summary: 'Delete a template by id or name',
+    description:
+      'Workspace-scoped action. Requires templateManagement.delete on the caller\'s workspace role.',
+  })
+  @ApiResponse({ status: 200, description: 'Template deleted' })
+  @ResponseMessage(TEMPLATE_DELETED)
+  @UseGuards(PermissionGuard)
+  @RequirePermission('templateManagement', 'delete')
+  @LogActivity({ action: 'delete:template', resource: 'template' })
+  deleteTemplate(@Param('identifier') identifier: string, @GetUser() user: User) {
+    return this.templatesService.deleteTemplateByIdentifier(identifier, user.organizationId);
   }
 }

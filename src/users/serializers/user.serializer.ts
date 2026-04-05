@@ -20,6 +20,7 @@ class RoleShape {
 /**
  * Full user shape returned by the API.
  * Matches the AuthUser and User interfaces the frontend expects.
+ * `role` / `roleId` represent the user's workspace role.
  */
 export class UserSerializer extends BaseSerializer {
   @Expose() firstName: string;

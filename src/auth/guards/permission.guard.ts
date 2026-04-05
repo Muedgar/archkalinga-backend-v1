@@ -18,14 +18,15 @@ export interface RequiredPermission {
 /**
  * PermissionGuard
  *
- * Reads the RequiredPermission metadata set by @RequirePermission(domain, action)
- * and checks that the authenticated user's role matrix grants that access.
+ * Reads the RequiredPermission metadata set by
+ * @RequireWorkspacePermission(domain, action)
+ * and checks that the authenticated user's workspace-role matrix grants that access.
  *
  * Must be placed AFTER JwtAuthGuard so request.user is populated.
  *
- * Usage:
+ * Usage for workspace-scoped routes:
  *   @UseGuards(JwtAuthGuard, PermissionGuard)
- *   @RequirePermission('userManagement', 'create')
+ *   @RequireWorkspacePermission('userManagement', 'create')
  *   createUser(...) { ... }
  */
 @Injectable()

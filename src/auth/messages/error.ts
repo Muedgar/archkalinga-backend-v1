@@ -13,6 +13,12 @@ export const BRANCH_DOES_NOT_BELONG_TO_SCHOOL = 'Requested branch does not belon
 export const BRANCH_CONTEXT_REQUIRED = 'Branch context required. Provide X-Branch-Id or set default branch.'
 export const MEMBERSHIP_NOT_ACTIVE = 'Your membership in this school is not active.'
 export const INSUFFICIENT_PERMISSIONS = 'You do not have permission to perform this action.'
+export const PROJECT_CONTEXT_REQUIRED =
+  'Project context is required to evaluate project permissions.'
+export const PROJECT_MEMBERSHIP_REQUIRED =
+  'You must be an active member of this project to access this resource.'
+export const INSUFFICIENT_PROJECT_PERMISSIONS =
+  'Your project role does not grant permission to perform this action.'
 export const INVITE_TOKEN_INVALID = 'Invalid invite token. Please contact your admin.'
 export const INVITE_TOKEN_EXPIRED = 'This invite link has expired. Please ask your admin to resend the invitation.'
 export const TOKEN_REVOKED = 'This session has been revoked. Please sign in again.'

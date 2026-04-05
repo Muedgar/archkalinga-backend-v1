@@ -37,7 +37,7 @@ export class RoleService {
   }
 
   // ---------------------------------------------------------------------------
-  // CRUD
+  // Workspace role CRUD
   // ---------------------------------------------------------------------------
 
   async createRole(dto: CreateRoleDTO, organizationId: string): Promise<RoleSerializer> {

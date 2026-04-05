@@ -15,6 +15,8 @@ import { OrganizationsModule } from './organizations/organizations.module';
 import { CommonModule } from './common/common.module';
 import { TemplatesModule } from './templates/templates.module';
 import { ProjectsModule } from './projects/projects.module';
+import { ProjectInvitesModule } from './project-invites/project-invites.module';
+import { TasksModule } from './tasks/tasks.module';
 
 import { ResponseInterceptor } from './common/interceptors';
 import { dataSourceOptions } from './config/db/db.config';
@@ -62,6 +64,8 @@ import { dataSourceOptions } from './config/db/db.config';
     AuthModule,
     TemplatesModule,
     ProjectsModule,
+    ProjectInvitesModule,
+    TasksModule,
   ],
   controllers: [AppController],
   providers: [

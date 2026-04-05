@@ -2,11 +2,7 @@ import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities/user.entity';
 import { Project } from './project.entity';
-
-export enum InviteRole {
-  MEMBER = 'MEMBER',
-  VIEWER = 'VIEWER',
-}
+import { ProjectRole } from './project-role.entity';
 
 export enum InviteStatus {
   PENDING  = 'PENDING',
@@ -14,6 +10,13 @@ export enum InviteStatus {
   DECLINED = 'DECLINED',
   EXPIRED  = 'EXPIRED',
   REVOKED  = 'REVOKED',
+}
+
+/** Describes what context the invite was sent from. */
+export enum InviteTargetType {
+  PROJECT  = 'project',
+  TASK     = 'task',
+  SUBTASK  = 'subtask',
 }
 
 @Entity('project_invites')
@@ -42,13 +45,15 @@ export class ProjectInvite extends AppBaseEntity {
   @Column({ type: 'varchar', length: 100, nullable: false })
   inviteeEmail: string;
 
-  @Column({
-    type: 'enum',
-    enum: InviteRole,
+  @ManyToOne(() => ProjectRole, (role) => role.invites, {
     nullable: false,
-    default: InviteRole.MEMBER,
+    onDelete: 'RESTRICT',
   })
-  role: InviteRole;
+  @JoinColumn({ name: 'project_role_id' })
+  projectRole: ProjectRole;
+
+  @Column({ type: 'uuid', nullable: false })
+  projectRoleId: string;
 
   @Column({ type: 'varchar', length: 128, nullable: false, unique: true })
   token: string;
@@ -66,4 +71,51 @@ export class ProjectInvite extends AppBaseEntity {
 
   @Column({ type: 'timestamptz', nullable: true })
   acceptedAt: Date | null;
+
+  // ── Task-context fields (all nullable — project-only invites omit these) ─────
+
+  /**
+   * UUID of the task this invite was sent from.
+   * Null for plain project invites.
+   */
+  @Column({ type: 'uuid', nullable: true, default: null })
+  taskId: string | null;
+
+  /**
+   * UUID of the subtask this invite was sent from.
+   * Requires taskId to be set. Null for task-level invites.
+   */
+  @Column({ type: 'uuid', nullable: true, default: null })
+  subtaskId: string | null;
+
+  /**
+   * Describes where the invite originated.
+   * Defaults to 'project' to preserve backward-compat with existing records.
+   */
+  @Column({
+    type: 'enum',
+    enum: InviteTargetType,
+    nullable: false,
+    default: InviteTargetType.PROJECT,
+  })
+  targetType: InviteTargetType;
+
+  /** Denormalized task/subtask title for display without a DB join. */
+  @Column({ type: 'varchar', length: 200, nullable: true, default: null })
+  targetName: string | null;
+
+  /** Denormalized project title for display in invite emails / UI. */
+  @Column({ type: 'varchar', length: 200, nullable: true, default: null })
+  projectName: string | null;
+
+  /** Optional personalised message from the inviter. */
+  @Column({ type: 'text', nullable: true, default: null })
+  message: string | null;
+
+  /**
+   * When true, the invitee is automatically added as a task/subtask assignee
+   * (CONTRIBUTOR role) immediately after accepting the invite.
+   */
+  @Column({ type: 'boolean', nullable: false, default: false })
+  autoAssignOnAccept: boolean;
 }

@@ -40,8 +40,8 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a collaborator in the current organization' })
-  @ApiResponse({ status: 201, description: 'User created and welcome email dispatched' })
+  @ApiOperation({ summary: 'Create a collaborator in the current organization and assign a workspace role' })
+  @ApiResponse({ status: 201, description: 'User created with the assigned workspace role and welcome email dispatched' })
   @ApiResponse({ status: 400, description: 'Validation error or email already in use' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions (requires userManagement.create)' })
@@ -72,8 +72,8 @@ export class UserController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a collaborator by ID' })
-  @ApiResponse({ status: 200, description: 'User object' })
+  @ApiOperation({ summary: 'Get a collaborator by ID with workspace role details' })
+  @ApiResponse({ status: 200, description: 'User object including workspace role details' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
   @ApiResponse({ status: 404, description: 'User not found in this organization' })
   @ResponseMessage(USER_FETCHED)
@@ -85,7 +85,7 @@ export class UserController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a collaborator' })
+  @ApiOperation({ summary: 'Update a collaborator and optionally change their workspace role' })
   @ApiResponse({ status: 200, description: 'User updated' })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })

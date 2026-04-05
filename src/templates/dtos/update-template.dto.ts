@@ -8,7 +8,7 @@ import {
   Length,
   ValidateNested,
 } from 'class-validator';
-import { TemplatePhaseDto } from './create-template.dto';
+import { TemplateTaskDto } from './create-template.dto';
 
 export class UpdateTemplateDto {
   @ApiPropertyOptional({ example: 'Residential Build v2' })
@@ -30,10 +30,10 @@ export class UpdateTemplateDto {
   @IsBoolean()
   isDefault?: boolean;
 
-  @ApiPropertyOptional({ type: () => [TemplatePhaseDto] })
+  @ApiPropertyOptional({ type: () => [TemplateTaskDto] })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => TemplatePhaseDto)
-  phases?: TemplatePhaseDto[];
+  @Type(() => TemplateTaskDto)
+  tasks?: TemplateTaskDto[];
 }

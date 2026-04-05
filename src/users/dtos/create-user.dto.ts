@@ -43,7 +43,7 @@ export class CreateUserDTO {
   @IsStrongPassword({ minLength: 8 })
   password: string;
 
-  @ApiProperty({ description: 'UUID of the role to assign' })
+  @ApiProperty({ description: 'UUID of the workspace role to assign' })
   @IsUUID('4')
   roleId: string;
 }

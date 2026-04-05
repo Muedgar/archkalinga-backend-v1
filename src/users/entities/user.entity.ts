@@ -81,7 +81,7 @@ export class User extends AppBaseEntity {
   @Column({ type: 'timestamptz', nullable: true })
   passwordResetTokenUsedAt: Date | null;
 
-  // ── Tenant + RBAC ─────────────────────────────────────────────────────────
+  // ── Tenant + workspace access ────────────────────────────────────────────
   @ManyToOne(() => Organization, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'organization_id' })
   organization: Organization;
@@ -89,10 +89,12 @@ export class User extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
   organizationId: string;
 
+  /** User-scoped workspace role. Project-scoped roles live on project memberships. */
   @ManyToOne(() => Role, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'role_id' })
   role: Role | null;
 
+  /** UUID of the user's workspace role. */
   @Column({ type: 'uuid', nullable: true })
   roleId: string | null;
 

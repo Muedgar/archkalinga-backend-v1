@@ -1,23 +1,35 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { Organization } from 'src/organizations/entities/organization.entity';
-import { Template } from 'src/templates/entities/template.entity';
+import { Template, TemplateTask } from 'src/templates/entities';
+import {
+  Task,
+  TaskActionType,
+  TaskActivityLog,
+  TaskStatus,
+} from 'src/tasks/entities';
+import { WorkflowColumn } from 'src/tasks/workflow';
 import { User } from 'src/users/entities/user.entity';
 import { RequestUser } from 'src/auth/types';
 
 import { CreateProjectDto, UpdateProjectDto, ProjectFiltersDto } from './dtos';
 import {
+  DEFAULT_PROJECT_ROLE_NOT_FOUND,
+  DEFAULT_PROJECT_ROLE_SETUP_FAILED,
+  INVALID_PROJECT_DATE_RANGE,
   MEMBER_NOT_IN_ORG,
   PROJECT_ACCESS_DENIED,
   PROJECT_NOT_FOUND,
+  PROJECT_TEMPLATE_CHANGE_FORBIDDEN,
   TEMPLATE_NOT_IN_ORG,
 } from './messages';
 import {
@@ -25,20 +37,55 @@ import {
   ProjectActivityLog,
   ProjectActionType,
   ProjectMembership,
+  ProjectRole,
   ProjectStatus,
 } from './entities';
-import { MembershipRole, MembershipStatus } from './entities/project-membership.entity';
+import { MembershipStatus } from './entities/project-membership.entity';
 import { ProjectSerializer, ProjectListItemSerializer } from './serializers';
 import { FilterResponse } from 'src/common/interfaces';
+import {
+  CONTRIBUTOR_PROJECT_ACCESS_MATRIX,
+  FULL_PROJECT_ACCESS_MATRIX,
+  MANAGE_PROJECT_ACCESS_MATRIX,
+  type ProjectPermissionAction,
+  VIEWER_PROJECT_ACCESS_MATRIX,
+} from './types/project-permission-matrix.type';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ProjectDetail {
   project: Project;
   memberships: ProjectMembership[];
-  invites: never[];          // placeholder — invite endpoints come in a later module
+  invites: Project['invites'];
   recentContributions: ProjectActivityLog[];
 }
+
+interface TemplateTaskNode {
+  id: string;
+  name: string;
+  description: string;
+  order: number;
+  parentTaskId: string | null;
+  subtasks: TemplateTaskNode[];
+}
+
+const DEFAULT_WORKFLOW_COLUMNS = [
+  { name: 'Todo', statusKey: TaskStatus.TODO, orderIndex: 0 },
+  { name: 'In Progress', statusKey: TaskStatus.IN_PROGRESS, orderIndex: 1 },
+  { name: 'In Review', statusKey: TaskStatus.IN_REVIEW, orderIndex: 2 },
+  { name: 'Done', statusKey: TaskStatus.DONE, orderIndex: 3 },
+  { name: 'Blocked', statusKey: TaskStatus.BLOCKED, orderIndex: 4 },
+] as const;
+
+const RANK_WIDTH = 10;
+const RANK_BASE = 36n;
+const RANK_STEP = 1024n;
+const DEFAULT_PROJECT_ROLE_DEFINITIONS = [
+  { name: 'Owner', slug: 'owner', permissions: FULL_PROJECT_ACCESS_MATRIX },
+  { name: 'Project Admin', slug: 'project-admin', permissions: MANAGE_PROJECT_ACCESS_MATRIX },
+  { name: 'Contributor', slug: 'contributor', permissions: CONTRIBUTOR_PROJECT_ACCESS_MATRIX },
+  { name: 'Viewer', slug: 'viewer', permissions: VIEWER_PROJECT_ACCESS_MATRIX },
+] as const;
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
@@ -49,12 +96,18 @@ export class ProjectsService {
     private readonly projectRepo: Repository<Project>,
     @InjectRepository(ProjectMembership)
     private readonly membershipRepo: Repository<ProjectMembership>,
+    @InjectRepository(ProjectRole)
+    private readonly projectRoleRepo: Repository<ProjectRole>,
     @InjectRepository(ProjectActivityLog)
     private readonly activityRepo: Repository<ProjectActivityLog>,
     @InjectRepository(Organization)
     private readonly orgRepo: Repository<Organization>,
     @InjectRepository(Template)
     private readonly templateRepo: Repository<Template>,
+    @InjectRepository(Task)
+    private readonly taskRepo: Repository<Task>,
+    @InjectRepository(WorkflowColumn)
+    private readonly workflowColumnRepo: Repository<WorkflowColumn>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
   ) {}
@@ -73,22 +126,316 @@ export class ProjectsService {
     });
   }
 
+  private ensureDateRange(startDate?: string | null, endDate?: string | null): void {
+    if (startDate && endDate && startDate > endDate) {
+      throw new BadRequestException(INVALID_PROJECT_DATE_RANGE);
+    }
+  }
+
+  private membershipHasProjectPermission(
+    membership: ProjectMembership | null | undefined,
+    action: ProjectPermissionAction,
+  ): boolean {
+    return (
+      membership?.status === MembershipStatus.ACTIVE &&
+      membership.projectRole?.status === true &&
+      membership.projectRole.permissions?.projectManagement?.[action] === true
+    );
+  }
+
+  private async loadAuthorizedProject(
+    projectId: string,
+    requestUser: RequestUser,
+    action: ProjectPermissionAction,
+  ): Promise<Project> {
+    const project = await this.projectRepo.findOne({
+      where: { id: projectId, organizationId: requestUser.organizationId },
+      relations: ['memberships', 'memberships.projectRole'],
+    });
+
+    if (!project) throw new NotFoundException(PROJECT_NOT_FOUND);
+
+    if (!this.isAdmin(requestUser)) {
+      const membership = project.memberships.find(
+        (membership) =>
+          membership.userId === requestUser.id &&
+          membership.status === MembershipStatus.ACTIVE,
+      );
+
+      if (!this.membershipHasProjectPermission(membership, action)) {
+        throw new ForbiddenException(PROJECT_ACCESS_DENIED);
+      }
+    }
+
+    return project;
+  }
+
+  private buildTemplateTaskTree(tasks: TemplateTask[]): TemplateTaskNode[] {
+    const taskMap = new Map<string, TemplateTaskNode>();
+
+    tasks.forEach((task) => {
+      taskMap.set(task.id, {
+        id: task.id,
+        name: task.name,
+        description: task.description,
+        order: task.order,
+        parentTaskId: task.parentTaskId ?? null,
+        subtasks: [],
+      });
+    });
+
+    const roots: TemplateTaskNode[] = [];
+    for (const task of taskMap.values()) {
+      if (task.parentTaskId) {
+        const parent = taskMap.get(task.parentTaskId);
+        if (parent) {
+          parent.subtasks.push(task);
+          continue;
+        }
+      }
+      roots.push(task);
+    }
+
+    const sortNodes = (nodes: TemplateTaskNode[]): TemplateTaskNode[] =>
+      nodes
+        .sort((a, b) => a.order - b.order)
+        .map((node) => ({
+          ...node,
+          subtasks: sortNodes(node.subtasks),
+        }));
+
+    return sortNodes(roots);
+  }
+
+  private parseRankValue(rank?: string | null): bigint | null {
+    if (!rank || !/^[0-9a-z]+$/i.test(rank)) return null;
+
+    let result = 0n;
+    for (const char of rank.toLowerCase()) {
+      result = result * RANK_BASE + BigInt(parseInt(char, 36));
+    }
+
+    return result;
+  }
+
+  private formatRankValue(value: bigint): string {
+    if (value < 0n) return '0'.repeat(RANK_WIDTH);
+    return value.toString(36).padStart(RANK_WIDTH, '0').slice(-RANK_WIDTH);
+  }
+
+  private async getNextSeedRank(
+    manager: EntityManager,
+    projectId: string,
+    parentTaskId: string | null,
+    workflowColumnId: string | null,
+  ): Promise<string> {
+    const lastSibling = await manager.findOne(Task, {
+      where: {
+        projectId,
+        deletedAt: IsNull(),
+        parentTaskId: parentTaskId ?? IsNull(),
+        workflowColumnId: workflowColumnId ?? IsNull(),
+      },
+      order: { rank: 'DESC', createdAt: 'DESC' },
+    });
+
+    if (!lastSibling) {
+      return this.formatRankValue(RANK_STEP);
+    }
+
+    const lastRank = this.parseRankValue(lastSibling.rank) ?? 0n;
+    return this.formatRankValue(lastRank + RANK_STEP);
+  }
+
+  private async resolveSeedWorkflowColumn(
+    manager: EntityManager,
+    project: Project,
+  ): Promise<WorkflowColumn> {
+    let columns = await manager.find(WorkflowColumn, {
+      where: { projectId: project.id },
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+    });
+
+    if (!columns.length) {
+      columns = await manager.save(
+        DEFAULT_WORKFLOW_COLUMNS.map((column) =>
+          manager.create(WorkflowColumn, {
+            project,
+            projectId: project.id,
+            name: column.name,
+            statusKey: column.statusKey,
+            orderIndex: column.orderIndex,
+            wipLimit: null,
+            locked: true,
+          }),
+        ),
+      );
+    }
+
+    return columns.find((column) => column.name.trim().toLowerCase() === 'todo') ?? columns[0];
+  }
+
+  private async ensureDefaultProjectRoles(
+    manager: EntityManager,
+    project: Project,
+  ): Promise<Map<string, ProjectRole>> {
+    const existing = await manager.find(ProjectRole, {
+      where: { projectId: project.id },
+    });
+
+    const roleMap = new Map(existing.map((role) => [role.slug, role]));
+
+    for (const def of DEFAULT_PROJECT_ROLE_DEFINITIONS) {
+      if (!roleMap.has(def.slug)) {
+        const created = await manager.save(
+          manager.create(ProjectRole, {
+            project,
+            projectId: project.id,
+            name: def.name,
+            slug: def.slug,
+            status: true,
+            permissions: def.permissions,
+          }),
+        );
+        roleMap.set(created.slug, created);
+      }
+    }
+
+    return roleMap;
+  }
+
+  private async logSeededTaskActivity(
+    manager: EntityManager,
+    project: Project,
+    task: Task,
+    actorUser: User,
+    templateTaskId: string,
+  ): Promise<void> {
+    const actionMeta = {
+      seededFromTemplate: true,
+      templateTaskId,
+      workflowColumnId: task.workflowColumnId,
+      parentTaskId: task.parentTaskId,
+    };
+
+    await manager.save(
+      manager.create(TaskActivityLog, {
+        taskId: task.id,
+        projectId: project.id,
+        actorUser,
+        actorUserId: actorUser.id,
+        actionType: TaskActionType.TASK_CREATED,
+        actionMeta,
+      }),
+    );
+
+    await manager.save(
+      manager.create(ProjectActivityLog, {
+        project,
+        projectId: project.id,
+        user: actorUser,
+        userId: actorUser.id,
+        taskId: task.id,
+        actionType: TaskActionType.TASK_CREATED,
+        actionMeta,
+      }),
+    );
+  }
+
+  private async createProjectTaskFromTemplate(
+    manager: EntityManager,
+    project: Project,
+    actorUser: User,
+    workflowColumn: WorkflowColumn,
+    templateTask: TemplateTaskNode,
+    parentTask: Task | null = null,
+  ): Promise<number> {
+    const rank = await this.getNextSeedRank(
+      manager,
+      project.id,
+      parentTask?.id ?? null,
+      workflowColumn.id,
+    );
+
+    const savedTask = await manager.save(
+      manager.create(Task, {
+        project,
+        projectId: project.id,
+        parent: parentTask,
+        parentTaskId: parentTask?.id ?? null,
+        workflowColumn,
+        workflowColumnId: workflowColumn.id,
+        createdByUser: actorUser,
+        createdByUserId: actorUser.id,
+        title: templateTask.name.trim(),
+        description: templateTask.description?.trim() ?? null,
+        status: TaskStatus.TODO,
+        priority: null,
+        startDate: null,
+        endDate: null,
+        progress: null,
+        completed: false,
+        rank,
+        deletedAt: null,
+      }),
+    );
+
+    await this.logSeededTaskActivity(manager, project, savedTask, actorUser, templateTask.id);
+
+    let createdCount = 1;
+    for (const child of templateTask.subtasks) {
+      createdCount += await this.createProjectTaskFromTemplate(
+        manager,
+        project,
+        actorUser,
+        workflowColumn,
+        child,
+        savedTask,
+      );
+    }
+
+    return createdCount;
+  }
+
+  private async seedProjectTasksFromTemplate(
+    manager: EntityManager,
+    project: Project,
+    actorUser: User,
+    template: Template,
+    workflowColumn: WorkflowColumn,
+  ): Promise<number> {
+    const templateTree = this.buildTemplateTaskTree(template.tasks ?? []);
+    let createdCount = 0;
+
+    for (const rootTask of templateTree) {
+      createdCount += await this.createProjectTaskFromTemplate(
+        manager,
+        project,
+        actorUser,
+        workflowColumn,
+        rootTask,
+      );
+    }
+
+    return createdCount;
+  }
+
   /** Load the full project with all relations needed for detail/response views. */
   private async loadFull(projectId: string, organizationId: string): Promise<Project> {
     const project = await this.projectRepo.findOne({
       where: { id: projectId, organizationId },
       relations: [
         'template',
-        'template.phases',
+        'projectRoles',
         'memberships',
         'memberships.user',
+        'memberships.projectRole',
+        'invites',
+        'invites.projectRole',
         'activityLogs',
         'activityLogs.user',
       ],
-      order: {
-        template: { phases: { order: 'ASC' } },
-        activityLogs: { createdAt: 'DESC' },
-      },
+      order: { activityLogs: { createdAt: 'DESC' } },
     });
 
     if (!project) throw new NotFoundException(PROJECT_NOT_FOUND);
@@ -104,10 +451,13 @@ export class ProjectsService {
     requestUser: RequestUser,
   ): Promise<ProjectSerializer> {
     const { organizationId, id: userId } = requestUser;
+    this.ensureDateRange(dto.startDate, dto.endDate ?? null);
 
     // 1. Validate template belongs to same org
     const template = await this.templateRepo.findOne({
       where: { id: dto.templateId, organizationId },
+      relations: ['tasks'],
+      order: { tasks: { order: 'ASC' } },
     });
     if (!template) throw new NotFoundException(TEMPLATE_NOT_IN_ORG);
 
@@ -145,6 +495,13 @@ export class ProjectsService {
       const savedProj = await tx.save(proj);
       // Reload to get DB-generated UUID
       const projRecord = await tx.findOneOrFail(Project, { where: { pkid: savedProj.pkid } });
+      const projectRoles = await this.ensureDefaultProjectRoles(tx, projRecord);
+      const ownerRole = projectRoles.get('owner');
+      const contributorRole = projectRoles.get('contributor');
+
+      if (!ownerRole || !contributorRole) {
+        throw new NotFoundException(DEFAULT_PROJECT_ROLE_SETUP_FAILED);
+      }
 
       // b. Creator membership (OWNER)
       await tx.save(
@@ -153,7 +510,8 @@ export class ProjectsService {
           projectId: projRecord.id,
           user: creatorUser,
           userId,
-          role: MembershipRole.OWNER,
+          projectRole: ownerRole,
+          projectRoleId: ownerRole.id,
           status: MembershipStatus.ACTIVE,
           joinedAt: new Date(),
         }),
@@ -169,7 +527,8 @@ export class ProjectsService {
             projectId: projRecord.id,
             user: reloadedMember,
             userId: reloadedMember.id,
-            role: MembershipRole.MEMBER,
+            projectRole: contributorRole,
+            projectRoleId: contributorRole.id,
             status: MembershipStatus.ACTIVE,
             invitedByUser: creatorUser,
             invitedByUserId: userId,
@@ -178,7 +537,17 @@ export class ProjectsService {
         );
       }
 
-      // d. Initial activity log
+      // d. Resolve or create workflow columns, then seed project tasks
+      const seedColumn = await this.resolveSeedWorkflowColumn(tx, projRecord);
+      const seededTaskCount = await this.seedProjectTasksFromTemplate(
+        tx,
+        projRecord,
+        creatorUser,
+        template,
+        seedColumn,
+      );
+
+      // e. Initial activity log
       await tx.save(
         tx.create(ProjectActivityLog, {
           project: projRecord,
@@ -187,7 +556,13 @@ export class ProjectsService {
           userId,
           taskId: null,
           actionType: ProjectActionType.PROJECT_CREATED,
-          actionMeta: { title: dto.title, memberCount: nonCreatorMembers.length + 1 },
+          actionMeta: {
+            title: dto.title,
+            memberCount: nonCreatorMembers.length + 1,
+            seededTaskCount,
+            seedWorkflowColumnId: seedColumn.id,
+            seedWorkflowColumnName: seedColumn.name,
+          },
         }),
       );
 
@@ -207,15 +582,32 @@ export class ProjectsService {
     requestUser: RequestUser,
   ): Promise<ProjectSerializer> {
     const { organizationId, id: userId } = requestUser;
+    const actorUser = await this.userRepo.findOneOrFail({ where: { id: userId } });
 
-    // Load project — org check built in
+    const projectWithAccess = await this.loadAuthorizedProject(
+      projectId,
+      requestUser,
+      'update',
+    );
     const project = await this.projectRepo.findOne({
       where: { id: projectId, organizationId },
     });
     if (!project) throw new NotFoundException(PROJECT_NOT_FOUND);
 
+    this.ensureDateRange(
+      dto.startDate ?? project.startDate,
+      dto.endDate ?? project.endDate,
+    );
+
     // Validate new template if provided
     if (dto.templateId && dto.templateId !== project.templateId) {
+      const existingTaskCount = await this.taskRepo.count({
+        where: { projectId, deletedAt: IsNull() },
+      });
+      if (existingTaskCount > 0) {
+        throw new ConflictException(PROJECT_TEMPLATE_CHANGE_FORBIDDEN);
+      }
+
       const newTemplate = await this.templateRepo.findOne({
         where: { id: dto.templateId, organizationId },
       });
@@ -242,19 +634,33 @@ export class ProjectsService {
     if (dto.endDate     !== undefined) project.endDate     = dto.endDate ?? null;
     if (dto.type        !== undefined) project.type        = dto.type;
     if (dto.status      !== undefined) {
-      project.status     = dto.status;
-      project.archivedAt = dto.status === ProjectStatus.ARCHIVED ? new Date() : project.archivedAt;
+      project.status = dto.status;
+      project.archivedAt =
+        dto.status === ProjectStatus.ARCHIVED
+          ? project.archivedAt ?? new Date()
+          : null;
     }
-
-    const actorUser = await this.userRepo.findOneOrFail({ where: { id: userId } });
 
     await this.projectRepo.manager.transaction(async (tx) => {
       await tx.save(project);
 
       if (dto.memberIds !== undefined) {
+        const projectRoles = await this.ensureDefaultProjectRoles(tx, project);
+        const ownerRole = projectRoles.get('owner');
+        const contributorRole = projectRoles.get('contributor');
+
+        if (!ownerRole) {
+          throw new NotFoundException(DEFAULT_PROJECT_ROLE_SETUP_FAILED);
+        }
+
+        if (!contributorRole) {
+          throw new NotFoundException(DEFAULT_PROJECT_ROLE_NOT_FOUND);
+        }
+
         // Load current ACTIVE memberships
         const existing = await tx.find(ProjectMembership, {
           where: { projectId, status: MembershipStatus.ACTIVE },
+          relations: ['projectRole'],
         });
 
         const desiredIds = new Set(memberUsers.map((u) => u.id));
@@ -263,7 +669,7 @@ export class ProjectsService {
         // Soft-remove members no longer desired (never remove OWNER)
         for (const membership of existing) {
           if (
-            membership.role !== MembershipRole.OWNER &&
+            membership.projectRoleId !== ownerRole.id &&
             !desiredIds.has(membership.userId)
           ) {
             membership.status    = MembershipStatus.REMOVED;
@@ -296,7 +702,8 @@ export class ProjectsService {
                 projectId,
                 user: reloadedMember,
                 userId: reloadedMember.id,
-                role: MembershipRole.MEMBER,
+                projectRole: contributorRole,
+                projectRoleId: contributorRole.id,
                 status: MembershipStatus.ACTIVE,
                 invitedByUser: actorUser,
                 invitedByUserId: userId,
@@ -319,6 +726,23 @@ export class ProjectsService {
         }
       }
 
+      if (dto.status !== undefined) {
+        await tx.save(
+          tx.create(ProjectActivityLog, {
+            project,
+            projectId,
+            user: actorUser,
+            userId,
+            taskId: null,
+            actionType: ProjectActionType.STATUS_CHANGED,
+            actionMeta: {
+              status: project.status,
+              archivedAt: project.archivedAt,
+            },
+          }),
+        );
+      }
+
       // Activity log for the update
       await tx.save(
         tx.create(ProjectActivityLog, {
@@ -328,7 +752,12 @@ export class ProjectsService {
           userId,
           taskId: null,
           actionType: ProjectActionType.PROJECT_UPDATED,
-          actionMeta: { updatedFields: Object.keys(dto).filter((k) => k !== 'memberIds') },
+          actionMeta: {
+            updatedFields: Object.keys(dto).filter((k) => k !== 'memberIds'),
+            activeMemberCount: projectWithAccess.memberships.filter(
+              (membership) => membership.status === MembershipStatus.ACTIVE,
+            ).length,
+          },
         }),
       );
     });
@@ -344,17 +773,11 @@ export class ProjectsService {
     projectId: string,
     requestUser: RequestUser,
   ): Promise<ProjectSerializer> {
-    const { organizationId, id: userId } = requestUser;
+    const { organizationId } = requestUser;
 
     const project = await this.loadFull(projectId, organizationId);
 
-    // Visibility: admin sees all; others need active membership
-    if (!this.isAdmin(requestUser)) {
-      const isMember = project.memberships.some(
-        (m) => m.userId === userId && m.status === MembershipStatus.ACTIVE,
-      );
-      if (!isMember) throw new ForbiddenException(PROJECT_ACCESS_DENIED);
-    }
+    await this.loadAuthorizedProject(projectId, requestUser, 'view');
 
     // Attach only the 20 most recent contribution logs
     const recentContributions = project.activityLogs.slice(0, 20);
@@ -375,19 +798,26 @@ export class ProjectsService {
 
     const qb = this.projectRepo
       .createQueryBuilder('p')
+      .distinct(true)
       .leftJoinAndSelect('p.template', 'tpl')
       .leftJoinAndSelect('p.memberships', 'mem', 'mem.status = :activeStatus', {
         activeStatus: MembershipStatus.ACTIVE,
       })
       .where('p.organizationId = :orgId', { orgId: organizationId });
 
-    // Membership-aware visibility: non-admins only see projects they belong to
+    // Project-role-aware visibility: non-admins only see projects where their
+    // active membership grants projectManagement.view.
     if (!this.isAdmin(requestUser)) {
       qb.innerJoin(
         'p.memberships',
         'access_mem',
         'access_mem.userId = :userId AND access_mem.status = :memberStatus',
         { userId, memberStatus: MembershipStatus.ACTIVE },
+      );
+      qb.innerJoin('access_mem.projectRole', 'access_role');
+      qb.andWhere('access_role.status = true');
+      qb.andWhere(
+        "COALESCE((access_role.permissions -> 'projectManagement' ->> 'view')::boolean, false) = true",
       );
     }
 
@@ -423,5 +853,16 @@ export class ProjectsService {
       nextPage: count / limit > page ? page + 1 : null,
       limit,
     };
+  }
+
+  async deleteProject(
+    projectId: string,
+    requestUser: RequestUser,
+  ): Promise<{ id: string; deleted: true }> {
+    const project = await this.loadAuthorizedProject(projectId, requestUser, 'delete');
+
+    await this.projectRepo.remove(project);
+
+    return { id: projectId, deleted: true };
   }
 }

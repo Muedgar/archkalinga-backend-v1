@@ -3,13 +3,7 @@ import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities/user.entity';
 import { Project } from './project.entity';
 import { ProjectInvite } from './project-invite.entity';
-
-export enum MembershipRole {
-  OWNER  = 'OWNER',
-  ADMIN  = 'ADMIN',
-  MEMBER = 'MEMBER',
-  VIEWER = 'VIEWER',
-}
+import { ProjectRole } from './project-role.entity';
 
 export enum MembershipStatus {
   ACTIVE  = 'ACTIVE',
@@ -35,13 +29,15 @@ export class ProjectMembership extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
   userId: string;
 
-  @Column({
-    type: 'enum',
-    enum: MembershipRole,
+  @ManyToOne(() => ProjectRole, (role) => role.memberships, {
     nullable: false,
-    default: MembershipRole.MEMBER,
+    onDelete: 'RESTRICT',
   })
-  role: MembershipRole;
+  @JoinColumn({ name: 'project_role_id' })
+  projectRole: ProjectRole;
+
+  @Column({ type: 'uuid', nullable: false })
+  projectRoleId: string;
 
   @Column({
     type: 'enum',
