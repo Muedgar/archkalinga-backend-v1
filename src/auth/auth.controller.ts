@@ -142,8 +142,8 @@ export class AuthController {
 
   @Get('me')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Return the authenticated user with org and role' })
-  @ApiResponse({ status: 200, description: 'User object including organization and role permissions' })
+  @ApiOperation({ summary: 'Return the authenticated user with org and workspace role' })
+  @ApiResponse({ status: 200, description: 'User object including organization and workspace role permissions' })
   @ApiResponse({ status: 401, description: 'Missing or invalid access token' })
   @ResponseMessage('User fetched')
   @UseGuards(JwtAuthGuard)

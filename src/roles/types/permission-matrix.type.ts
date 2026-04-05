@@ -1,3 +1,8 @@
+/**
+ * Current permission matrix used by the existing roles module.
+ * In the new access model, this represents the workspace-role matrix.
+ * Project-scoped permissions will move to project-role types separately.
+ */
 export const PERMISSION_DOMAINS = [
   'projectManagement',
   'changeRequestManagement',

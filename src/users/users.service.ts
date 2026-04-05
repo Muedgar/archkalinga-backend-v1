@@ -78,9 +78,9 @@ export class UserService {
     await this.ensureEmailFree(dto.email);
 
     const role = await this.roleService.getRole(dto.roleId);
-    // Enforce the role belongs to the same organization
+    // Enforce the workspace role belongs to the same organization
     if (role.organizationId !== organizationId) {
-      throw new BadRequestException('Role does not belong to your organization');
+      throw new BadRequestException('Workspace role does not belong to your organization');
     }
 
     const hashedPassword = bcrypt.hashSync(dto.password, bcrypt.genSaltSync(12));
@@ -171,7 +171,7 @@ export class UserService {
     if (dto.roleId !== undefined) {
       const role = await this.roleService.getRole(dto.roleId);
       if (role.organizationId !== organizationId) {
-        throw new BadRequestException('Role does not belong to your organization');
+        throw new BadRequestException('Workspace role does not belong to your organization');
       }
       user.roleId = role.id;
     }

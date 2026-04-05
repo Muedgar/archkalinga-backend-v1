@@ -154,12 +154,12 @@ Relevant files:
 
 ### 2. Users and Access
 
-All users belong to an organization and have a role.
+All users belong to an organization and have a workspace role.
 
 Current frontend user model includes:
 
 - identity: first name, last name, username, email, title
-- access: role, roleId, status
+- access: workspace role, roleId, status
 - auth flags: `isDefaultPassword`, `twoFactorAuthentication`
 - type: `INDIVIDUAL` or `ORGANIZATION`
 - organization reference
@@ -182,17 +182,27 @@ Relevant files:
 
 ### 3. Roles and Permissions
 
-Roles are organization-scoped and drive UI access.
+Access is split into two layers:
 
-Current permission domains:
+- workspace roles and permissions are user-scoped
+- project roles and permissions are membership-scoped
+
+Workspace roles drive organization-level UI and administrative access.
+
+Project roles drive what a member can do inside a specific project.
+
+Workspace permission domains:
+
+- `userManagement`
+- `roleManagement`
+- `templateManagement`
+
+Project permission domains:
 
 - `projectManagement`
 - `changeRequestManagement`
 - `taskManagement`
 - `documentManagement`
-- `userManagement`
-- `roleManagement`
-- `templateManagement`
 
 Actions per domain:
 
@@ -203,7 +213,7 @@ Actions per domain:
 
 Important rule already present in the frontend:
 
-- every newly created top-level account should start with the `Admin` role for now
+- every newly created top-level account should start with the `Admin` workspace role for now
 
 Relevant files:
 
@@ -221,19 +231,35 @@ Current template model:
 - `name`
 - `description`
 - `isDefault`
-- `phases[]`
+- `tasks[]`
 
-Each phase currently contains:
+Each template task currently contains:
 
-- `title`
+- `name`
 - `description`
+- `subtasks[]`
+
+Each subtask contains:
+
+- `name`
+- `description`
+- `subtasks[]`
+
+Template tasks and subtasks only define reusable structure and basic information.
+
+Template data does not store:
+
+- assignees
+- reportees
+- checklist items
+- comments
+- execution dates
 
 Templates are used during project creation and are displayed on project detail pages.
 
 Relevant files:
 
 - `modules/templates/interfaces/template.interface.ts`
-- `modules/templates/interfaces/phase.interface.ts`
 - `modules/templates/schemas/create/create.schema.ts`
 - `modules/project-management/schemas/create/create.schema.ts`
 
@@ -249,6 +275,10 @@ Current project model:
 - `startDate`
 - `type`
 - `template`
+- `members`
+
+Project creation input still accepts:
+
 - `memberIds`
 
 There is also supporting data around projects:
@@ -256,6 +286,14 @@ There is also supporting data around projects:
 - memberships
 - invites
 - contribution history
+
+Current backend lifecycle rules:
+
+- project visibility is membership-aware
+- project dates should be validated
+- template selection happens at project creation time and should not be changed after project tasks exist
+- deleting a project should remove dependent execution data
+- project authority should be resolved from the member's project role, not only the user's workspace role
 
 Relevant files:
 
@@ -271,9 +309,9 @@ The original product direction for project management included:
 
 - create project with title, description, dates, type, and organization assignment
 - define project team with discipline-specific roles
-- set project phases from a template with dependencies and deliverables
+- seed project tasks from a reusable template structure
 - track project progress and health indicators
-- approve or reject phase completion
+- approve or reject task or milestone completion
 - allow external consultants to access limited project material and upload consultation outputs
 - close and archive projects as read-only records
 
@@ -281,7 +319,7 @@ Backend implication:
 
 - project lifecycle and project status concepts should be modeled cleanly
 - project archival should remain possible as a future capability
-- phase completion and phase locking may become first-class workflow rules later
+- task workflow and approval rules may become first-class workflow rules later
 - external consultant access should be considered when designing invite and role models
 
 ### 6. Task Domain
@@ -412,8 +450,14 @@ Current frontend behavior:
 
 - users and roles are permission-gated
 - user create/update forms require role selection
-- role forms edit the full permission matrix
+- workspace role forms edit the workspace permission matrix
 - collaborator detail page expects enough data for a meaningful profile and access view
+
+Requirement update:
+
+- workspace roles are assigned directly to users
+- workspace roles govern workspace-level capabilities such as user management, role management, and template management
+- project permissions must not be modeled only through workspace roles
 
 Relevant files:
 
@@ -462,6 +506,7 @@ Current frontend expectations:
 - a project can have pending invites
 - project detail view shows members, invites, recent contributions, and template summary
 - project visibility is membership-aware
+- each active member should have a project role or project permission set for that specific project
 
 Relevant files:
 
@@ -486,6 +531,8 @@ Important behavior already implied by the frontend:
 - invite acceptance may happen after login or signup
 - invitee may belong to a different active tenant context before accepting
 - once accepted, the invited project should become accessible immediately
+- invite acceptance should assign the invited project role to the resulting project membership
+- project invites should grant project-scoped authority, not workspace-scoped authority
 
 Relevant files:
 
@@ -639,12 +686,14 @@ The frontend suggests these main entities:
 - `organizations`
 - `users`
 - `user_profiles`
-- `roles`
-- `role_permissions`
+- `workspace_roles`
+- `workspace_role_permissions`
 - `templates`
-- `template_phases`
+- `template_tasks`
 - `projects`
 - `project_memberships`
+- `project_roles`
+- `project_role_permissions`
 - `project_invites`
 - `contribution_events`
 - `workflow_columns` or project/board stage definitions
@@ -662,14 +711,15 @@ The frontend suggests these main entities:
 ## Important Relationships
 
 - one organization has many users
-- one organization has many roles
+- one organization has many workspace roles
 - one organization has many templates
 - one organization has many projects
 - one user belongs to one organization
-- one user has one primary role
+- one user has one primary workspace role
 - one project belongs to one organization
 - one project is created from one template
 - many users can belong to many projects through memberships
+- one membership belongs to one project role
 - one project has many tasks
 - one task can have many subtasks
 - one task can have many comments and checklist items
@@ -684,7 +734,8 @@ In practice that means:
 
 - return nested `organization` on user payloads
 - return nested `role` and `roleId` on user payloads
-- return permission matrices on role payloads
+- return permission matrices on workspace role payloads
+- return project memberships with project role context when returning project detail
 - return project details with enough template/member/invite context for the project detail page
 - return paginated list responses consistently
 
@@ -708,8 +759,10 @@ Required rules implied by the frontend:
 
 - users should only access resources belonging to their organization unless a valid invited flow grants access
 - project access should be membership-aware
-- roles are organization-scoped
-- permissions should be evaluated per role
+- workspace roles are organization-scoped and user-scoped
+- project roles are membership-scoped
+- workspace permissions should be evaluated for workspace resources
+- project permissions should be evaluated for project resources
 - sensitive documents should support stricter access rules
 
 Note:

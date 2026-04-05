@@ -11,6 +11,8 @@ import { Template } from 'src/templates/entities/template.entity';
 import { User } from 'src/users/entities/user.entity';
 import { ProjectMembership } from './project-membership.entity';
 import { ProjectActivityLog } from './project-activity-log.entity';
+import { ProjectInvite } from './project-invite.entity';
+import { ProjectRole } from './project-role.entity';
 
 export enum ProjectType {
   ARCHITECTURE = 'ARCHITECTURE',
@@ -81,6 +83,12 @@ export class Project extends AppBaseEntity {
   // ── Relations ─────────────────────────────────────────────────────────────
   @OneToMany(() => ProjectMembership, (m) => m.project)
   memberships: ProjectMembership[];
+
+  @OneToMany(() => ProjectInvite, (invite) => invite.project)
+  invites: ProjectInvite[];
+
+  @OneToMany(() => ProjectRole, (role) => role.project)
+  projectRoles: ProjectRole[];
 
   @OneToMany(() => ProjectActivityLog, (a) => a.project)
   activityLogs: ProjectActivityLog[];

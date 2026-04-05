@@ -16,7 +16,7 @@ export class AllowTenantScoping1774017692983 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "roles" ALTER COLUMN "id" SET DEFAULT uuid_generate_v4()`);
         await queryRunner.query(`ALTER TABLE "user_sessions" ALTER COLUMN "id" DROP DEFAULT`);
         await queryRunner.query(`ALTER TABLE "user_sessions" ALTER COLUMN "id" SET DEFAULT uuid_generate_v4()`);
-        // Note: templates and template_phases are created in the next migration (1774102200000)
+        // Note: templates and template_tasks are created in the next migration (1774102200000)
         // with uuid_generate_v4() already set as default — no ALTER needed here.
     }
 

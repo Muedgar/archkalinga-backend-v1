@@ -29,7 +29,7 @@ import {
 } from './messages';
 import { RoleService } from './roles.service';
 
-@ApiTags('Roles')
+@ApiTags('Workspace Roles')
 @Controller('roles')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -37,8 +37,8 @@ export class RolesController {
   constructor(private readonly roleService: RoleService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a role for the current organization' })
-  @ApiResponse({ status: 201, description: 'Role created with the supplied permission matrix' })
+  @ApiOperation({ summary: 'Create a workspace role for the current organization' })
+  @ApiResponse({ status: 201, description: 'Workspace role created with the supplied permission matrix' })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions (requires roleManagement.create)' })
@@ -51,8 +51,8 @@ export class RolesController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List roles in the current organization' })
-  @ApiResponse({ status: 200, description: 'Paginated list of roles' })
+  @ApiOperation({ summary: 'List workspace roles in the current organization' })
+  @ApiResponse({ status: 200, description: 'Paginated list of workspace roles' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions (requires roleManagement.view)' })
   @ResponseMessage(ROLES_FETCHED)
@@ -63,8 +63,8 @@ export class RolesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a role by ID' })
-  @ApiResponse({ status: 200, description: 'Role object with full permission matrix' })
+  @ApiOperation({ summary: 'Get a workspace role by ID' })
+  @ApiResponse({ status: 200, description: 'Workspace role object with full permission matrix' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
   @ApiResponse({ status: 404, description: 'Role not found in this organization' })
   @ResponseMessage(ROLE_FETCHED)
@@ -76,8 +76,8 @@ export class RolesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a role name or permission matrix' })
-  @ApiResponse({ status: 200, description: 'Role updated' })
+  @ApiOperation({ summary: 'Update a workspace role name or permission matrix' })
+  @ApiResponse({ status: 200, description: 'Workspace role updated' })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions (requires roleManagement.update)' })

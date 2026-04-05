@@ -3,24 +3,21 @@ import { BaseSerializer } from 'src/common/serializers';
 
 // ── Nested ────────────────────────────────────────────────────────────────────
 
-class PhaseSnippet extends BaseSerializer {
-  @Expose() title: string;
-  @Expose() description: string;
-  @Expose() order: number;
-}
-
 class TemplateSnippet extends BaseSerializer {
   @Expose() name: string;
   @Expose() description: string;
   @Expose() isDefault: boolean;
-
-  @Expose()
-  @Type(() => PhaseSnippet)
-  phases: PhaseSnippet[];
 }
 
 class TemplateSummary extends BaseSerializer {
   @Expose() name: string;
+}
+
+class ProjectRoleSnippet extends BaseSerializer {
+  @Expose() name: string;
+  @Expose() slug: string;
+  @Expose() status: boolean;
+  @Expose() permissions: Record<string, Record<string, boolean>>;
 }
 
 class MemberSnippet extends BaseSerializer {
@@ -28,11 +25,56 @@ class MemberSnippet extends BaseSerializer {
   @Expose() lastName: string;
   @Expose() email: string;
   @Expose() title: string | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.projectRoleId ?? null)
+  projectRoleId: string | null;
+  @Expose()
+  @Transform(({ obj }) =>
+    obj?.projectRole
+      ? {
+          id: obj.projectRole.id,
+          name: obj.projectRole.name,
+          slug: obj.projectRole.slug,
+          status: obj.projectRole.status,
+          permissions: obj.projectRole.permissions,
+        }
+      : null,
+  )
+  projectRole:
+    | {
+        id: string;
+        name: string;
+        slug: string;
+        status: boolean;
+        permissions: Record<string, Record<string, boolean>>;
+      }
+    | null;
 }
 
 class InviteSnippet extends BaseSerializer {
   @Expose() inviteeEmail: string;
-  @Expose() role: string;
+  @Expose() projectRoleId: string;
+  @Expose()
+  @Transform(({ obj }) =>
+    obj?.projectRole
+      ? {
+          id: obj.projectRole.id,
+          name: obj.projectRole.name,
+          slug: obj.projectRole.slug,
+          status: obj.projectRole.status,
+          permissions: obj.projectRole.permissions,
+        }
+      : null,
+  )
+  projectRole:
+    | {
+        id: string;
+        name: string;
+        slug: string;
+        status: boolean;
+        permissions: Record<string, Record<string, boolean>>;
+      }
+    | null;
   @Expose() status: string;
   @Expose() expiresAt: Date;
 }
@@ -63,19 +105,11 @@ export class ProjectListItemSerializer extends BaseSerializer {
   @Expose() endDate: string | null;
   @Expose() type: string;
   @Expose() status: string;
+  @Expose() archivedAt: Date | null;
 
   @Expose()
   @Type(() => TemplateSummary)
   template: TemplateSummary;
-
-  /** Flat list of active member UUIDs. */
-  @Expose()
-  @Transform(({ obj }) =>
-    (obj?.memberships ?? [])
-      .filter((m: { status: string }) => m.status === 'ACTIVE')
-      .map((m: { userId: string }) => m.userId),
-  )
-  memberIds: string[];
 
   @Expose() declare createdAt: Date;
   @Expose() declare updatedAt: Date;
@@ -100,17 +134,68 @@ export class ProjectSerializer extends BaseSerializer {
 
   @Expose()
   @Transform(({ obj }) =>
-    (obj?.memberships ?? [])
-      .filter((m: { status: string }) => m.status === 'ACTIVE')
-      .map((m: { userId: string }) => m.userId),
+    [...(obj?.projectRoles ?? [])].sort(
+      (
+        a: { createdAt?: Date | string },
+        b: { createdAt?: Date | string },
+      ) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
+    ).map((role: {
+      id: string;
+      name: string;
+      slug: string;
+      status: boolean;
+      permissions: Record<string, Record<string, boolean>>;
+    }) => ({
+      id: role.id,
+      name: role.name,
+      slug: role.slug,
+      status: role.status,
+      permissions: role.permissions,
+    })),
   )
-  memberIds: string[];
+  @Type(() => ProjectRoleSnippet)
+  projectRoles: ProjectRoleSnippet[];
 
   @Expose()
   @Transform(({ obj }) =>
     (obj?.memberships ?? [])
       .filter((m: { status: string }) => m.status === 'ACTIVE')
-      .map((m: { user: unknown }) => m.user)
+      .map((m: {
+        user?: {
+          id: string;
+          firstName: string;
+          lastName: string;
+          email: string;
+          title: string | null;
+        } | null;
+        projectRoleId?: string | null;
+        projectRole?: {
+          id: string;
+          name: string;
+          slug: string;
+          status: boolean;
+          permissions: Record<string, Record<string, boolean>>;
+        } | null;
+      }) => {
+        if (!m.user) return null;
+        return {
+          id: m.user.id,
+          firstName: m.user.firstName,
+          lastName: m.user.lastName,
+          email: m.user.email,
+          title: m.user.title ?? null,
+          projectRoleId: m.projectRoleId ?? null,
+          projectRole: m.projectRole
+            ? {
+                id: m.projectRole.id,
+                name: m.projectRole.name,
+                slug: m.projectRole.slug,
+                status: m.projectRole.status,
+                permissions: m.projectRole.permissions,
+              }
+            : null,
+        };
+      })
       .filter(Boolean),
   )
   @Type(() => MemberSnippet)
@@ -120,13 +205,62 @@ export class ProjectSerializer extends BaseSerializer {
   @Transform(({ obj }) =>
     (obj?.activeInvites ?? obj?.invites ?? []).filter(
       (i: { status: string }) => i.status === 'PENDING',
-    ),
+    ).map((invite: {
+      id: string;
+      inviteeEmail: string;
+      projectRoleId: string;
+      projectRole?: {
+        id: string;
+        name: string;
+        slug: string;
+        status: boolean;
+        permissions: Record<string, Record<string, boolean>>;
+      } | null;
+      status: string;
+      expiresAt: Date;
+    }) => ({
+      id: invite.id,
+      inviteeEmail: invite.inviteeEmail,
+      projectRoleId: invite.projectRoleId,
+      projectRole: invite.projectRole
+        ? {
+            id: invite.projectRole.id,
+            name: invite.projectRole.name,
+            slug: invite.projectRole.slug,
+            status: invite.projectRole.status,
+            permissions: invite.projectRole.permissions,
+          }
+        : null,
+      status: invite.status,
+      expiresAt: invite.expiresAt,
+    })),
   )
   @Type(() => InviteSnippet)
   invites: InviteSnippet[];
 
   @Expose()
-  @Transform(({ obj }) => obj?.recentContributions ?? obj?.activityLogs ?? [])
+  @Transform(({ obj }) =>
+    (obj?.recentContributions ?? obj?.activityLogs ?? []).map((entry: {
+      id: string;
+      createdAt: Date;
+      userId: string;
+      taskId: string | null;
+      actionType: string;
+      user?: {
+        firstName?: string;
+        lastName?: string;
+      } | null;
+    }) => ({
+      id: entry.id,
+      createdAt: entry.createdAt,
+      userId: entry.userId,
+      taskId: entry.taskId,
+      actionType: entry.actionType,
+      actorName: entry.user
+        ? `${entry.user.firstName ?? ''} ${entry.user.lastName ?? ''}`.trim() || null
+        : null,
+    })),
+  )
   @Type(() => ContributionSnippet)
   recentContributions: ContributionSnippet[];
 

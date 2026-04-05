@@ -11,19 +11,13 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-function trimToUndefined({ value }: { value: unknown }) {
-  if (typeof value !== 'string') return value;
-  const trimmed = value.trim();
-  return trimmed === '' ? undefined : trimmed;
-}
-
-export class TemplatePhaseDto {
+export class TemplateTaskDto {
   @ApiProperty({ example: 'Initiation' })
   @IsString()
   @IsNotEmpty()
-  @Length(2, 80)
+  @Length(2, 120)
   @Type(() => String)
-  title: string;
+  name: string;
 
   @ApiProperty({ example: 'Project setup and alignment' })
   @IsString()
@@ -31,6 +25,12 @@ export class TemplatePhaseDto {
   @Length(2, 500)
   @Type(() => String)
   description: string;
+
+  @ApiPropertyOptional({ type: () => [TemplateTaskDto], default: [] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TemplateTaskDto)
+  subtasks: TemplateTaskDto[];
 }
 
 export class CreateTemplateDto {
@@ -52,10 +52,10 @@ export class CreateTemplateDto {
   @IsBoolean()
   isDefault: boolean;
 
-  @ApiProperty({ type: () => [TemplatePhaseDto] })
+  @ApiProperty({ type: () => [TemplateTaskDto] })
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => TemplatePhaseDto)
-  phases: TemplatePhaseDto[];
+  @Type(() => TemplateTaskDto)
+  tasks: TemplateTaskDto[];
 }

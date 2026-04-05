@@ -5,6 +5,7 @@ import { Project } from './project.entity';
 
 export enum ProjectActionType {
   PROJECT_CREATED = 'PROJECT_CREATED',
+  PROJECT_DELETED = 'PROJECT_DELETED',
   PROJECT_UPDATED = 'PROJECT_UPDATED',
   MEMBER_ADDED    = 'MEMBER_ADDED',
   MEMBER_REMOVED  = 'MEMBER_REMOVED',

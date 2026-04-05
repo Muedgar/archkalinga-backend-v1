@@ -46,7 +46,8 @@ export class CreateProjectDto {
   @ApiPropertyOptional({
     type: [String],
     example: ['uuid-1', 'uuid-2'],
-    description: 'Optional list of user UUIDs to add as members (same organization)',
+    description:
+      'Optional list of user UUIDs to add as project members from the same organization. Added users receive the default Contributor project role.',
   })
   @IsArray()
   @IsUUID('all', { each: true })

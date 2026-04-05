@@ -17,9 +17,24 @@ This frontend already has working mock flows for:
 
 Backend work should replace the mock Redux thunks and localStorage-backed stores with real APIs.
 
+## Access model update
+
+The requirements now use a two-layer access model:
+
+- workspace roles and permissions are user-scoped
+- project roles and permissions are membership-scoped
+- project invites assign project roles upon acceptance
+
+This means:
+
+- a user keeps one workspace role for organization-level capabilities
+- a project membership carries the user's project role for that specific project
+- invites must specify which project role the invitee should receive
+- accepting an invite grants project-scoped authority, not workspace-scoped authority
+
 ## Important product rule
 
-For now, every newly created account should start with the `Admin` role.
+For now, every newly created account should start with the `Admin` workspace role.
 
 That rule is already reflected in the frontend mock signup flow:
 
@@ -163,6 +178,12 @@ Suggested fields:
 - `created_at`
 - `updated_at`
 
+Interpretation:
+
+- these are workspace roles
+- they are assigned directly to users
+- they govern workspace-level access such as user management, role management, and template management
+
 ### 3. `role_permissions`
 
 Two good options:
@@ -175,15 +196,20 @@ Two good options:
    - `allowed`
 2. JSON column on `roles`
 
-Because the frontend role screens already edit permissions as a matrix, JSON is fine if you want speed. The permission domains currently used are:
+Because the frontend role screens already edit permissions as a matrix, JSON is fine if you want speed.
+
+Recommended workspace permission domains:
+
+- `userManagement`
+- `roleManagement`
+- `templateManagement`
+
+Project permission domains should be modeled separately on project roles:
 
 - `projectManagement`
 - `changeRequestManagement`
 - `taskManagement`
 - `documentManagement`
-- `userManagement`
-- `roleManagement`
-- `templateManagement`
 
 Actions:
 
@@ -196,6 +222,11 @@ Frontend references:
 
 - `modules/roles/interfaces/role.interface.ts`
 - `lib/permissions.ts`
+
+Recommended interpretation:
+
+- this permission matrix should be treated as the workspace permission matrix
+- project-level access should not be modeled only through these permissions
 
 ### 4. `users`
 
@@ -225,7 +256,68 @@ Constraints:
 - unique `user_name`
 - unique role name per organization
 
-### 5. `user_profiles`
+Interpretation:
+
+- `role_id` is the user's workspace role
+- project-level access should be derived separately from project membership and project role
+
+### 5. `project_roles`
+
+Suggested fields:
+
+- `id`
+- `project_id`
+- `name`
+- `slug`
+- `status`
+- `permissions`
+- `created_at`
+- `updated_at`
+
+Notes:
+
+- project roles are scoped to a single project
+- they control what a member can do inside that project
+- they may reuse the same domain/action matrix shape as workspace roles, but only for project domains
+
+### 6. `project_memberships`
+
+Suggested fields:
+
+- `id`
+- `project_id`
+- `user_id`
+- `project_role_id`
+- `status`
+- `invited_by_user_id`
+- `invite_id`
+- `joined_at`
+- `removed_at`
+- `created_at`
+- `updated_at`
+
+### 7. `project_invites`
+
+Suggested fields:
+
+- `id`
+- `project_id`
+- `inviter_user_id`
+- `invitee_email`
+- `invitee_user_id` nullable
+- `project_role_id`
+- `token`
+- `status`
+- `expires_at`
+- `accepted_at`
+- `created_at`
+- `updated_at`
+
+Important invite rule:
+
+- accepting a project invite should create or reactivate a membership and assign the invited project role
+
+### 8. `user_profiles`
 
 Suggested fields:
 

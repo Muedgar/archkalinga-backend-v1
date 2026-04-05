@@ -5,14 +5,16 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
+import { randomUUID } from 'crypto';
 import { FindManyOptions, Repository } from 'typeorm';
 import { ListFilterDTO } from 'src/common/dtos';
 import { FilterResponse } from 'src/common/interfaces';
 import { ListFilterService } from 'src/common/services';
 import { Organization } from 'src/organizations/entities/organization.entity';
+import { Project } from 'src/projects/entities';
 import { CreateTemplateDto, UpdateTemplateDto } from './dtos';
-import { TEMPLATE_EXISTS, TEMPLATE_NOT_FOUND } from './messages';
-import { Template, TemplatePhase } from './entities';
+import { TEMPLATE_EXISTS, TEMPLATE_IN_USE, TEMPLATE_NOT_FOUND } from './messages';
+import { Template, TemplateTask } from './entities';
 import { TemplateSerializer } from './serializers';
 
 @Injectable()
@@ -20,8 +22,10 @@ export class TemplatesService {
   constructor(
     @InjectRepository(Template)
     private readonly templateRepo: Repository<Template>,
-    @InjectRepository(TemplatePhase)
-    private readonly templatePhaseRepo: Repository<TemplatePhase>,
+    @InjectRepository(TemplateTask)
+    private readonly templateTaskRepo: Repository<TemplateTask>,
+    @InjectRepository(Project)
+    private readonly projectRepo: Repository<Project>,
     @InjectRepository(Organization)
     private readonly orgRepo: Repository<Organization>,
     private readonly listFilterService: ListFilterService,
@@ -33,10 +37,10 @@ export class TemplatesService {
 
   private withRelations(): FindManyOptions<Template> {
     return {
-      relations: ['phases'],
+      relations: ['tasks'],
       order: {
         createdAt: 'DESC',
-        phases: { order: 'ASC' },
+        tasks: { order: 'ASC' },
       },
     };
   }
@@ -68,8 +72,8 @@ export class TemplatesService {
   }): Promise<Template> {
     const template = await this.templateRepo.findOne({
       where,
-      relations: ['phases'],
-      order: { phases: { order: 'ASC' } },
+      relations: ['tasks'],
+      order: { tasks: { order: 'ASC' } },
     });
     if (!template) throw new NotFoundException(TEMPLATE_NOT_FOUND);
     return template;
@@ -81,19 +85,28 @@ export class TemplatesService {
     });
   }
 
-  private buildPhaseEntities(
-    phases: CreateTemplateDto['phases'],
+  private buildTaskEntities(
+    tasks: CreateTemplateDto['tasks'],
     template: Template,
-  ): TemplatePhase[] {
-    return phases.map((phase, index) =>
-      this.templatePhaseRepo.create({
-        title: phase.title.trim(),
-        description: phase.description.trim(),
+    parentTask: TemplateTask | null = null,
+  ): TemplateTask[] {
+    return tasks.flatMap((task, index) => {
+      const templateTask = this.templateTaskRepo.create({
+        id: randomUUID(),
+        name: task.name.trim(),
+        description: task.description.trim(),
         order: index + 1,
         template,
         templateId: template.id,
-      }),
-    );
+        parentTask,
+        parentTaskId: parentTask?.id ?? null,
+      });
+
+      return [
+        templateTask,
+        ...this.buildTaskEntities(task.subtasks ?? [], template, templateTask),
+      ];
+    });
   }
 
   async createTemplate(
@@ -122,16 +135,8 @@ export class TemplatesService {
       });
 
       const savedTemplate = await tx.save(template);
-      const phases = dto.phases.map((phase, index) =>
-        tx.create(TemplatePhase, {
-          title: phase.title.trim(),
-          description: phase.description.trim(),
-          order: index + 1,
-          template: savedTemplate,
-          templateId: savedTemplate.id,
-        }),
-      );
-      await tx.save(phases);
+      const tasks = this.buildTaskEntities(dto.tasks, savedTemplate);
+      await tx.save(tasks);
       return savedTemplate;
     });
 
@@ -179,7 +184,7 @@ export class TemplatesService {
       template.description = dto.description.trim();
     }
 
-    const shouldReplacePhases = dto.phases !== undefined;
+    const shouldReplaceTasks = dto.tasks !== undefined;
     const shouldBecomeDefault = dto.isDefault === true;
     const shouldUnsetDefault = dto.isDefault === false;
 
@@ -193,20 +198,12 @@ export class TemplatesService {
 
       await tx.save(template);
 
-      if (shouldReplacePhases) {
-        await tx.delete(TemplatePhase, { templateId: template.id });
+      if (shouldReplaceTasks) {
+        await tx.delete(TemplateTask, { templateId: template.id });
 
-        if (dto.phases && dto.phases.length > 0) {
-          const phases = dto.phases.map((phase, index) =>
-            tx.create(TemplatePhase, {
-              title: phase.title.trim(),
-              description: phase.description.trim(),
-              order: index + 1,
-              template,
-              templateId: template.id,
-            }),
-          );
-          await tx.save(phases);
+        if (dto.tasks && dto.tasks.length > 0) {
+          const tasks = this.buildTaskEntities(dto.tasks, template);
+          await tx.save(tasks);
         }
       }
 
@@ -214,6 +211,25 @@ export class TemplatesService {
     });
 
     return this.toSerializer(await this.loadOne({ id: updated.id, organizationId }));
+  }
+
+  async deleteTemplateByIdentifier(
+    identifier: string,
+    organizationId: string,
+  ): Promise<void> {
+    const template = await this.findTemplateByIdentifier(identifier, organizationId);
+    const projectCount = await this.projectRepo.count({
+      where: { templateId: template.id, organizationId },
+    });
+
+    if (projectCount > 0) {
+      throw new ConflictException(TEMPLATE_IN_USE);
+    }
+
+    await this.templateRepo.manager.transaction(async (tx) => {
+      await tx.delete(TemplateTask, { templateId: template.id });
+      await tx.delete(Template, { id: template.id, organizationId });
+    });
   }
 
   private async findTemplateByIdentifier(
@@ -228,16 +244,16 @@ export class TemplatesService {
     if (isUuid) {
       const byId = await this.templateRepo.findOne({
         where: { id: identifier, organizationId },
-        relations: ['phases'],
-        order: { phases: { order: 'ASC' } },
+        relations: ['tasks'],
+        order: { tasks: { order: 'ASC' } },
       });
       if (byId) return byId;
     }
 
     const byName = await this.templateRepo.findOne({
       where: { name: identifier, organizationId },
-      relations: ['phases'],
-      order: { phases: { order: 'ASC' } },
+      relations: ['tasks'],
+      order: { tasks: { order: 'ASC' } },
     });
     if (!byName) throw new NotFoundException(TEMPLATE_NOT_FOUND);
     return byName;
