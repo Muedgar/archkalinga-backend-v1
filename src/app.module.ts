@@ -47,6 +47,7 @@ import { dataSourceOptions } from './config/db/db.config';
         redis: {
           host: cfg.get<string>('REDIS_HOST', 'localhost'),
           port: cfg.get<number>('REDIS_PORT', 6379),
+          password: cfg.get<string>('REDIS_PASSWORD'),
         },
       }),
     }),
