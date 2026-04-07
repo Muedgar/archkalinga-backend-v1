@@ -10,8 +10,10 @@ import {
   IsString,
   IsUUID,
   Length,
+  ValidateNested,
 } from 'class-validator';
 import { ProjectType } from '../entities/project.entity';
+import { MemberRoleAssignmentDto } from './member-role-assignment.dto';
 
 export class CreateProjectDto {
   @ApiProperty({ example: 'Kigali Office Fitout' })
@@ -55,4 +57,15 @@ export class CreateProjectDto {
   @IsOptional()
   @Type(() => String)
   memberIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [MemberRoleAssignmentDto],
+    description:
+      'Optional list of member-role assignments to add during project creation. When both memberIds and memberAssignments are supplied, memberAssignments are used.',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MemberRoleAssignmentDto)
+  @IsOptional()
+  memberAssignments?: MemberRoleAssignmentDto[];
 }

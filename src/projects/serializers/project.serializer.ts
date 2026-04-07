@@ -17,6 +17,8 @@ class ProjectRoleSnippet extends BaseSerializer {
   @Expose() name: string;
   @Expose() slug: string;
   @Expose() status: boolean;
+  @Expose() isSystem: boolean;
+  @Expose() isProtected: boolean;
   @Expose() permissions: Record<string, Record<string, boolean>>;
 }
 
@@ -36,6 +38,8 @@ class MemberSnippet extends BaseSerializer {
           name: obj.projectRole.name,
           slug: obj.projectRole.slug,
           status: obj.projectRole.status,
+          isSystem: obj.projectRole.isSystem,
+          isProtected: obj.projectRole.isProtected,
           permissions: obj.projectRole.permissions,
         }
       : null,
@@ -46,6 +50,8 @@ class MemberSnippet extends BaseSerializer {
         name: string;
         slug: string;
         status: boolean;
+        isSystem: boolean;
+        isProtected: boolean;
         permissions: Record<string, Record<string, boolean>>;
       }
     | null;
@@ -62,6 +68,8 @@ class InviteSnippet extends BaseSerializer {
           name: obj.projectRole.name,
           slug: obj.projectRole.slug,
           status: obj.projectRole.status,
+          isSystem: obj.projectRole.isSystem,
+          isProtected: obj.projectRole.isProtected,
           permissions: obj.projectRole.permissions,
         }
       : null,
@@ -72,6 +80,8 @@ class InviteSnippet extends BaseSerializer {
         name: string;
         slug: string;
         status: boolean;
+        isSystem: boolean;
+        isProtected: boolean;
         permissions: Record<string, Record<string, boolean>>;
       }
     | null;
@@ -144,12 +154,16 @@ export class ProjectSerializer extends BaseSerializer {
       name: string;
       slug: string;
       status: boolean;
+      isSystem: boolean;
+      isProtected: boolean;
       permissions: Record<string, Record<string, boolean>>;
     }) => ({
       id: role.id,
       name: role.name,
       slug: role.slug,
       status: role.status,
+      isSystem: role.isSystem,
+      isProtected: role.isProtected,
       permissions: role.permissions,
     })),
   )
@@ -174,6 +188,8 @@ export class ProjectSerializer extends BaseSerializer {
           name: string;
           slug: string;
           status: boolean;
+          isSystem: boolean;
+          isProtected: boolean;
           permissions: Record<string, Record<string, boolean>>;
         } | null;
       }) => {
@@ -191,6 +207,8 @@ export class ProjectSerializer extends BaseSerializer {
                 name: m.projectRole.name,
                 slug: m.projectRole.slug,
                 status: m.projectRole.status,
+                isSystem: m.projectRole.isSystem,
+                isProtected: m.projectRole.isProtected,
                 permissions: m.projectRole.permissions,
               }
             : null,
@@ -214,6 +232,8 @@ export class ProjectSerializer extends BaseSerializer {
         name: string;
         slug: string;
         status: boolean;
+        isSystem: boolean;
+        isProtected: boolean;
         permissions: Record<string, Record<string, boolean>>;
       } | null;
       status: string;
@@ -228,6 +248,8 @@ export class ProjectSerializer extends BaseSerializer {
             name: invite.projectRole.name,
             slug: invite.projectRole.slug,
             status: invite.projectRole.status,
+            isSystem: invite.projectRole.isSystem,
+            isProtected: invite.projectRole.isProtected,
             permissions: invite.projectRole.permissions,
           }
         : null,

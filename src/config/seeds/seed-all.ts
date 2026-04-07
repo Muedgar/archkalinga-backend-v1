@@ -14,6 +14,7 @@
  *  2. seed-roles             — Manager / Member / Viewer default roles per org
  *  3. seed-permissions-patch — backfills any missing permission domains into ALL
  *                              existing roles so no role is left with a stale matrix
+ *  4. seed-project-roles     — backfills starter project roles into every project
  *
  * Add future seeds at the end of the SEEDS array in dependency order.
  */
@@ -31,6 +32,10 @@ const SEEDS: { label: string; script: string }[] = [
   {
     label: 'Permissions patch (backfill missing domains)',
     script: 'src/config/seeds/seed-permissions-patch.ts',
+  },
+  {
+    label: 'Starter project roles (Owner / Manager / Contributor / Reviewer / Viewer)',
+    script: 'src/config/seeds/seed-project-roles.ts',
   },
   // Add future seeds here in dependency order, e.g.:
   // { label: 'Default templates', script: 'src/config/seeds/seed-templates.ts' },

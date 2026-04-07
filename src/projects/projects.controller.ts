@@ -24,11 +24,17 @@ import {
 } from 'src/auth/decorators';
 import { LogActivity, ResponseMessage } from 'src/common/decorators';
 import type { RequestUser } from 'src/auth/types';
-import { CreateProjectDto, ProjectFiltersDto, UpdateProjectDto } from './dtos';
+import {
+  CreateProjectDto,
+  ProjectFiltersDto,
+  UpdateProjectDto,
+  UpdateProjectMemberRoleDto,
+} from './dtos';
 import {
   PROJECT_CREATED,
   PROJECT_DELETED,
   PROJECT_FETCHED,
+  PROJECT_MEMBER_ROLE_UPDATED,
   PROJECT_UPDATED,
   PROJECTS_FETCHED,
 } from './messages';
@@ -124,6 +130,28 @@ export class ProjectsController {
     @GetUser() user: RequestUser,
   ) {
     return this.projectsService.updateProject(id, dto, user);
+  }
+
+  @Patch(':projectId/members/:memberId/role')
+  @ApiOperation({
+    summary: 'Update a project member role',
+    description:
+      "Project-scoped settings action. Requires projectManagement.update on the caller's active project membership role. Protected member roles cannot be reassigned here.",
+  })
+  @ApiResponse({ status: 200, description: 'Updated project detail with refreshed member roles' })
+  @ApiResponse({ status: 400, description: 'Invalid or protected role change' })
+  @ApiResponse({ status: 404, description: 'Project member or role not found' })
+  @ResponseMessage(PROJECT_MEMBER_ROLE_UPDATED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('projectManagement', 'update')
+  @LogActivity({ action: 'update:project-member-role', resource: 'project-membership', includeBody: true })
+  updateProjectMemberRole(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('memberId', ParseUUIDPipe) memberId: string,
+    @Body() dto: UpdateProjectMemberRoleDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.projectsService.updateMemberRole(projectId, memberId, dto, user);
   }
 
   @Delete(':id')
