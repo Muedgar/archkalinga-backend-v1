@@ -13,6 +13,8 @@ class ProjectRoleSnippet {
   @Expose() name: string;
   @Expose() slug: string;
   @Expose() status: boolean;
+  @Expose() isSystem: boolean;
+  @Expose() isProtected: boolean;
   @Expose() permissions: Record<string, Record<string, boolean>>;
 }
 

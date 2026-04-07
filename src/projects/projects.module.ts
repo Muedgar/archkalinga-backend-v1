@@ -14,6 +14,8 @@ import {
   ProjectMembership,
   ProjectRole,
 } from './entities';
+import { ProjectRolesController } from './project-roles.controller';
+import { ProjectRolesService } from './project-roles.service';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
 
@@ -35,8 +37,8 @@ import { ProjectsService } from './projects.service';
     ]),
     CommonModule,
   ],
-  controllers: [ProjectsController],
-  providers: [ProjectsService, ProjectPermissionGuard],
+  controllers: [ProjectsController, ProjectRolesController],
+  providers: [ProjectsService, ProjectRolesService, ProjectPermissionGuard],
   exports: [ProjectsService, TypeOrmModule],
 })
 export class ProjectsModule {}

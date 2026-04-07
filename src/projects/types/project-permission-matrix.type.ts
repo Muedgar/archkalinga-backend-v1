@@ -41,3 +41,10 @@ export const VIEWER_PROJECT_ACCESS_MATRIX: ProjectPermissionMatrix = {
   taskManagement:          { create: false, update: false, view: true, delete: false },
   documentManagement:      { create: false, update: false, view: true, delete: false },
 };
+
+export const EMPTY_PROJECT_ACCESS_MATRIX: ProjectPermissionMatrix = {
+  projectManagement:       { create: false, update: false, view: false, delete: false },
+  changeRequestManagement: { create: false, update: false, view: false, delete: false },
+  taskManagement:          { create: false, update: false, view: false, delete: false },
+  documentManagement:      { create: false, update: false, view: false, delete: false },
+};

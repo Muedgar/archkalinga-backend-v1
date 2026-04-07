@@ -26,6 +26,7 @@
     "seed:admin": "ts-node -r tsconfig-paths/register src/config/seeds/seed-admin.ts",
     "seed:roles": "ts-node -r tsconfig-paths/register src/config/seeds/seed-roles.ts",
     "seed:patch-permissions": "ts-node -r tsconfig-paths/register src/config/seeds/seed-permissions-patch.ts",
+    "seed:project-roles": "ts-node -r tsconfig-paths/register src/config/seeds/seed-project-roles.ts",
     "seed:all": "ts-node -r tsconfig-paths/register src/config/seeds/seed-all.ts",
     "db:reset": "ts-node -r tsconfig-paths/register src/config/db/reset-db.ts",
     "db:fresh": "npm run db:reset && npm run migration:run && npm run seed:all"

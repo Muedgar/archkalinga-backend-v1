@@ -27,6 +27,12 @@ export class ProjectRole extends AppBaseEntity {
   @Column({ type: 'boolean', nullable: false, default: true })
   status: boolean;
 
+  @Column({ type: 'boolean', nullable: false, default: false })
+  isSystem: boolean;
+
+  @Column({ type: 'boolean', nullable: false, default: false })
+  isProtected: boolean;
+
   @Column({ type: 'jsonb', nullable: false })
   permissions: ProjectPermissionMatrix;
 

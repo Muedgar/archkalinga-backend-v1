@@ -136,7 +136,9 @@ export class ProjectInvitesService {
     const projectRole = await this.projectRoleRepo.findOne({
       where: { id: dto.projectRoleId, projectId: dto.projectId },
     });
-    if (!projectRole) throw new BadRequestException(INVITE_PROJECT_ROLE_INVALID);
+    if (!projectRole || !projectRole.status) {
+      throw new BadRequestException(INVITE_PROJECT_ROLE_INVALID);
+    }
 
     // 2. Verify invitee is NOT already an active member
     const existingByEmail = await this.userRepo.findOne({
@@ -386,6 +388,8 @@ export class ProjectInvitesService {
         name: string;
         slug: string;
         status: boolean;
+        isSystem: boolean;
+        isProtected: boolean;
         permissions: Record<string, Record<string, boolean>>;
       } | null;
     };
@@ -537,12 +541,14 @@ export class ProjectInvitesService {
         id: result.id,
         status: result.status,
         projectRoleId: result.projectRoleId,
-        projectRole: result.projectRole
+      projectRole: result.projectRole
           ? {
               id: result.projectRole.id,
               name: result.projectRole.name,
               slug: result.projectRole.slug,
               status: result.projectRole.status,
+              isSystem: result.projectRole.isSystem,
+              isProtected: result.projectRole.isProtected,
               permissions: result.projectRole.permissions,
             }
           : invite.projectRole
@@ -551,6 +557,8 @@ export class ProjectInvitesService {
                 name: invite.projectRole.name,
                 slug: invite.projectRole.slug,
                 status: invite.projectRole.status,
+                isSystem: invite.projectRole.isSystem,
+                isProtected: invite.projectRole.isProtected,
                 permissions: invite.projectRole.permissions,
               }
             : null,
