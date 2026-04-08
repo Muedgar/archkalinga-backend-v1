@@ -30,9 +30,19 @@ async function bootstrap() {
     .filter(Boolean);
 
   app.enableCors({
-    origin: (requestOrigin, callback) => {
-      // Allow server-to-server / same-origin requests (no Origin header)
+    origin: (
+      requestOrigin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
       if (!requestOrigin) return callback(null, true);
+
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        /^https?:\/\/localhost(:\d+)?$/.test(requestOrigin)
+      ) {
+        return callback(null, true);
+      }
+
       if (allowedOrigins.includes(requestOrigin)) return callback(null, true);
       callback(new Error(`CORS: origin "${requestOrigin}" is not allowed`));
     },
