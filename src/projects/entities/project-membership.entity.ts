@@ -6,7 +6,7 @@ import { ProjectInvite } from './project-invite.entity';
 import { ProjectRole } from './project-role.entity';
 
 export enum MembershipStatus {
-  ACTIVE  = 'ACTIVE',
+  ACTIVE = 'ACTIVE',
   REMOVED = 'REMOVED',
 }
 

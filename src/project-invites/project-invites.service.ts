@@ -25,14 +25,15 @@ import {
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
 import { Project } from 'src/projects/entities/project.entity';
 import { Task } from 'src/tasks/entities/task.entity';
-import { TaskAssignee, AssignmentRole } from 'src/tasks/entities/task-assignee.entity';
+import {
+  TaskAssignee,
+  AssignmentRole,
+} from 'src/tasks/entities/task-assignee.entity';
 import { User } from 'src/users/entities/user.entity';
 
 import { CreateProjectInviteDto } from './dtos/create-project-invite.dto';
 import { InviteFiltersDto } from './dtos/invite-filters.dto';
-import {
-  ProjectInviteSerializer,
-} from './serializers/project-invite.serializer';
+import { ProjectInviteSerializer } from './serializers/project-invite.serializer';
 import {
   INVITE_ALREADY_MEMBER,
   INVITE_DUPLICATE,
@@ -163,7 +164,11 @@ export class ProjectInvitesService {
 
     if (dto.taskId) {
       resolvedTask = await this.taskRepo.findOne({
-        where: { id: dto.taskId, projectId: dto.projectId, deletedAt: IsNull() },
+        where: {
+          id: dto.taskId,
+          projectId: dto.projectId,
+          deletedAt: IsNull(),
+        },
       });
       if (!resolvedTask) throw new NotFoundException(INVITE_TASK_NOT_FOUND);
       targetType = InviteTargetType.TASK;
@@ -178,7 +183,8 @@ export class ProjectInvitesService {
             deletedAt: IsNull(),
           },
         });
-        if (!resolvedSubtask) throw new NotFoundException(INVITE_SUBTASK_INVALID);
+        if (!resolvedSubtask)
+          throw new NotFoundException(INVITE_SUBTASK_INVALID);
         targetType = InviteTargetType.SUBTASK;
         targetName = resolvedSubtask.title;
       }
@@ -188,13 +194,17 @@ export class ProjectInvitesService {
     const duplicateQb = this.inviteRepo
       .createQueryBuilder('inv')
       .where('inv.projectId = :projectId', { projectId: dto.projectId })
-      .andWhere('LOWER(inv.inviteeEmail) = LOWER(:email)', { email: dto.inviteeEmail })
+      .andWhere('LOWER(inv.inviteeEmail) = LOWER(:email)', {
+        email: dto.inviteeEmail,
+      })
       .andWhere('inv.status = :status', { status: InviteStatus.PENDING });
 
     if (dto.taskId) {
       duplicateQb.andWhere('inv.taskId = :taskId', { taskId: dto.taskId });
       if (dto.subtaskId) {
-        duplicateQb.andWhere('inv.subtaskId = :subtaskId', { subtaskId: dto.subtaskId });
+        duplicateQb.andWhere('inv.subtaskId = :subtaskId', {
+          subtaskId: dto.subtaskId,
+        });
       } else {
         duplicateQb.andWhere('inv.subtaskId IS NULL');
       }
@@ -405,14 +415,22 @@ export class ProjectInvitesService {
       invite.expiresAt < new Date()
     ) {
       // Mark as expired if time has passed but status not yet updated
-      if (invite && invite.status === InviteStatus.PENDING && invite.expiresAt < new Date()) {
+      if (
+        invite &&
+        invite.status === InviteStatus.PENDING &&
+        invite.expiresAt < new Date()
+      ) {
         invite.status = InviteStatus.EXPIRED;
         await this.inviteRepo.save(invite);
       }
       throw new BadRequestException(INVITE_TOKEN_INVALID);
     }
 
-    if (!invite.projectRole || invite.projectRole.projectId !== invite.projectId || !invite.projectRole.status) {
+    if (
+      !invite.projectRole ||
+      invite.projectRole.projectId !== invite.projectId ||
+      !invite.projectRole.status
+    ) {
       throw new BadRequestException(INVITE_PROJECT_ROLE_UNAVAILABLE);
     }
 
@@ -423,9 +441,7 @@ export class ProjectInvitesService {
     if (!inviteeUser) {
       // User hasn't signed up yet — return context so the frontend
       // can route them to registration with the token pre-filled.
-      throw new BadRequestException(
-        INVITEE_ACCOUNT_NOT_FOUND,
-      );
+      throw new BadRequestException(INVITEE_ACCOUNT_NOT_FOUND);
     }
 
     const result = await this.inviteRepo.manager.transaction(async (tx) => {

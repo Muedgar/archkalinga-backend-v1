@@ -31,9 +31,7 @@ async function resetDatabase(): Promise<void> {
 
   console.log(`\n🗑  Dropping database "${DB_NAME}" (if it exists)…`);
   // WITH (FORCE) terminates existing connections before dropping (Postgres ≥ 13)
-  await serverClient.query(
-    `DROP DATABASE IF EXISTS "${DB_NAME}" WITH (FORCE)`,
-  );
+  await serverClient.query(`DROP DATABASE IF EXISTS "${DB_NAME}" WITH (FORCE)`);
 
   console.log(`🏗  Creating database "${DB_NAME}"…`);
   await serverClient.query(`CREATE DATABASE "${DB_NAME}"`);

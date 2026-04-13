@@ -40,42 +40,64 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a collaborator in the current organization and assign a workspace role' })
-  @ApiResponse({ status: 201, description: 'User created with the assigned workspace role and welcome email dispatched' })
-  @ApiResponse({ status: 400, description: 'Validation error or email already in use' })
+  @ApiOperation({
+    summary:
+      'Create a collaborator in the current organization and assign a workspace role',
+  })
+  @ApiResponse({
+    status: 201,
+    description:
+      'User created with the assigned workspace role and welcome email dispatched',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error or email already in use',
+  })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
-  @ApiResponse({ status: 403, description: 'Insufficient permissions (requires userManagement.create)' })
+  @ApiResponse({
+    status: 403,
+    description: 'Insufficient permissions (requires userManagement.create)',
+  })
   @ResponseMessage(USER_CREATED)
   @UseGuards(PermissionGuard)
   @RequirePermission('userManagement', 'create')
   @LogActivity({ action: 'create:user', resource: 'user', includeBody: true })
-  createUser(
-    @Body() dto: CreateUserDTO,
-    @GetUser() requestingUser: User,
-  ) {
-    return this.userService.createUser(dto, requestingUser.organizationId, requestingUser.id);
+  createUser(@Body() dto: CreateUserDTO, @GetUser() requestingUser: User) {
+    return this.userService.createUser(
+      dto,
+      requestingUser.organizationId,
+      requestingUser.id,
+    );
   }
 
   @Get()
   @ApiOperation({ summary: 'List collaborators in the current organization' })
   @ApiResponse({ status: 200, description: 'Paginated list of users' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
-  @ApiResponse({ status: 403, description: 'Insufficient permissions (requires userManagement.view)' })
+  @ApiResponse({
+    status: 403,
+    description: 'Insufficient permissions (requires userManagement.view)',
+  })
   @ResponseMessage(USERS_FETCHED)
   @UseGuards(PermissionGuard)
   @RequirePermission('userManagement', 'view')
-  getUsers(
-    @Query() filters: ListFilterDTO,
-    @GetUser() user: User,
-  ) {
+  getUsers(@Query() filters: ListFilterDTO, @GetUser() user: User) {
     return this.userService.getUsers(filters, user.organizationId);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a collaborator by ID with workspace role details' })
-  @ApiResponse({ status: 200, description: 'User object including workspace role details' })
+  @ApiOperation({
+    summary: 'Get a collaborator by ID with workspace role details',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User object including workspace role details',
+  })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
-  @ApiResponse({ status: 404, description: 'User not found in this organization' })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found in this organization',
+  })
   @ResponseMessage(USER_FETCHED)
   getUser(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
@@ -85,12 +107,20 @@ export class UserController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a collaborator and optionally change their workspace role' })
+  @ApiOperation({
+    summary: 'Update a collaborator and optionally change their workspace role',
+  })
   @ApiResponse({ status: 200, description: 'User updated' })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
-  @ApiResponse({ status: 403, description: 'Insufficient permissions (requires userManagement.update)' })
-  @ApiResponse({ status: 404, description: 'User not found in this organization' })
+  @ApiResponse({
+    status: 403,
+    description: 'Insufficient permissions (requires userManagement.update)',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found in this organization',
+  })
   @ResponseMessage(USER_UPDATED)
   @UseGuards(PermissionGuard)
   @RequirePermission('userManagement', 'update')
@@ -105,10 +135,20 @@ export class UserController {
 
   @Patch(':id/password')
   @ApiOperation({ summary: "Reset a collaborator's password (admin action)" })
-  @ApiResponse({ status: 200, description: 'Password reset — user flagged for password change on next login' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Password reset — user flagged for password change on next login',
+  })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
-  @ApiResponse({ status: 403, description: 'Insufficient permissions (requires userManagement.update)' })
-  @ApiResponse({ status: 404, description: 'User not found in this organization' })
+  @ApiResponse({
+    status: 403,
+    description: 'Insufficient permissions (requires userManagement.update)',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found in this organization',
+  })
   @ResponseMessage(USER_PASSWORD_RESET)
   @UseGuards(PermissionGuard)
   @RequirePermission('userManagement', 'update')
@@ -118,6 +158,10 @@ export class UserController {
     @Body() dto: AdminResetPasswordDto,
     @GetUser() user: User,
   ) {
-    return this.userService.adminResetPassword(id, dto.newPassword, user.organizationId);
+    return this.userService.adminResetPassword(
+      id,
+      dto.newPassword,
+      user.organizationId,
+    );
   }
 }

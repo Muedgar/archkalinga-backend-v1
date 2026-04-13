@@ -1,4 +1,11 @@
-import { Column, Entity, JoinColumn, ManyToOne, OneToMany, Unique } from 'typeorm';
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  Unique,
+} from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { Organization } from 'src/organizations/entities/organization.entity';
 import { TemplateTask } from './template-task.entity';

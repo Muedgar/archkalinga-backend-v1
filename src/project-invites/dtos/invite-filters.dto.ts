@@ -14,7 +14,10 @@ export class InviteFiltersDto {
   @IsUUID()
   subtaskId?: string;
 
-  @ApiPropertyOptional({ enum: InviteStatus, description: 'Filter by invite status' })
+  @ApiPropertyOptional({
+    enum: InviteStatus,
+    description: 'Filter by invite status',
+  })
   @IsOptional()
   @IsEnum(InviteStatus)
   status?: InviteStatus;

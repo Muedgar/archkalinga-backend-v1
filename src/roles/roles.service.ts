@@ -27,7 +27,11 @@ export class RoleService {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  private async ensureNameFree(name: string, organizationId: string, excludeId?: string): Promise<void> {
+  private async ensureNameFree(
+    name: string,
+    organizationId: string,
+    excludeId?: string,
+  ): Promise<void> {
     const existing = await this.roleRepo.findOne({
       where: { name: name.toLowerCase(), organizationId },
     });
@@ -40,7 +44,10 @@ export class RoleService {
   // Workspace role CRUD
   // ---------------------------------------------------------------------------
 
-  async createRole(dto: CreateRoleDTO, organizationId: string): Promise<RoleSerializer> {
+  async createRole(
+    dto: CreateRoleDTO,
+    organizationId: string,
+  ): Promise<RoleSerializer> {
     const name = dto.name.toLowerCase();
     const slug = name.replace(/\s+/g, '-');
 
@@ -61,7 +68,9 @@ export class RoleService {
     });
 
     const saved = await this.roleRepo.save(role);
-    return plainToInstance(RoleSerializer, saved, { excludeExtraneousValues: true });
+    return plainToInstance(RoleSerializer, saved, {
+      excludeExtraneousValues: true,
+    });
   }
 
   async getRole(id: string): Promise<Role> {
@@ -70,10 +79,15 @@ export class RoleService {
     return role;
   }
 
-  async getRoleById(id: string, organizationId: string): Promise<RoleSerializer> {
+  async getRoleById(
+    id: string,
+    organizationId: string,
+  ): Promise<RoleSerializer> {
     const role = await this.roleRepo.findOne({ where: { id, organizationId } });
     if (!role) throw new NotFoundException(ROLE_NOT_FOUND);
-    return plainToInstance(RoleSerializer, role, { excludeExtraneousValues: true });
+    return plainToInstance(RoleSerializer, role, {
+      excludeExtraneousValues: true,
+    });
   }
 
   async getRoles(
@@ -114,6 +128,8 @@ export class RoleService {
     }
 
     const saved = await this.roleRepo.save(role);
-    return plainToInstance(RoleSerializer, saved, { excludeExtraneousValues: true });
+    return plainToInstance(RoleSerializer, saved, {
+      excludeExtraneousValues: true,
+    });
   }
 }

@@ -262,26 +262,29 @@ export class ProjectSerializer extends BaseSerializer {
 
   @Expose()
   @Transform(({ obj }) =>
-    (obj?.recentContributions ?? obj?.activityLogs ?? []).map((entry: {
-      id: string;
-      createdAt: Date;
-      userId: string;
-      taskId: string | null;
-      actionType: string;
-      user?: {
-        firstName?: string;
-        lastName?: string;
-      } | null;
-    }) => ({
-      id: entry.id,
-      createdAt: entry.createdAt,
-      userId: entry.userId,
-      taskId: entry.taskId,
-      actionType: entry.actionType,
-      actorName: entry.user
-        ? `${entry.user.firstName ?? ''} ${entry.user.lastName ?? ''}`.trim() || null
-        : null,
-    })),
+    (obj?.recentContributions ?? obj?.activityLogs ?? []).map(
+      (entry: {
+        id: string;
+        createdAt: Date;
+        userId: string;
+        taskId: string | null;
+        actionType: string;
+        user?: {
+          firstName?: string;
+          lastName?: string;
+        } | null;
+      }) => ({
+        id: entry.id,
+        createdAt: entry.createdAt,
+        userId: entry.userId,
+        taskId: entry.taskId,
+        actionType: entry.actionType,
+        actorName: entry.user
+          ? `${entry.user.firstName ?? ''} ${entry.user.lastName ?? ''}`.trim() ||
+            null
+          : null,
+      }),
+    ),
   )
   @Type(() => ContributionSnippet)
   recentContributions: ContributionSnippet[];

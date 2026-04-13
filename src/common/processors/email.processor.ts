@@ -57,7 +57,11 @@ export class EmailProcessor {
 
   @Process(PASSWORD_RESET_EMAIL_JOB)
   async sendPasswordResetSuccessEmail(job: Job<Mail>) {
-    await this.send(job, 'Your Password Has Been Reset', 'password-reset-email');
+    await this.send(
+      job,
+      'Your Password Has Been Reset',
+      'password-reset-email',
+    );
   }
 
   @Process(OTP_VERIFICATION_EMAIL_JOB)

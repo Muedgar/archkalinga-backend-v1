@@ -51,6 +51,11 @@ import { MailHealthController } from './controllers/mail-health.controller';
     ListFilterService,
     MailHealthService,
   ],
-  exports: [EmailService, AuditLogService, ListFilterService, MailHealthService],
+  exports: [
+    EmailService,
+    AuditLogService,
+    ListFilterService,
+    MailHealthService,
+  ],
 })
 export class CommonModule {}

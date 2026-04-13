@@ -16,6 +16,7 @@ The implementation is **structurally sound and mostly ready**. All 8 entities, t
 Every item from the implementation plan is present and working as intended:
 
 **Foundation**
+
 - All 8 entities match the plan exactly — `tasks`, `workflow_columns`, `task_assignees`, `task_checklist_items`, `task_comments`, `task_dependencies`, `task_view_metadata`, `task_activity_logs`.
 - `AppBaseEntity` inheritance is correct on all entities (`pkid`, `id`, `version`, `createdAt`, `updatedAt`).
 - `@Unique(['taskId', 'userId'])` on `TaskAssignee` and `@Unique(['taskId', 'dependsOnTaskId'])` on `TaskDependency` are present.
@@ -25,6 +26,7 @@ Every item from the implementation plan is present and working as intended:
 - `TasksModule` is registered in `AppModule`.
 
 **Domain logic**
+
 - `verifyProjectMembership` runs at the top of every method.
 - Parent task validation (`ensureParentTask`) confirms same-project and non-deleted.
 - Assignee validation (`ensureAssigneeUsers`) confirms active project membership.
@@ -35,11 +37,13 @@ Every item from the implementation plan is present and working as intended:
 - `completed` flag is derived from status — set to `true` when `status === DONE` on both create and update.
 
 **Rank / ordering**
+
 - Fractional-index rank engine is implemented: midpoint calculation, append-to-end fallback, and full rebalance when gaps are exhausted.
 - `moveTask` correctly calculates rank within the destination scope using `beforeTaskId`/`afterTaskId`.
 - `bulkUpdateTasks` recalculates rank when scope changes (column or parent changes).
 
 **All endpoints**
+
 - All 24 endpoints from the plan are present in the controller with correct HTTP methods, routes, permission guards, and `@LogActivity` decorators.
 - `PATCH /tasks/bulk` is declared before `PATCH /tasks/:taskId` in the controller, preventing routing ambiguity.
 - `WorkflowColumnSerializer` inherits `id` from `BaseSerializer` (which has `@Expose() id`), so column IDs are returned correctly.
@@ -47,6 +51,7 @@ Every item from the implementation plan is present and working as intended:
 - `TaskActivityLog` writes AND `ProjectActivityLog` writes happen together in `logTaskActivity` — task events are visible in the project contribution feed.
 
 **Migration**
+
 - All tables are created with `IF NOT EXISTS` guards and `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN NULL; END $$` guards on enums and FKs — safe to re-run.
 - `down()` drops tables in dependency order.
 
@@ -63,14 +68,18 @@ Every item from the implementation plan is present and working as intended:
 ```typescript
 // Line 1652 — first join of task.comments
 if (includes.has('comments')) {
-  qb.leftJoinAndSelect('task.comments', 'comments', 'comments.deletedAt IS NULL');
+  qb.leftJoinAndSelect(
+    'task.comments',
+    'comments',
+    'comments.deletedAt IS NULL',
+  );
 }
 
 // Line 1665 — second join of task.comments (always present)
 qb.loadRelationCountAndMap(
   'task.commentCount',
   'task.comments',
-  'liveComments',       // ← different alias, same relation
+  'liveComments', // ← different alias, same relation
   (subQb) => subQb.andWhere('liveComments.deletedAt IS NULL'),
 );
 ```
@@ -123,8 +132,10 @@ The full task detail (`GET /tasks/:id`) correctly loads `assignees.user` in `loa
 ```typescript
 // In getProjectTasks
 if (includes.has('assignees')) {
-  qb.leftJoinAndSelect('task.assignees', 'assignees')
-    .leftJoinAndSelect('assignees.user', 'assigneeUser');
+  qb.leftJoinAndSelect('task.assignees', 'assignees').leftJoinAndSelect(
+    'assignees.user',
+    'assigneeUser',
+  );
 }
 ```
 
@@ -189,11 +200,17 @@ if (filters.assignedTo) {
 
 ```typescript
 // Line 1516
-await this.logTaskActivity(tx, task, actorUser, TaskActionType.DEPENDENCY_ADDED, {
-  // ← should be TASK_UPDATED or a new DEPENDENCY_REMOVED action type
-  dependencyId: depId,
-  operation: 'dependency_deleted',
-});
+await this.logTaskActivity(
+  tx,
+  task,
+  actorUser,
+  TaskActionType.DEPENDENCY_ADDED,
+  {
+    // ← should be TASK_UPDATED or a new DEPENDENCY_REMOVED action type
+    dependencyId: depId,
+    operation: 'dependency_deleted',
+  },
+);
 ```
 
 **Fix:** Either use `TaskActionType.TASK_UPDATED` (acceptable short-term) or add `DEPENDENCY_REMOVED = 'DEPENDENCY_REMOVED'` to the `TaskActionType` enum and add it to the migration enum type.
@@ -204,16 +221,16 @@ await this.logTaskActivity(tx, task, actorUser, TaskActionType.DEPENDENCY_ADDED,
 
 ### Kanban — Ready with caveats
 
-| Requirement | Status | Notes |
-|---|---|---|
-| Fetch project columns with task count | ✅ Ready | `GET /projects/:id/columns` |
-| Fetch tasks per column | ✅ Ready | `GET /projects/:id/tasks?workflowColumnId=X&include=assignees,checklist` |
-| Create/move tasks between columns | ✅ Ready | `PATCH /tasks/:id/position` with `workflowColumnId` |
-| Reorder within column | ✅ Ready | `beforeTaskId`/`afterTaskId` rank engine |
-| Batch status update (drag-to-column on multiple) | ✅ Ready | `PATCH /tasks/bulk` |
-| Assignee names on cards | ❌ Bug 2 | List serializer missing `firstName`/`lastName` |
-| WIP limit enforcement | ⚠️ Not enforced | `wipLimit` stored but backend does not reject tasks when limit reached |
-| Create/rename/delete columns | ✅ Ready | Full column CRUD |
+| Requirement                                      | Status          | Notes                                                                    |
+| ------------------------------------------------ | --------------- | ------------------------------------------------------------------------ |
+| Fetch project columns with task count            | ✅ Ready        | `GET /projects/:id/columns`                                              |
+| Fetch tasks per column                           | ✅ Ready        | `GET /projects/:id/tasks?workflowColumnId=X&include=assignees,checklist` |
+| Create/move tasks between columns                | ✅ Ready        | `PATCH /tasks/:id/position` with `workflowColumnId`                      |
+| Reorder within column                            | ✅ Ready        | `beforeTaskId`/`afterTaskId` rank engine                                 |
+| Batch status update (drag-to-column on multiple) | ✅ Ready        | `PATCH /tasks/bulk`                                                      |
+| Assignee names on cards                          | ❌ Bug 2        | List serializer missing `firstName`/`lastName`                           |
+| WIP limit enforcement                            | ⚠️ Not enforced | `wipLimit` stored but backend does not reject tasks when limit reached   |
+| Create/rename/delete columns                     | ✅ Ready        | Full column CRUD                                                         |
 
 **Blocking:** Bug 2 must be fixed — Kanban task cards cannot show assignee avatars or names.
 
@@ -221,14 +238,14 @@ await this.logTaskActivity(tx, task, actorUser, TaskActionType.DEPENDENCY_ADDED,
 
 ### Mindmap — Ready
 
-| Requirement | Status | Notes |
-|---|---|---|
-| Fetch all tasks with hierarchy | ✅ Ready | `GET /projects/:id/tasks?include=viewMeta` — `parentTaskId` drives tree |
-| Save node positions (x, y, collapsed) | ✅ Ready | `PATCH /tasks/:id` with `viewMeta.mindmap` upserts `task_view_metadata` |
-| Re-parent a task (drag to new parent) | ✅ Ready | `PATCH /tasks/:id/position` with `parentTaskId` + cycle prevention |
-| Child count for collapsed nodes | ✅ Ready | `childCount` in list serializer via `loadRelationCountAndMap` |
-| Arbitrary depth nesting | ✅ Ready | Self-referential FK with `assertNotDescendant` BFS guard |
-| Batch node layout save after auto-layout | ⚠️ Gap | `PATCH /tasks/bulk` does not accept `viewMeta` — requires N individual PATCH calls |
+| Requirement                              | Status   | Notes                                                                              |
+| ---------------------------------------- | -------- | ---------------------------------------------------------------------------------- |
+| Fetch all tasks with hierarchy           | ✅ Ready | `GET /projects/:id/tasks?include=viewMeta` — `parentTaskId` drives tree            |
+| Save node positions (x, y, collapsed)    | ✅ Ready | `PATCH /tasks/:id` with `viewMeta.mindmap` upserts `task_view_metadata`            |
+| Re-parent a task (drag to new parent)    | ✅ Ready | `PATCH /tasks/:id/position` with `parentTaskId` + cycle prevention                 |
+| Child count for collapsed nodes          | ✅ Ready | `childCount` in list serializer via `loadRelationCountAndMap`                      |
+| Arbitrary depth nesting                  | ✅ Ready | Self-referential FK with `assertNotDescendant` BFS guard                           |
+| Batch node layout save after auto-layout | ⚠️ Gap   | `PATCH /tasks/bulk` does not accept `viewMeta` — requires N individual PATCH calls |
 
 **Blocking:** None. Mindmap is the most complete of the three views.
 
@@ -238,16 +255,16 @@ await this.logTaskActivity(tx, task, actorUser, TaskActionType.DEPENDENCY_ADDED,
 
 ### Gantt — Ready
 
-| Requirement | Status | Notes |
-|---|---|---|
-| Fetch all tasks with dates, progress, dependencies | ✅ Ready | `GET /projects/:id/tasks?include=assignees,dependencies,viewMeta` |
-| Store dependency type (FS/SS/FF/SF) and lag | ✅ Ready | `task_dependencies.dependencyType` + `lagDays` |
-| Cycle prevention | ✅ Ready | BFS cycle check before every edge insert |
-| Update bar dates (drag resize) | ✅ Ready | `PATCH /tasks/:id` with `startDate`/`endDate` |
-| Update progress | ✅ Ready | `PATCH /tasks/:id` with `progress` |
-| Gantt bar color override | ✅ Ready | `viewMeta.gantt.barColor` stored in `task_view_metadata` |
-| Parent-child indentation | ✅ Ready | `parentTaskId` drives nesting rows |
-| Date-sequence enforcement on dependencies | ⚠️ Not enforced | Backend does not validate `successor.startDate >= predecessor.endDate`; enforce client-side |
+| Requirement                                        | Status          | Notes                                                                                       |
+| -------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------- |
+| Fetch all tasks with dates, progress, dependencies | ✅ Ready        | `GET /projects/:id/tasks?include=assignees,dependencies,viewMeta`                           |
+| Store dependency type (FS/SS/FF/SF) and lag        | ✅ Ready        | `task_dependencies.dependencyType` + `lagDays`                                              |
+| Cycle prevention                                   | ✅ Ready        | BFS cycle check before every edge insert                                                    |
+| Update bar dates (drag resize)                     | ✅ Ready        | `PATCH /tasks/:id` with `startDate`/`endDate`                                               |
+| Update progress                                    | ✅ Ready        | `PATCH /tasks/:id` with `progress`                                                          |
+| Gantt bar color override                           | ✅ Ready        | `viewMeta.gantt.barColor` stored in `task_view_metadata`                                    |
+| Parent-child indentation                           | ✅ Ready        | `parentTaskId` drives nesting rows                                                          |
+| Date-sequence enforcement on dependencies          | ⚠️ Not enforced | Backend does not validate `successor.startDate >= predecessor.endDate`; enforce client-side |
 
 **Blocking:** None. Gantt is ready for frontend integration.
 
@@ -267,10 +284,10 @@ await this.logTaskActivity(tx, task, actorUser, TaskActionType.DEPENDENCY_ADDED,
 
 ## Fix Priority
 
-| # | Bug | Severity | Blocks |
-|---|-----|----------|--------|
-| 1 | `include=comments` double-join crash | Critical | Any client requesting comment data in list |
-| 2 | Assignee names missing from list serializer | High | Kanban card rendering |
-| 3 | `assignedTo` + `include=assignees` double-join | Medium | Filtered Kanban with assignee data |
-| 4 | Wrong action type on dependency delete log | Low | Audit trail accuracy only |
-| 5 | Bulk endpoint doesn't support `viewMeta` | Low | Mindmap reflow efficiency |
+| #   | Bug                                            | Severity | Blocks                                     |
+| --- | ---------------------------------------------- | -------- | ------------------------------------------ |
+| 1   | `include=comments` double-join crash           | Critical | Any client requesting comment data in list |
+| 2   | Assignee names missing from list serializer    | High     | Kanban card rendering                      |
+| 3   | `assignedTo` + `include=assignees` double-join | Medium   | Filtered Kanban with assignee data         |
+| 4   | Wrong action type on dependency delete log     | Low      | Audit trail accuracy only                  |
+| 5   | Bulk endpoint doesn't support `viewMeta`       | Low      | Mindmap reflow efficiency                  |

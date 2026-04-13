@@ -41,13 +41,17 @@ export class TemplatesController {
   @ApiOperation({
     summary: 'Create a template for the current organization',
     description:
-      'Workspace-scoped action. Requires templateManagement.create on the caller\'s workspace role.',
+      "Workspace-scoped action. Requires templateManagement.create on the caller's workspace role.",
   })
   @ApiResponse({ status: 201, description: 'Template created' })
   @ResponseMessage(TEMPLATE_CREATED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'create')
-  @LogActivity({ action: 'create:template', resource: 'template', includeBody: true })
+  @LogActivity({
+    action: 'create:template',
+    resource: 'template',
+    includeBody: true,
+  })
   createTemplate(@Body() dto: CreateTemplateDto, @GetUser() user: User) {
     return this.templatesService.createTemplate(dto, user.organizationId);
   }
@@ -56,7 +60,7 @@ export class TemplatesController {
   @ApiOperation({
     summary: 'List templates in the current organization',
     description:
-      'Workspace-scoped action. Requires templateManagement.view on the caller\'s workspace role.',
+      "Workspace-scoped action. Requires templateManagement.view on the caller's workspace role.",
   })
   @ApiResponse({ status: 200, description: 'Paginated list of templates' })
   @ResponseMessage(TEMPLATES_FETCHED)
@@ -70,27 +74,37 @@ export class TemplatesController {
   @ApiOperation({
     summary: 'Get a template by id or name',
     description:
-      'Workspace-scoped action. Requires templateManagement.view on the caller\'s workspace role.',
+      "Workspace-scoped action. Requires templateManagement.view on the caller's workspace role.",
   })
-  @ApiResponse({ status: 200, description: 'Template object with recursive tasks' })
+  @ApiResponse({
+    status: 200,
+    description: 'Template object with recursive tasks',
+  })
   @ResponseMessage(TEMPLATE_FETCHED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'view')
   getTemplate(@Param('identifier') identifier: string, @GetUser() user: User) {
-    return this.templatesService.getTemplateByIdentifier(identifier, user.organizationId);
+    return this.templatesService.getTemplateByIdentifier(
+      identifier,
+      user.organizationId,
+    );
   }
 
   @Patch(':identifier')
   @ApiOperation({
     summary: 'Update a template by id or name',
     description:
-      'Workspace-scoped action. Requires templateManagement.update on the caller\'s workspace role.',
+      "Workspace-scoped action. Requires templateManagement.update on the caller's workspace role.",
   })
   @ApiResponse({ status: 200, description: 'Template updated' })
   @ResponseMessage(TEMPLATE_UPDATED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'update')
-  @LogActivity({ action: 'update:template', resource: 'template', includeBody: true })
+  @LogActivity({
+    action: 'update:template',
+    resource: 'template',
+    includeBody: true,
+  })
   updateTemplate(
     @Param('identifier') identifier: string,
     @Body() dto: UpdateTemplateDto,
@@ -107,14 +121,20 @@ export class TemplatesController {
   @ApiOperation({
     summary: 'Delete a template by id or name',
     description:
-      'Workspace-scoped action. Requires templateManagement.delete on the caller\'s workspace role.',
+      "Workspace-scoped action. Requires templateManagement.delete on the caller's workspace role.",
   })
   @ApiResponse({ status: 200, description: 'Template deleted' })
   @ResponseMessage(TEMPLATE_DELETED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'delete')
   @LogActivity({ action: 'delete:template', resource: 'template' })
-  deleteTemplate(@Param('identifier') identifier: string, @GetUser() user: User) {
-    return this.templatesService.deleteTemplateByIdentifier(identifier, user.organizationId);
+  deleteTemplate(
+    @Param('identifier') identifier: string,
+    @GetUser() user: User,
+  ) {
+    return this.templatesService.deleteTemplateByIdentifier(
+      identifier,
+      user.organizationId,
+    );
   }
 }

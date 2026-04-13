@@ -129,13 +129,18 @@ export class ProjectsService {
     return (user as unknown as User).role?.slug === 'admin';
   }
 
-  private toSerializer(project: Project & Partial<ProjectDetail>): ProjectSerializer {
+  private toSerializer(
+    project: Project & Partial<ProjectDetail>,
+  ): ProjectSerializer {
     return plainToInstance(ProjectSerializer, project, {
       excludeExtraneousValues: true,
     });
   }
 
-  private ensureDateRange(startDate?: string | null, endDate?: string | null): void {
+  private ensureDateRange(
+    startDate?: string | null,
+    endDate?: string | null,
+  ): void {
     if (startDate && endDate && startDate > endDate) {
       throw new BadRequestException(INVALID_PROJECT_DATE_RANGE);
     }
@@ -281,7 +286,10 @@ export class ProjectsService {
       );
     }
 
-    return columns.find((column) => column.name.trim().toLowerCase() === 'todo') ?? columns[0];
+    return (
+      columns.find((column) => column.name.trim().toLowerCase() === 'todo') ??
+      columns[0]
+    );
   }
 
   private async ensureDefaultProjectRoles(
@@ -455,7 +463,13 @@ export class ProjectsService {
       }),
     );
 
-    await this.logSeededTaskActivity(manager, project, savedTask, actorUser, templateTask.id);
+    await this.logSeededTaskActivity(
+      manager,
+      project,
+      savedTask,
+      actorUser,
+      templateTask.id,
+    );
 
     let createdCount = 1;
     for (const child of templateTask.subtasks) {
@@ -496,7 +510,10 @@ export class ProjectsService {
   }
 
   /** Load the full project with all relations needed for detail/response views. */
-  private async loadFull(projectId: string, organizationId: string): Promise<Project> {
+  private async loadFull(
+    projectId: string,
+    organizationId: string,
+  ): Promise<Project> {
     const project = await this.projectRepo.findOne({
       where: { id: projectId, organizationId },
       relations: [
@@ -558,7 +575,9 @@ export class ProjectsService {
       });
       const savedProj = await tx.save(proj);
       // Reload to get DB-generated UUID
-      const projRecord = await tx.findOneOrFail(Project, { where: { pkid: savedProj.pkid } });
+      const projRecord = await tx.findOneOrFail(Project, {
+        where: { pkid: savedProj.pkid },
+      });
       const projectRoles = await this.ensureDefaultProjectRoles(tx, projRecord);
       const ownerRole = projectRoles.get(DEFAULT_OWNER_PROJECT_ROLE_SLUG);
       const memberAssignments = await this.resolveMemberAssignments(
@@ -652,7 +671,9 @@ export class ProjectsService {
     requestUser: RequestUser,
   ): Promise<ProjectSerializer> {
     const { organizationId, id: userId } = requestUser;
-    const actorUser = await this.userRepo.findOneOrFail({ where: { id: userId } });
+    const actorUser = await this.userRepo.findOneOrFail({
+      where: { id: userId },
+    });
 
     const projectWithAccess = await this.loadAuthorizedProject(
       projectId,
@@ -682,21 +703,22 @@ export class ProjectsService {
         where: { id: dto.templateId, organizationId },
       });
       if (!newTemplate) throw new NotFoundException(TEMPLATE_NOT_IN_ORG);
-      project.template  = newTemplate;
+      project.template = newTemplate;
       project.templateId = dto.templateId;
     }
 
     // Apply scalar updates
-    if (dto.title       !== undefined) project.title       = dto.title;
-    if (dto.description !== undefined) project.description = dto.description ?? null;
-    if (dto.startDate   !== undefined) project.startDate   = dto.startDate ?? null;
-    if (dto.endDate     !== undefined) project.endDate     = dto.endDate ?? null;
-    if (dto.type        !== undefined) project.type        = dto.type;
-    if (dto.status      !== undefined) {
+    if (dto.title !== undefined) project.title = dto.title;
+    if (dto.description !== undefined)
+      project.description = dto.description ?? null;
+    if (dto.startDate !== undefined) project.startDate = dto.startDate ?? null;
+    if (dto.endDate !== undefined) project.endDate = dto.endDate ?? null;
+    if (dto.type !== undefined) project.type = dto.type;
+    if (dto.status !== undefined) {
       project.status = dto.status;
       project.archivedAt =
         dto.status === ProjectStatus.ARCHIVED
-          ? project.archivedAt ?? new Date()
+          ? (project.archivedAt ?? new Date())
           : null;
     }
 
@@ -734,7 +756,7 @@ export class ProjectsService {
             membership.projectRole?.isProtected !== true &&
             !desiredIds.has(membership.userId)
           ) {
-            membership.status    = MembershipStatus.REMOVED;
+            membership.status = MembershipStatus.REMOVED;
             membership.removedAt = new Date();
             await tx.save(membership);
 
@@ -859,7 +881,10 @@ export class ProjectsService {
     // Attach only the 20 most recent contribution logs
     const recentContributions = project.activityLogs.slice(0, 20);
 
-    return this.toSerializer({ ...project, recentContributions } as unknown as Project);
+    return this.toSerializer({
+      ...project,
+      recentContributions,
+    } as unknown as Project);
   }
 
   // ---------------------------------------------------------------------------
@@ -871,7 +896,16 @@ export class ProjectsService {
     requestUser: RequestUser,
   ): Promise<FilterResponse<ProjectListItemSerializer>> {
     const { organizationId, id: userId } = requestUser;
-    const { page, limit, search, type, status, templateId, orderBy, sortOrder } = filters;
+    const {
+      page,
+      limit,
+      search,
+      type,
+      status,
+      templateId,
+      orderBy,
+      sortOrder,
+    } = filters;
 
     const qb = this.projectRepo
       .createQueryBuilder('p')
@@ -899,8 +933,8 @@ export class ProjectsService {
     }
 
     // Optional filters
-    if (type)       qb.andWhere('p.type = :type', { type });
-    if (status)     qb.andWhere('p.status = :status', { status });
+    if (type) qb.andWhere('p.type = :type', { type });
+    if (status) qb.andWhere('p.status = :status', { status });
     if (templateId) qb.andWhere('p.templateId = :templateId', { templateId });
     if (search) {
       qb.andWhere('(p.title ILIKE :search OR p.description ILIKE :search)', {
@@ -909,9 +943,11 @@ export class ProjectsService {
     }
 
     // Ordering
-    const col = orderBy && ['title', 'status', 'type', 'createdAt', 'updatedAt'].includes(orderBy)
-      ? `p.${orderBy}`
-      : 'p.createdAt';
+    const col =
+      orderBy &&
+      ['title', 'status', 'type', 'createdAt', 'updatedAt'].includes(orderBy)
+        ? `p.${orderBy}`
+        : 'p.createdAt';
     qb.orderBy(col, sortOrder ?? 'DESC');
 
     // Pagination
@@ -936,7 +972,11 @@ export class ProjectsService {
     projectId: string,
     requestUser: RequestUser,
   ): Promise<{ id: string; deleted: true }> {
-    const project = await this.loadAuthorizedProject(projectId, requestUser, 'delete');
+    const project = await this.loadAuthorizedProject(
+      projectId,
+      requestUser,
+      'delete',
+    );
 
     await this.projectRepo.remove(project);
 

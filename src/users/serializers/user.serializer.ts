@@ -41,31 +41,59 @@ export class UserSerializer extends BaseSerializer {
    * We transform the internal `name` field to `organizationName` here.
    */
   @Expose()
-  @Transform(({ obj }: { obj: { organization?: { id: string; name: string; address: string | null; city: string | null; country: string | null } } }) => {
-    const org = obj?.organization;
-    if (!org) return null;
-    return {
-      id: org.id,
-      organizationName: org.name,
-      organizationAddress: org.address,
-      organizationCity: org.city,
-      organizationCountry: org.country,
-    };
-  })
+  @Transform(
+    ({
+      obj,
+    }: {
+      obj: {
+        organization?: {
+          id: string;
+          name: string;
+          address: string | null;
+          city: string | null;
+          country: string | null;
+        };
+      };
+    }) => {
+      const org = obj?.organization;
+      if (!org) return null;
+      return {
+        id: org.id,
+        organizationName: org.name,
+        organizationAddress: org.address,
+        organizationCity: org.city,
+        organizationCountry: org.country,
+      };
+    },
+  )
   organization: OrganizationShape | null;
 
   @Expose()
-  @Transform(({ obj }: { obj: { role?: { id: string; name: string; slug: string; status: boolean; permissions: Record<string, Record<string, boolean>> } | null } }) => {
-    const role = obj?.role;
-    if (!role) return null;
-    return {
-      id: role.id,
-      name: role.name,
-      slug: role.slug,
-      status: role.status,
-      permissions: role.permissions,
-    };
-  })
+  @Transform(
+    ({
+      obj,
+    }: {
+      obj: {
+        role?: {
+          id: string;
+          name: string;
+          slug: string;
+          status: boolean;
+          permissions: Record<string, Record<string, boolean>>;
+        } | null;
+      };
+    }) => {
+      const role = obj?.role;
+      if (!role) return null;
+      return {
+        id: role.id,
+        name: role.name,
+        slug: role.slug,
+        status: role.status,
+        permissions: role.permissions,
+      };
+    },
+  )
   role: RoleShape | null;
 
   // Excluded fields

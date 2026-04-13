@@ -54,7 +54,9 @@ export class MailHealthController {
   ): Promise<{ to: string; ok: true }> {
     const nodeEnv = this.configService.get<string>('NODE_ENV') ?? 'development';
     if (nodeEnv === 'production') {
-      throw new ForbiddenException('Public mail health endpoint is disabled in production.');
+      throw new ForbiddenException(
+        'Public mail health endpoint is disabled in production.',
+      );
     }
 
     // const expectedKey = this.configService.get<string>('MAIL_HEALTH_KEY');
@@ -64,7 +66,9 @@ export class MailHealthController {
 
     const recipient = dto?.to?.trim();
     if (!recipient) {
-      throw new ForbiddenException('Recipient email is required for public health check.');
+      throw new ForbiddenException(
+        'Recipient email is required for public health check.',
+      );
     }
 
     await this.mailHealthService.sendRuntimeTestEmail(

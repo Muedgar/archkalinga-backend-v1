@@ -15,10 +15,7 @@ import { FindManyOptions, Repository } from 'typeorm';
 import { CreateUserDTO, UpdateUserDTO } from './dtos';
 import { User } from './entities/user.entity';
 import { UserProfile } from './entities/user-profile.entity';
-import {
-  EMAIL_EXISTS,
-  USER_NOT_FOUND,
-} from './messages';
+import { EMAIL_EXISTS, USER_NOT_FOUND } from './messages';
 import { UserSerializer } from './serializers';
 
 @Injectable()
@@ -80,10 +77,15 @@ export class UserService {
     const role = await this.roleService.getRole(dto.roleId);
     // Enforce the workspace role belongs to the same organization
     if (role.organizationId !== organizationId) {
-      throw new BadRequestException('Workspace role does not belong to your organization');
+      throw new BadRequestException(
+        'Workspace role does not belong to your organization',
+      );
     }
 
-    const hashedPassword = bcrypt.hashSync(dto.password, bcrypt.genSaltSync(12));
+    const hashedPassword = bcrypt.hashSync(
+      dto.password,
+      bcrypt.genSaltSync(12),
+    );
 
     const user = await this.userRepo.manager.transaction(async (tx) => {
       const newUser = tx.create(User, {
@@ -120,7 +122,9 @@ export class UserService {
     });
 
     const full = await this.loadFull(user.id);
-    return plainToInstance(UserSerializer, full, { excludeExtraneousValues: true });
+    return plainToInstance(UserSerializer, full, {
+      excludeExtraneousValues: true,
+    });
   }
 
   async getUsers(
@@ -142,13 +146,18 @@ export class UserService {
     });
   }
 
-  async getUserById(id: string, organizationId: string): Promise<UserSerializer> {
+  async getUserById(
+    id: string,
+    organizationId: string,
+  ): Promise<UserSerializer> {
     const user = await this.userRepo.findOne({
       where: { id, organizationId },
       relations: ['organization', 'role'],
     });
     if (!user) throw new NotFoundException(USER_NOT_FOUND);
-    return plainToInstance(UserSerializer, user, { excludeExtraneousValues: true });
+    return plainToInstance(UserSerializer, user, {
+      excludeExtraneousValues: true,
+    });
   }
 
   async updateUser(
@@ -159,26 +168,31 @@ export class UserService {
     const user = await this.userRepo.findOne({ where: { id, organizationId } });
     if (!user) throw new NotFoundException(USER_NOT_FOUND);
 
-    if (dto.email && dto.email !== user.email) await this.ensureEmailFree(dto.email);
+    if (dto.email && dto.email !== user.email)
+      await this.ensureEmailFree(dto.email);
 
     if (dto.firstName !== undefined) user.firstName = dto.firstName;
-    if (dto.lastName  !== undefined) user.lastName  = dto.lastName;
-    if (dto.userName  !== undefined) user.userName  = dto.userName;
-    if (dto.title     !== undefined) user.title     = dto.title ?? null;
-    if (dto.email     !== undefined) user.email     = dto.email;
-    if (dto.status    !== undefined) user.status    = dto.status;
+    if (dto.lastName !== undefined) user.lastName = dto.lastName;
+    if (dto.userName !== undefined) user.userName = dto.userName;
+    if (dto.title !== undefined) user.title = dto.title ?? null;
+    if (dto.email !== undefined) user.email = dto.email;
+    if (dto.status !== undefined) user.status = dto.status;
 
     if (dto.roleId !== undefined) {
       const role = await this.roleService.getRole(dto.roleId);
       if (role.organizationId !== organizationId) {
-        throw new BadRequestException('Workspace role does not belong to your organization');
+        throw new BadRequestException(
+          'Workspace role does not belong to your organization',
+        );
       }
       user.roleId = role.id;
     }
 
     await this.userRepo.save(user);
     const full = await this.loadFull(user.id);
-    return plainToInstance(UserSerializer, full, { excludeExtraneousValues: true });
+    return plainToInstance(UserSerializer, full, {
+      excludeExtraneousValues: true,
+    });
   }
 
   /**
@@ -193,9 +207,9 @@ export class UserService {
     const user = await this.userRepo.findOne({ where: { id, organizationId } });
     if (!user) throw new NotFoundException(USER_NOT_FOUND);
 
-    user.password         = bcrypt.hashSync(newPassword, bcrypt.genSaltSync(12));
+    user.password = bcrypt.hashSync(newPassword, bcrypt.genSaltSync(12));
     user.isDefaultPassword = true;
-    user.tokenVersion     = (user.tokenVersion ?? 0) + 1;
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     await this.userRepo.save(user);
   }
 }

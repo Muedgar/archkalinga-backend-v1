@@ -27,12 +27,9 @@ import { Organization } from '../../organizations/entities/organization.entity';
 import { Role } from '../../roles/roles.entity';
 import { User, UserType } from '../../users/entities/user.entity';
 import { UserProfile } from '../../users/entities/user-profile.entity';
-import {
-  FULL_ACCESS_MATRIX,
-} from '../../roles/types/permission-matrix.type';
+import { FULL_ACCESS_MATRIX } from '../../roles/types/permission-matrix.type';
 
-const ADMIN_EMAIL =
-  process.env.SEED_ADMIN_EMAIL ?? 'admin@archkalinga.com';
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@archkalinga.com';
 const ADMIN_FIRST = process.env.SEED_ADMIN_FIRST_NAME ?? 'Super';
 const ADMIN_LAST = process.env.SEED_ADMIN_LAST_NAME ?? 'Admin';
 const PLAIN_PASSWORD = process.env.SEED_PASSWORD_PLAIN;
@@ -45,7 +42,10 @@ if (!PLAIN_PASSWORD) {
 }
 
 async function seedAdmin(): Promise<void> {
-  const ds = new DataSource({ ...(dataSourceOptions as any), synchronize: false });
+  const ds = new DataSource({
+    ...(dataSourceOptions as any),
+    synchronize: false,
+  });
   await ds.initialize();
 
   const orgRepo = ds.getRepository(Organization);
@@ -68,8 +68,12 @@ async function seedAdmin(): Promise<void> {
     const org = em.create(Organization, { name: 'ArchKalinga' });
     const savedOrg = await em.save(org);
     // Reload so the database-generated `id` (uuid_generate_v4) is available
-    const orgRecord = await em.findOneOrFail(Organization, { where: { pkid: savedOrg.pkid } });
-    console.log(`  ✓ Organization created: "${orgRecord.name}" (${orgRecord.id})`);
+    const orgRecord = await em.findOneOrFail(Organization, {
+      where: { pkid: savedOrg.pkid },
+    });
+    console.log(
+      `  ✓ Organization created: "${orgRecord.name}" (${orgRecord.id})`,
+    );
 
     // 2. Admin Role (full access) ──────────────────────────────────────────────
     // Always set the relation object — TypeORM's FK column is "owned" by the
@@ -79,12 +83,14 @@ async function seedAdmin(): Promise<void> {
       name: 'Admin',
       slug: 'admin',
       status: true,
-      organization: orgRecord,   // ← relation object (resolves FK)
+      organization: orgRecord, // ← relation object (resolves FK)
       organizationId: orgRecord.id,
       permissions: FULL_ACCESS_MATRIX,
     });
     const savedRole = await em.save(role);
-    const roleRecord = await em.findOneOrFail(Role, { where: { pkid: savedRole.pkid } });
+    const roleRecord = await em.findOneOrFail(Role, {
+      where: { pkid: savedRole.pkid },
+    });
     console.log(`  ✓ Role created: "${roleRecord.name}" (${roleRecord.id})`);
 
     // 3. User ──────────────────────────────────────────────────────────────────
@@ -99,18 +105,20 @@ async function seedAdmin(): Promise<void> {
       status: true,
       isDefaultPassword: true,
       emailVerified: true,
-      organization: orgRecord,   // ← relation object
+      organization: orgRecord, // ← relation object
       organizationId: orgRecord.id,
-      role: roleRecord,          // ← relation object
+      role: roleRecord, // ← relation object
       roleId: roleRecord.id,
     });
     const savedUser = await em.save(user);
-    const userRecord = await em.findOneOrFail(User, { where: { pkid: savedUser.pkid } });
+    const userRecord = await em.findOneOrFail(User, {
+      where: { pkid: savedUser.pkid },
+    });
     console.log(`  ✓ User created: "${userRecord.email}" (${userRecord.id})`);
 
     // 4. UserProfile ───────────────────────────────────────────────────────────
     const profile = em.create(UserProfile, {
-      user: userRecord,          // ← relation object
+      user: userRecord, // ← relation object
       userId: userRecord.id,
       profession: null,
       specialty: null,

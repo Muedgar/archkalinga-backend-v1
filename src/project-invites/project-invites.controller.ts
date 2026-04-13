@@ -46,7 +46,11 @@ export class ProjectInvitesController {
   @UseGuards(JwtAuthGuard, ProjectPermissionGuard)
   @RequireProjectPermission('projectManagement', 'update')
   @ResponseMessage(INVITE_CREATED)
-  @LogActivity({ action: 'create:invite', resource: 'project-invite', includeBody: true })
+  @LogActivity({
+    action: 'create:invite',
+    resource: 'project-invite',
+    includeBody: true,
+  })
   @ApiOperation({
     summary: 'Send a project invite (optionally from a task or subtask)',
     description:
@@ -55,8 +59,14 @@ export class ProjectInvitesController {
       'The project role must belong to the same project, and the caller must hold projectManagement.update through their active project role.',
   })
   @ApiResponse({ status: 201, description: 'Invite created' })
-  @ApiResponse({ status: 400, description: 'Validation error or subtask does not belong to task' })
-  @ApiResponse({ status: 409, description: 'Duplicate pending invite or invitee already a member' })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error or subtask does not belong to task',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Duplicate pending invite or invitee already a member',
+  })
   createInvite(
     @Body() dto: CreateProjectInviteDto,
     @GetUser() user: RequestUser,
@@ -75,7 +85,7 @@ export class ProjectInvitesController {
     summary: 'List invites for a project',
     description:
       'Returns all invites for the project. Use taskId/subtaskId query params to ' +
-      'scope the list to a specific work item (for task/subtask detail panels). Requires projectManagement.view through the caller\'s active project role.',
+      "scope the list to a specific work item (for task/subtask detail panels). Requires projectManagement.view through the caller's active project role.",
   })
   @ApiQuery({ name: 'taskId', required: false, type: String })
   @ApiQuery({ name: 'subtaskId', required: false, type: String })
@@ -105,7 +115,10 @@ export class ProjectInvitesController {
       'Generates a fresh token and extends the expiry by 7 days. ' +
       'Only PENDING invites can be resent, and the caller must hold projectManagement.update through their active project role.',
   })
-  @ApiResponse({ status: 200, description: 'New token generated and expiry extended' })
+  @ApiResponse({
+    status: 200,
+    description: 'New token generated and expiry extended',
+  })
   @ApiResponse({ status: 400, description: 'Invite is not in PENDING status' })
   @ApiResponse({ status: 404, description: 'Invite not found' })
   resendInvite(
@@ -156,7 +169,10 @@ export class ProjectInvitesController {
     description:
       'Invite accepted — returns { inviteId, projectId, taskId, subtaskId, membership { id, status, projectRoleId, projectRole } }',
   })
-  @ApiResponse({ status: 400, description: 'Token invalid, expired, or account not found' })
+  @ApiResponse({
+    status: 400,
+    description: 'Token invalid, expired, or account not found',
+  })
   acceptInvite(@Query('token') token: string) {
     return this.invitesService.acceptInvite(token);
   }

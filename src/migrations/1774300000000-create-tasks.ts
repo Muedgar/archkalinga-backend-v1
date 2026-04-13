@@ -245,7 +245,7 @@ export class CreateTasks1774300000000 implements MigrationInterface {
       `ALTER TABLE "task_view_metadata" ADD CONSTRAINT "FK_task_view_metadata_task_id"
          FOREIGN KEY ("task_id") REFERENCES "tasks"("pkid") ON DELETE CASCADE`,
       `ALTER TABLE "task_activity_logs" ADD CONSTRAINT "FK_task_activity_logs_actor_user_id"
-         FOREIGN KEY ("actor_user_id") REFERENCES "users"("pkid") ON DELETE RESTRICT`
+         FOREIGN KEY ("actor_user_id") REFERENCES "users"("pkid") ON DELETE RESTRICT`,
     ];
 
     for (const fk of fks) {
@@ -272,7 +272,7 @@ export class CreateTasks1774300000000 implements MigrationInterface {
       `CREATE INDEX IF NOT EXISTS "IDX_task_activity_logs_project_created_at"
         ON "task_activity_logs" ("projectId", "createdAt")`,
       `CREATE INDEX IF NOT EXISTS "IDX_workflow_columns_project_order"
-        ON "workflow_columns" ("projectId", "orderIndex")`
+        ON "workflow_columns" ("projectId", "orderIndex")`,
     ];
 
     for (const index of indexes) {
@@ -289,11 +289,21 @@ export class CreateTasks1774300000000 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE IF EXISTS "task_assignees"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "tasks"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "workflow_columns"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."task_activity_logs_action_type_enum"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."task_view_metadata_view_type_enum"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."task_dependencies_dependency_type_enum"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."task_assignees_assignment_role_enum"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."tasks_priority_enum"`);
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."task_activity_logs_action_type_enum"`,
+    );
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."task_view_metadata_view_type_enum"`,
+    );
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."task_dependencies_dependency_type_enum"`,
+    );
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."task_assignees_assignment_role_enum"`,
+    );
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."tasks_priority_enum"`,
+    );
     await queryRunner.query(`DROP TYPE IF EXISTS "public"."tasks_status_enum"`);
   }
 }

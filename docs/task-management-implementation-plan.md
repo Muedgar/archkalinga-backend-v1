@@ -80,17 +80,17 @@ src/tasks/
 ```typescript
 // Enums
 export enum TaskStatus {
-  TODO        = 'TODO',
+  TODO = 'TODO',
   IN_PROGRESS = 'IN_PROGRESS',
-  IN_REVIEW   = 'IN_REVIEW',
-  DONE        = 'DONE',
-  BLOCKED     = 'BLOCKED',
+  IN_REVIEW = 'IN_REVIEW',
+  DONE = 'DONE',
+  BLOCKED = 'BLOCKED',
 }
 
 export enum TaskPriority {
-  LOW    = 'LOW',
+  LOW = 'LOW',
   MEDIUM = 'MEDIUM',
-  HIGH   = 'HIGH',
+  HIGH = 'HIGH',
   URGENT = 'URGENT',
 }
 
@@ -117,7 +117,7 @@ export class Task extends AppBaseEntity {
   @Column({ type: 'date', nullable: true })
   endDate: string | null;
 
-  @Column({ type: 'smallint', nullable: true })     // 0–100
+  @Column({ type: 'smallint', nullable: true }) // 0–100
   progress: number | null;
 
   @Column({ type: 'boolean', default: false })
@@ -132,13 +132,16 @@ export class Task extends AppBaseEntity {
   workflowColumn: WorkflowColumn | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
-  rank: string | null;                               // fractional-index string
+  rank: string | null; // fractional-index string
 
   // ── Hierarchy (Mindmap / Subtasks) ──────────────────────────────────────────
   @Column({ type: 'uuid', nullable: true })
   parentTaskId: string | null;
 
-  @ManyToOne(() => Task, (t) => t.children, { nullable: true, onDelete: 'CASCADE' })
+  @ManyToOne(() => Task, (t) => t.children, {
+    nullable: true,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'parent_task_id' })
   parent: Task | null;
 
@@ -201,7 +204,7 @@ export class WorkflowColumn extends AppBaseEntity {
   name: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  statusKey: string | null;      // maps to canonical TaskStatus e.g. 'IN_PROGRESS'
+  statusKey: string | null; // maps to canonical TaskStatus e.g. 'IN_PROGRESS'
 
   @Column({ type: 'int', default: 0 })
   orderIndex: number;
@@ -220,9 +223,9 @@ export class WorkflowColumn extends AppBaseEntity {
 
 ```typescript
 export enum AssignmentRole {
-  OWNER       = 'OWNER',
+  OWNER = 'OWNER',
   CONTRIBUTOR = 'CONTRIBUTOR',
-  REVIEWER    = 'REVIEWER',
+  REVIEWER = 'REVIEWER',
 }
 
 // Table: task_assignees
@@ -231,7 +234,10 @@ export class TaskAssignee extends AppBaseEntity {
   @Column({ type: 'uuid' })
   taskId: string;
 
-  @ManyToOne(() => Task, (t) => t.assignees, { nullable: false, onDelete: 'CASCADE' })
+  @ManyToOne(() => Task, (t) => t.assignees, {
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
@@ -242,7 +248,11 @@ export class TaskAssignee extends AppBaseEntity {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column({ type: 'enum', enum: AssignmentRole, default: AssignmentRole.CONTRIBUTOR })
+  @Column({
+    type: 'enum',
+    enum: AssignmentRole,
+    default: AssignmentRole.CONTRIBUTOR,
+  })
   assignmentRole: AssignmentRole;
 }
 ```
@@ -260,7 +270,10 @@ export class TaskChecklistItem extends AppBaseEntity {
   @Column({ type: 'uuid' })
   taskId: string;
 
-  @ManyToOne(() => Task, (t) => t.checklistItems, { nullable: false, onDelete: 'CASCADE' })
+  @ManyToOne(() => Task, (t) => t.checklistItems, {
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
@@ -292,7 +305,10 @@ export class TaskComment extends AppBaseEntity {
   @Column({ type: 'uuid' })
   taskId: string;
 
-  @ManyToOne(() => Task, (t) => t.comments, { nullable: false, onDelete: 'CASCADE' })
+  @ManyToOne(() => Task, (t) => t.comments, {
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
@@ -307,10 +323,10 @@ export class TaskComment extends AppBaseEntity {
   body: string;
 
   @Column({ type: 'uuid', nullable: true })
-  parentCommentId: string | null;       // for threaded replies (optional phase 2)
+  parentCommentId: string | null; // for threaded replies (optional phase 2)
 
   @Column({ type: 'timestamptz', nullable: true })
-  deletedAt: Date | null;               // soft delete
+  deletedAt: Date | null; // soft delete
 }
 ```
 
@@ -320,10 +336,10 @@ export class TaskComment extends AppBaseEntity {
 
 ```typescript
 export enum DependencyType {
-  FINISH_TO_START  = 'FS',   // predecessor must finish before successor starts (default)
-  START_TO_START   = 'SS',
+  FINISH_TO_START = 'FS', // predecessor must finish before successor starts (default)
+  START_TO_START = 'SS',
   FINISH_TO_FINISH = 'FF',
-  START_TO_FINISH  = 'SF',
+  START_TO_FINISH = 'SF',
 }
 
 // Table: task_dependencies
@@ -331,20 +347,24 @@ export enum DependencyType {
 @Entity('task_dependencies')
 export class TaskDependency extends AppBaseEntity {
   @Column({ type: 'uuid' })
-  taskId: string;                          // successor
+  taskId: string; // successor
 
   @ManyToOne(() => Task, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
   @Column({ type: 'uuid' })
-  dependsOnTaskId: string;                 // predecessor
+  dependsOnTaskId: string; // predecessor
 
   @ManyToOne(() => Task, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'depends_on_task_id' })
   dependsOnTask: Task;
 
-  @Column({ type: 'enum', enum: DependencyType, default: DependencyType.FINISH_TO_START })
+  @Column({
+    type: 'enum',
+    enum: DependencyType,
+    default: DependencyType.FINISH_TO_START,
+  })
   dependencyType: DependencyType;
 
   @Column({ type: 'int', nullable: true })
@@ -362,7 +382,7 @@ Rule: `task_id !== depends_on_task_id` (no self-dependency). Both tasks must bel
 ```typescript
 export enum ViewType {
   MINDMAP = 'mindmap',
-  GANTT   = 'gantt',
+  GANTT = 'gantt',
 }
 
 // Table: task_view_metadata
@@ -371,7 +391,10 @@ export class TaskViewMetadata extends AppBaseEntity {
   @Column({ type: 'uuid' })
   taskId: string;
 
-  @ManyToOne(() => Task, (t) => t.viewMetadataEntries, { nullable: false, onDelete: 'CASCADE' })
+  @ManyToOne(() => Task, (t) => t.viewMetadataEntries, {
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
@@ -379,7 +402,7 @@ export class TaskViewMetadata extends AppBaseEntity {
   viewType: ViewType;
 
   @Column({ type: 'jsonb', default: {} })
-  metaJson: Record<string, unknown>;     // { x, y, collapsed } for mindmap; { barColor } for gantt
+  metaJson: Record<string, unknown>; // { x, y, collapsed } for mindmap; { barColor } for gantt
 }
 ```
 
@@ -391,14 +414,14 @@ Unique constraint: `(task_id, view_type)`.
 
 ```typescript
 export enum TaskActionType {
-  TASK_CREATED    = 'TASK_CREATED',
-  TASK_UPDATED    = 'TASK_UPDATED',
-  TASK_MOVED      = 'TASK_MOVED',
-  TASK_DELETED    = 'TASK_DELETED',
-  TASK_ASSIGNED   = 'TASK_ASSIGNED',
+  TASK_CREATED = 'TASK_CREATED',
+  TASK_UPDATED = 'TASK_UPDATED',
+  TASK_MOVED = 'TASK_MOVED',
+  TASK_DELETED = 'TASK_DELETED',
+  TASK_ASSIGNED = 'TASK_ASSIGNED',
   TASK_UNASSIGNED = 'TASK_UNASSIGNED',
-  COMMENT_ADDED   = 'COMMENT_ADDED',
-  STATUS_CHANGED  = 'STATUS_CHANGED',
+  COMMENT_ADDED = 'COMMENT_ADDED',
+  STATUS_CHANGED = 'STATUS_CHANGED',
   CHECKLIST_UPDATED = 'CHECKLIST_UPDATED',
   DEPENDENCY_ADDED = 'DEPENDENCY_ADDED',
 }
@@ -587,44 +610,44 @@ All routes are nested under `projects/:projectId`. The controller prefix is `pro
 
 ### Workflow Columns (prerequisite for Kanban)
 
-| Method | Path | Permission | Description |
-|--------|------|------------|-------------|
-| `GET` | `/projects/:projectId/columns` | `taskManagement.view` | List all columns for project |
-| `POST` | `/projects/:projectId/columns` | `taskManagement.create` | Create a column |
-| `PATCH` | `/projects/:projectId/columns/:columnId` | `taskManagement.update` | Rename, reorder, set WIP limit |
+| Method   | Path                                     | Permission              | Description                                       |
+| -------- | ---------------------------------------- | ----------------------- | ------------------------------------------------- |
+| `GET`    | `/projects/:projectId/columns`           | `taskManagement.view`   | List all columns for project                      |
+| `POST`   | `/projects/:projectId/columns`           | `taskManagement.create` | Create a column                                   |
+| `PATCH`  | `/projects/:projectId/columns/:columnId` | `taskManagement.update` | Rename, reorder, set WIP limit                    |
 | `DELETE` | `/projects/:projectId/columns/:columnId` | `taskManagement.delete` | Delete column (block if tasks exist, or reassign) |
 
 ---
 
 ### Tasks — Core CRUD
 
-| Method | Path | Permission | Description |
-|--------|------|------------|-------------|
-| `GET` | `/projects/:projectId/tasks` | `taskManagement.view` | List all tasks (normalized flat list) |
-| `POST` | `/projects/:projectId/tasks` | `taskManagement.create` | Create task or subtask |
-| `GET` | `/projects/:projectId/tasks/:taskId` | `taskManagement.view` | Fetch single task (full detail) |
-| `PATCH` | `/projects/:projectId/tasks/:taskId` | `taskManagement.update` | Partial update |
-| `DELETE` | `/projects/:projectId/tasks/:taskId` | `taskManagement.delete` | Soft delete |
+| Method   | Path                                 | Permission              | Description                           |
+| -------- | ------------------------------------ | ----------------------- | ------------------------------------- |
+| `GET`    | `/projects/:projectId/tasks`         | `taskManagement.view`   | List all tasks (normalized flat list) |
+| `POST`   | `/projects/:projectId/tasks`         | `taskManagement.create` | Create task or subtask                |
+| `GET`    | `/projects/:projectId/tasks/:taskId` | `taskManagement.view`   | Fetch single task (full detail)       |
+| `PATCH`  | `/projects/:projectId/tasks/:taskId` | `taskManagement.update` | Partial update                        |
+| `DELETE` | `/projects/:projectId/tasks/:taskId` | `taskManagement.delete` | Soft delete                           |
 
 ---
 
 ### Tasks — Sub-resources
 
-| Method | Path | Permission | Description |
-|--------|------|------------|-------------|
-| `PATCH` | `/projects/:projectId/tasks/:taskId/position` | `taskManagement.update` | Reorder or move task |
-| `PATCH` | `/projects/:projectId/tasks/bulk` | `taskManagement.update` | Bulk update (status, progress, re-parent) |
-| `GET` | `/projects/:projectId/tasks/:taskId/comments` | `taskManagement.view` | List comments |
-| `POST` | `/projects/:projectId/tasks/:taskId/comments` | `taskManagement.create` | Add comment |
-| `PATCH` | `/projects/:projectId/tasks/:taskId/comments/:commentId` | `taskManagement.update` | Edit comment (author only) |
-| `DELETE` | `/projects/:projectId/tasks/:taskId/comments/:commentId` | `taskManagement.delete` | Soft-delete comment |
-| `GET` | `/projects/:projectId/tasks/:taskId/checklist` | `taskManagement.view` | List checklist items |
-| `POST` | `/projects/:projectId/tasks/:taskId/checklist` | `taskManagement.update` | Add checklist item |
-| `PATCH` | `/projects/:projectId/tasks/:taskId/checklist/:itemId` | `taskManagement.update` | Update item (text, completed, order) |
-| `DELETE` | `/projects/:projectId/tasks/:taskId/checklist/:itemId` | `taskManagement.update` | Delete item |
-| `GET` | `/projects/:projectId/tasks/:taskId/dependencies` | `taskManagement.view` | List dependencies |
-| `POST` | `/projects/:projectId/tasks/:taskId/dependencies` | `taskManagement.update` | Add dependency |
-| `DELETE` | `/projects/:projectId/tasks/:taskId/dependencies/:depId` | `taskManagement.update` | Remove dependency |
+| Method   | Path                                                     | Permission              | Description                               |
+| -------- | -------------------------------------------------------- | ----------------------- | ----------------------------------------- |
+| `PATCH`  | `/projects/:projectId/tasks/:taskId/position`            | `taskManagement.update` | Reorder or move task                      |
+| `PATCH`  | `/projects/:projectId/tasks/bulk`                        | `taskManagement.update` | Bulk update (status, progress, re-parent) |
+| `GET`    | `/projects/:projectId/tasks/:taskId/comments`            | `taskManagement.view`   | List comments                             |
+| `POST`   | `/projects/:projectId/tasks/:taskId/comments`            | `taskManagement.create` | Add comment                               |
+| `PATCH`  | `/projects/:projectId/tasks/:taskId/comments/:commentId` | `taskManagement.update` | Edit comment (author only)                |
+| `DELETE` | `/projects/:projectId/tasks/:taskId/comments/:commentId` | `taskManagement.delete` | Soft-delete comment                       |
+| `GET`    | `/projects/:projectId/tasks/:taskId/checklist`           | `taskManagement.view`   | List checklist items                      |
+| `POST`   | `/projects/:projectId/tasks/:taskId/checklist`           | `taskManagement.update` | Add checklist item                        |
+| `PATCH`  | `/projects/:projectId/tasks/:taskId/checklist/:itemId`   | `taskManagement.update` | Update item (text, completed, order)      |
+| `DELETE` | `/projects/:projectId/tasks/:taskId/checklist/:itemId`   | `taskManagement.update` | Delete item                               |
+| `GET`    | `/projects/:projectId/tasks/:taskId/dependencies`        | `taskManagement.view`   | List dependencies                         |
+| `POST`   | `/projects/:projectId/tasks/:taskId/dependencies`        | `taskManagement.update` | Add dependency                            |
+| `DELETE` | `/projects/:projectId/tasks/:taskId/dependencies/:depId` | `taskManagement.update` | Remove dependency                         |
 
 ---
 
@@ -772,6 +795,7 @@ When `completed = true`, backend sets `completedByUserId` and `completedAt` on t
 ### `TasksService` — Key Methods
 
 #### `verifyProjectPermission(projectId, requestUser, action)`
+
 Called at the start of task operations. Confirms the project belongs to the organization and that the caller's active project membership role grants the requested `taskManagement` action. Throws `ForbiddenException` otherwise.
 
 #### `createTask(projectId, dto, requestUser)`
@@ -817,6 +841,7 @@ Called at the start of task operations. Confirms the project belongs to the orga
 Returns flat normalized list. No deep nesting. The frontend derives tree structure client-side using `parentTaskId`.
 
 Query builder flow:
+
 - Base: `WHERE project_id = :projectId AND deleted_at IS NULL`
 - If `parentTaskId = 'root'`: add `AND parent_task_id IS NULL`
 - If `parentTaskId = <uuid>`: add `AND parent_task_id = :parentTaskId`
@@ -825,6 +850,7 @@ Query builder flow:
 - Pagination via `skip`/`take`.
 
 Response shape:
+
 ```json
 {
   "items": [ ...TaskListItemSerializer ],
@@ -854,6 +880,7 @@ Iterate items, apply updates, skip tasks that don't belong to the project. Run i
 #### Cycle detection for dependencies
 
 When adding `taskA → dependsOnTaskB`:
+
 - BFS/DFS from `taskA` following existing outgoing edges.
 - If `taskB` is reachable from `taskA`, a cycle would form — throw `BadRequestException`.
 - Keep this within transaction before inserting the new edge.
@@ -865,6 +892,7 @@ When adding `taskA → dependsOnTaskB`:
 ### `TaskSerializer` (full detail — GET /tasks/:id)
 
 Exposes all fields including:
+
 - `assignees[]` — `{ userId, firstName, lastName, assignmentRole }`
 - `checklistItems[]` — ordered by `orderIndex`
 - `comments[]` — ordered by `createdAt ASC`, excludes soft-deleted
@@ -876,6 +904,7 @@ Exposes all fields including:
 ### `TaskListItemSerializer` (list — GET /tasks)
 
 Slimmed version — no comments body, no full checklist text. Includes:
+
 - All canonical scalar fields
 - `assignees[]` — userId + assignmentRole only
 - `checklistItems[]` — id, completed, orderIndex (no text for list perf)
@@ -913,8 +942,8 @@ Slimmed version — no comments body, no full checklist text. Includes:
     ]),
   ],
   controllers: [TasksController],
-  providers:   [TasksService],
-  exports:     [TasksService],   // future: DocumentsModule will need task validation
+  providers: [TasksService],
+  exports: [TasksService], // future: DocumentsModule will need task validation
 })
 export class TasksModule {}
 ```
@@ -925,20 +954,20 @@ Register `TasksModule` in `AppModule`.
 
 ## Domain Invariants Summary
 
-| # | Rule | Enforcement |
-|---|------|-------------|
-| 1 | Task `projectId` must match route `:projectId` | Service — every load |
-| 2 | `parent_task_id` must reference a task in the same project | Service — on create/move |
-| 3 | No task can be its own ancestor | Service — on re-parent |
-| 4 | Assignees must be active project members | Service — on create/update |
-| 5 | Dependencies must reference tasks in the same project | Service — on add dependency |
-| 6 | No self-dependency | DB CHECK + Service |
-| 7 | No cyclic dependency graph | Service — BFS before insert |
-| 8 | `startDate <= endDate` when both present | DTO + Service |
-| 9 | Soft-deleted tasks excluded from all reads by default | All queries filter `deleted_at IS NULL` |
-| 10 | Deleting a parent cascades or blocks depending on mode | Service — delete method |
-| 11 | Workflow columns must belong to the same project as the task | Service — on create/update |
-| 12 | `viewMeta` is non-authoritative — never used for business logic | Convention — documented here |
+| #   | Rule                                                            | Enforcement                             |
+| --- | --------------------------------------------------------------- | --------------------------------------- |
+| 1   | Task `projectId` must match route `:projectId`                  | Service — every load                    |
+| 2   | `parent_task_id` must reference a task in the same project      | Service — on create/move                |
+| 3   | No task can be its own ancestor                                 | Service — on re-parent                  |
+| 4   | Assignees must be active project members                        | Service — on create/update              |
+| 5   | Dependencies must reference tasks in the same project           | Service — on add dependency             |
+| 6   | No self-dependency                                              | DB CHECK + Service                      |
+| 7   | No cyclic dependency graph                                      | Service — BFS before insert             |
+| 8   | `startDate <= endDate` when both present                        | DTO + Service                           |
+| 9   | Soft-deleted tasks excluded from all reads by default           | All queries filter `deleted_at IS NULL` |
+| 10  | Deleting a parent cascades or blocks depending on mode          | Service — delete method                 |
+| 11  | Workflow columns must belong to the same project as the task    | Service — on create/update              |
+| 12  | `viewMeta` is non-authoritative — never used for business logic | Convention — documented here            |
 
 ---
 
@@ -1004,12 +1033,15 @@ At end of Phase 4: Full task sheet works. Mindmap and Gantt have all the data th
 ## View-Specific Notes
 
 ### Kanban
+
 Groups tasks by `workflowColumnId`. Columns are fetched first from `GET /projects/:id/columns`, then tasks fetched with `GET /projects/:id/tasks?include=assignees,checklist`. Drag between columns calls `PATCH /tasks/:id/position` with new `workflowColumnId`. Drag within column updates `rank` only.
 
 ### Mindmap
+
 Fetches all tasks flat: `GET /projects/:id/tasks?include=viewMeta`. Builds tree client-side using `parentTaskId`. Node positions come from `viewMeta.mindmap.{ x, y, collapsed }`. Layout save calls `PATCH /tasks/:id` with `viewMeta.mindmap` update — no status/content changes needed.
 
 ### Gantt
+
 Fetches all tasks flat: `GET /projects/:id/tasks?include=assignees,dependencies,viewMeta`. Rows are grouped/indented by `parentTaskId`. Bars use `startDate`/`endDate`. Dependency arrows use `task_dependencies`. Bar color override from `viewMeta.gantt.barColor`. Progress bar from `progress` field.
 
 ---

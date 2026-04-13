@@ -13,7 +13,11 @@ import { ListFilterService } from 'src/common/services';
 import { Organization } from 'src/organizations/entities/organization.entity';
 import { Project } from 'src/projects/entities';
 import { CreateTemplateDto, UpdateTemplateDto } from './dtos';
-import { TEMPLATE_EXISTS, TEMPLATE_IN_USE, TEMPLATE_NOT_FOUND } from './messages';
+import {
+  TEMPLATE_EXISTS,
+  TEMPLATE_IN_USE,
+  TEMPLATE_NOT_FOUND,
+} from './messages';
 import { Template, TemplateTask } from './entities';
 import { TemplateSerializer } from './serializers';
 
@@ -58,7 +62,9 @@ export class TemplatesService {
     }
   }
 
-  private async clearDefaultForOrganization(organizationId: string): Promise<void> {
+  private async clearDefaultForOrganization(
+    organizationId: string,
+  ): Promise<void> {
     await this.templateRepo.update(
       { organizationId, isDefault: true },
       { isDefault: false },
@@ -119,11 +125,17 @@ export class TemplatesService {
     // Load the org record before the transaction so we can set the relation
     // object alongside the scalar UUID — TypeORM resolves organization_id (int FK)
     // from the entity relation, not from the organizationId UUID column.
-    const orgRecord = await this.orgRepo.findOneOrFail({ where: { id: organizationId } });
+    const orgRecord = await this.orgRepo.findOneOrFail({
+      where: { id: organizationId },
+    });
 
     const saved = await this.templateRepo.manager.transaction(async (tx) => {
       if (dto.isDefault) {
-        await tx.update(Template, { organizationId, isDefault: true }, { isDefault: false });
+        await tx.update(
+          Template,
+          { organizationId, isDefault: true },
+          { isDefault: false },
+        );
       }
 
       const template = tx.create(Template, {
@@ -140,7 +152,9 @@ export class TemplatesService {
       return savedTemplate;
     });
 
-    return this.toSerializer(await this.loadOne({ id: saved.id, organizationId }));
+    return this.toSerializer(
+      await this.loadOne({ id: saved.id, organizationId }),
+    );
   }
 
   async getTemplates(
@@ -163,7 +177,10 @@ export class TemplatesService {
     identifier: string,
     organizationId: string,
   ): Promise<TemplateSerializer> {
-    const template = await this.findTemplateByIdentifier(identifier, organizationId);
+    const template = await this.findTemplateByIdentifier(
+      identifier,
+      organizationId,
+    );
     return this.toSerializer(template);
   }
 
@@ -172,7 +189,10 @@ export class TemplatesService {
     dto: UpdateTemplateDto,
     organizationId: string,
   ): Promise<TemplateSerializer> {
-    const template = await this.findTemplateByIdentifier(identifier, organizationId);
+    const template = await this.findTemplateByIdentifier(
+      identifier,
+      organizationId,
+    );
 
     if (dto.name !== undefined) {
       const name = this.normalizeName(dto.name);
@@ -190,7 +210,11 @@ export class TemplatesService {
 
     const updated = await this.templateRepo.manager.transaction(async (tx) => {
       if (shouldBecomeDefault) {
-        await tx.update(Template, { organizationId, isDefault: true }, { isDefault: false });
+        await tx.update(
+          Template,
+          { organizationId, isDefault: true },
+          { isDefault: false },
+        );
         template.isDefault = true;
       } else if (shouldUnsetDefault) {
         template.isDefault = false;
@@ -210,14 +234,19 @@ export class TemplatesService {
       return template;
     });
 
-    return this.toSerializer(await this.loadOne({ id: updated.id, organizationId }));
+    return this.toSerializer(
+      await this.loadOne({ id: updated.id, organizationId }),
+    );
   }
 
   async deleteTemplateByIdentifier(
     identifier: string,
     organizationId: string,
   ): Promise<void> {
-    const template = await this.findTemplateByIdentifier(identifier, organizationId);
+    const template = await this.findTemplateByIdentifier(
+      identifier,
+      organizationId,
+    );
     const projectCount = await this.projectRepo.count({
       where: { templateId: template.id, organizationId },
     });
