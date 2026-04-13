@@ -557,7 +557,7 @@ export class ProjectInvitesService {
         id: result.id,
         status: result.status,
         projectRoleId: result.projectRoleId,
-      projectRole: result.projectRole
+        projectRole: result.projectRole
           ? {
               id: result.projectRole.id,
               name: result.projectRole.name,

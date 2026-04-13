@@ -14,12 +14,12 @@ export const DEFAULT_PROJECT_ROLE_SETUP_FAILED =
   'Required default project roles could not be created for this project';
 export const DEFAULT_PROJECT_ROLE_NOT_FOUND =
   'Default contributor project role could not be found for this project';
-export const TEMPLATE_NOT_IN_ORG  = 'Template not found in your organization';
-export const MEMBER_NOT_IN_ORG    = 'One or more members do not belong to your organization';
+export const TEMPLATE_NOT_IN_ORG = 'Template not found in your organization';
+export const MEMBER_NOT_IN_ORG =
+  'One or more members do not belong to your organization';
 export const INVALID_PROJECT_MEMBER_ROLE =
   'One or more submitted project roles do not belong to this project or are inactive';
-export const PROJECT_MEMBER_NOT_FOUND =
-  'Project member not found';
+export const PROJECT_MEMBER_NOT_FOUND = 'Project member not found';
 export const PROJECT_MEMBER_ROLE_UPDATED =
   'Project member role updated successfully';
 export const PROJECT_MEMBER_ROLE_CHANGE_FORBIDDEN =

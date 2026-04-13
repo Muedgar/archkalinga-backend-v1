@@ -44,17 +44,15 @@ class MemberSnippet extends BaseSerializer {
         }
       : null,
   )
-  projectRole:
-    | {
-        id: string;
-        name: string;
-        slug: string;
-        status: boolean;
-        isSystem: boolean;
-        isProtected: boolean;
-        permissions: Record<string, Record<string, boolean>>;
-      }
-    | null;
+  projectRole: {
+    id: string;
+    name: string;
+    slug: string;
+    status: boolean;
+    isSystem: boolean;
+    isProtected: boolean;
+    permissions: Record<string, Record<string, boolean>>;
+  } | null;
 }
 
 class InviteSnippet extends BaseSerializer {
@@ -74,17 +72,15 @@ class InviteSnippet extends BaseSerializer {
         }
       : null,
   )
-  projectRole:
-    | {
-        id: string;
-        name: string;
-        slug: string;
-        status: boolean;
-        isSystem: boolean;
-        isProtected: boolean;
-        permissions: Record<string, Record<string, boolean>>;
-      }
-    | null;
+  projectRole: {
+    id: string;
+    name: string;
+    slug: string;
+    status: boolean;
+    isSystem: boolean;
+    isProtected: boolean;
+    permissions: Record<string, Record<string, boolean>>;
+  } | null;
   @Expose() status: string;
   @Expose() expiresAt: Date;
 }
@@ -144,28 +140,31 @@ export class ProjectSerializer extends BaseSerializer {
 
   @Expose()
   @Transform(({ obj }) =>
-    [...(obj?.projectRoles ?? [])].sort(
-      (
-        a: { createdAt?: Date | string },
-        b: { createdAt?: Date | string },
-      ) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
-    ).map((role: {
-      id: string;
-      name: string;
-      slug: string;
-      status: boolean;
-      isSystem: boolean;
-      isProtected: boolean;
-      permissions: Record<string, Record<string, boolean>>;
-    }) => ({
-      id: role.id,
-      name: role.name,
-      slug: role.slug,
-      status: role.status,
-      isSystem: role.isSystem,
-      isProtected: role.isProtected,
-      permissions: role.permissions,
-    })),
+    [...(obj?.projectRoles ?? [])]
+      .sort(
+        (a: { createdAt?: Date | string }, b: { createdAt?: Date | string }) =>
+          new Date(a.createdAt ?? 0).getTime() -
+          new Date(b.createdAt ?? 0).getTime(),
+      )
+      .map(
+        (role: {
+          id: string;
+          name: string;
+          slug: string;
+          status: boolean;
+          isSystem: boolean;
+          isProtected: boolean;
+          permissions: Record<string, Record<string, boolean>>;
+        }) => ({
+          id: role.id,
+          name: role.name,
+          slug: role.slug,
+          status: role.status,
+          isSystem: role.isSystem,
+          isProtected: role.isProtected,
+          permissions: role.permissions,
+        }),
+      ),
   )
   @Type(() => ProjectRoleSnippet)
   projectRoles: ProjectRoleSnippet[];
@@ -174,46 +173,48 @@ export class ProjectSerializer extends BaseSerializer {
   @Transform(({ obj }) =>
     (obj?.memberships ?? [])
       .filter((m: { status: string }) => m.status === 'ACTIVE')
-      .map((m: {
-        user?: {
-          id: string;
-          firstName: string;
-          lastName: string;
-          email: string;
-          title: string | null;
-        } | null;
-        projectRoleId?: string | null;
-        projectRole?: {
-          id: string;
-          name: string;
-          slug: string;
-          status: boolean;
-          isSystem: boolean;
-          isProtected: boolean;
-          permissions: Record<string, Record<string, boolean>>;
-        } | null;
-      }) => {
-        if (!m.user) return null;
-        return {
-          id: m.user.id,
-          firstName: m.user.firstName,
-          lastName: m.user.lastName,
-          email: m.user.email,
-          title: m.user.title ?? null,
-          projectRoleId: m.projectRoleId ?? null,
-          projectRole: m.projectRole
-            ? {
-                id: m.projectRole.id,
-                name: m.projectRole.name,
-                slug: m.projectRole.slug,
-                status: m.projectRole.status,
-                isSystem: m.projectRole.isSystem,
-                isProtected: m.projectRole.isProtected,
-                permissions: m.projectRole.permissions,
-              }
-            : null,
-        };
-      })
+      .map(
+        (m: {
+          user?: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            email: string;
+            title: string | null;
+          } | null;
+          projectRoleId?: string | null;
+          projectRole?: {
+            id: string;
+            name: string;
+            slug: string;
+            status: boolean;
+            isSystem: boolean;
+            isProtected: boolean;
+            permissions: Record<string, Record<string, boolean>>;
+          } | null;
+        }) => {
+          if (!m.user) return null;
+          return {
+            id: m.user.id,
+            firstName: m.user.firstName,
+            lastName: m.user.lastName,
+            email: m.user.email,
+            title: m.user.title ?? null,
+            projectRoleId: m.projectRoleId ?? null,
+            projectRole: m.projectRole
+              ? {
+                  id: m.projectRole.id,
+                  name: m.projectRole.name,
+                  slug: m.projectRole.slug,
+                  status: m.projectRole.status,
+                  isSystem: m.projectRole.isSystem,
+                  isProtected: m.projectRole.isProtected,
+                  permissions: m.projectRole.permissions,
+                }
+              : null,
+          };
+        },
+      )
       .filter(Boolean),
   )
   @Type(() => MemberSnippet)
@@ -221,41 +222,43 @@ export class ProjectSerializer extends BaseSerializer {
 
   @Expose()
   @Transform(({ obj }) =>
-    (obj?.activeInvites ?? obj?.invites ?? []).filter(
-      (i: { status: string }) => i.status === 'PENDING',
-    ).map((invite: {
-      id: string;
-      inviteeEmail: string;
-      projectRoleId: string;
-      projectRole?: {
-        id: string;
-        name: string;
-        slug: string;
-        status: boolean;
-        isSystem: boolean;
-        isProtected: boolean;
-        permissions: Record<string, Record<string, boolean>>;
-      } | null;
-      status: string;
-      expiresAt: Date;
-    }) => ({
-      id: invite.id,
-      inviteeEmail: invite.inviteeEmail,
-      projectRoleId: invite.projectRoleId,
-      projectRole: invite.projectRole
-        ? {
-            id: invite.projectRole.id,
-            name: invite.projectRole.name,
-            slug: invite.projectRole.slug,
-            status: invite.projectRole.status,
-            isSystem: invite.projectRole.isSystem,
-            isProtected: invite.projectRole.isProtected,
-            permissions: invite.projectRole.permissions,
-          }
-        : null,
-      status: invite.status,
-      expiresAt: invite.expiresAt,
-    })),
+    (obj?.activeInvites ?? obj?.invites ?? [])
+      .filter((i: { status: string }) => i.status === 'PENDING')
+      .map(
+        (invite: {
+          id: string;
+          inviteeEmail: string;
+          projectRoleId: string;
+          projectRole?: {
+            id: string;
+            name: string;
+            slug: string;
+            status: boolean;
+            isSystem: boolean;
+            isProtected: boolean;
+            permissions: Record<string, Record<string, boolean>>;
+          } | null;
+          status: string;
+          expiresAt: Date;
+        }) => ({
+          id: invite.id,
+          inviteeEmail: invite.inviteeEmail,
+          projectRoleId: invite.projectRoleId,
+          projectRole: invite.projectRole
+            ? {
+                id: invite.projectRole.id,
+                name: invite.projectRole.name,
+                slug: invite.projectRole.slug,
+                status: invite.projectRole.status,
+                isSystem: invite.projectRole.isSystem,
+                isProtected: invite.projectRole.isProtected,
+                permissions: invite.projectRole.permissions,
+              }
+            : null,
+          status: invite.status,
+          expiresAt: invite.expiresAt,
+        }),
+      ),
   )
   @Type(() => InviteSnippet)
   invites: InviteSnippet[];

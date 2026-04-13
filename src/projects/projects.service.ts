@@ -51,9 +51,7 @@ import {
 import { MembershipStatus } from './entities/project-membership.entity';
 import { ProjectSerializer, ProjectListItemSerializer } from './serializers';
 import { FilterResponse } from 'src/common/interfaces';
-import {
-  type ProjectPermissionAction,
-} from './types/project-permission-matrix.type';
+import { type ProjectPermissionAction } from './types/project-permission-matrix.type';
 import {
   DEFAULT_CONTRIBUTOR_PROJECT_ROLE_SLUG,
   DEFAULT_OWNER_PROJECT_ROLE_SLUG,
@@ -324,10 +322,15 @@ export class ProjectsService {
   }
 
   private normalizeMemberAssignments(
-    dto: Pick<CreateProjectDto, 'memberIds' | 'memberAssignments'> | Pick<UpdateProjectDto, 'memberIds' | 'memberAssignments'>,
+    dto:
+      | Pick<CreateProjectDto, 'memberIds' | 'memberAssignments'>
+      | Pick<UpdateProjectDto, 'memberIds' | 'memberAssignments'>,
   ): Array<{ userId: string; projectRoleId?: string }> {
     if (dto.memberAssignments?.length) {
-      const deduped = new Map<string, { userId: string; projectRoleId?: string }>();
+      const deduped = new Map<
+        string,
+        { userId: string; projectRoleId?: string }
+      >();
       for (const assignment of dto.memberAssignments) {
         deduped.set(assignment.userId, {
           userId: assignment.userId,
@@ -359,8 +362,12 @@ export class ProjectsService {
     }
 
     const userMap = new Map(users.map((user) => [user.id, user]));
-    const roleById = new Map([...projectRoles.values()].map((role) => [role.id, role]));
-    const contributorRole = projectRoles.get(DEFAULT_CONTRIBUTOR_PROJECT_ROLE_SLUG);
+    const roleById = new Map(
+      [...projectRoles.values()].map((role) => [role.id, role]),
+    );
+    const contributorRole = projectRoles.get(
+      DEFAULT_CONTRIBUTOR_PROJECT_ROLE_SLUG,
+    );
 
     if (!contributorRole) {
       throw new NotFoundException(DEFAULT_PROJECT_ROLE_NOT_FOUND);
@@ -554,8 +561,12 @@ export class ProjectsService {
     if (!template) throw new NotFoundException(TEMPLATE_NOT_IN_ORG);
 
     // 2. Load relation objects needed to resolve integer FKs inside the transaction
-    const orgRecord = await this.orgRepo.findOneOrFail({ where: { id: organizationId } });
-    const creatorUser = await this.userRepo.findOneOrFail({ where: { id: userId } });
+    const orgRecord = await this.orgRepo.findOneOrFail({
+      where: { id: organizationId },
+    });
+    const creatorUser = await this.userRepo.findOneOrFail({
+      where: { id: userId },
+    });
 
     const project = await this.projectRepo.manager.transaction(async (tx) => {
       // a. Create project
@@ -605,7 +616,9 @@ export class ProjectsService {
       );
 
       // c. Additional member memberships (skip if creator already in list)
-      const nonCreatorMembers = memberAssignments.filter((member) => member.userId !== userId);
+      const nonCreatorMembers = memberAssignments.filter(
+        (member) => member.userId !== userId,
+      );
       for (const memberAssignment of nonCreatorMembers) {
         const reloadedMember = await tx.findOneOrFail(User, {
           where: { pkid: memberAssignment.user.pkid },
@@ -744,7 +757,9 @@ export class ProjectsService {
           relations: ['projectRole'],
         });
 
-        const desiredIds = new Set(memberAssignments.map((member) => member.userId));
+        const desiredIds = new Set(
+          memberAssignments.map((member) => member.userId),
+        );
         const existingIds = new Set(existing.map((m) => m.userId));
         const desiredAssignmentsByUserId = new Map(
           memberAssignments.map((member) => [member.userId, member]),
@@ -775,7 +790,9 @@ export class ProjectsService {
         }
 
         for (const membership of existing) {
-          const desiredAssignment = desiredAssignmentsByUserId.get(membership.userId);
+          const desiredAssignment = desiredAssignmentsByUserId.get(
+            membership.userId,
+          );
           if (
             desiredAssignment &&
             membership.projectRoleId !== desiredAssignment.projectRoleId &&
@@ -990,7 +1007,9 @@ export class ProjectsService {
     requestUser: RequestUser,
   ): Promise<ProjectSerializer> {
     const { organizationId, id: userId } = requestUser;
-    const actorUser = await this.userRepo.findOneOrFail({ where: { id: userId } });
+    const actorUser = await this.userRepo.findOneOrFail({
+      where: { id: userId },
+    });
 
     await this.loadAuthorizedProject(projectId, requestUser, 'update');
 
