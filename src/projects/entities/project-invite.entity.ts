@@ -5,18 +5,18 @@ import { Project } from './project.entity';
 import { ProjectRole } from './project-role.entity';
 
 export enum InviteStatus {
-  PENDING  = 'PENDING',
+  PENDING = 'PENDING',
   ACCEPTED = 'ACCEPTED',
   DECLINED = 'DECLINED',
-  EXPIRED  = 'EXPIRED',
-  REVOKED  = 'REVOKED',
+  EXPIRED = 'EXPIRED',
+  REVOKED = 'REVOKED',
 }
 
 /** Describes what context the invite was sent from. */
 export enum InviteTargetType {
-  PROJECT  = 'project',
-  TASK     = 'task',
-  SUBTASK  = 'subtask',
+  PROJECT = 'project',
+  TASK = 'task',
+  SUBTASK = 'subtask',
 }
 
 @Entity('project_invites')

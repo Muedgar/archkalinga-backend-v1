@@ -48,7 +48,11 @@ export class ProjectRolesController {
   @ResponseMessage(PROJECT_ROLE_CREATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('projectManagement', 'update')
-  @LogActivity({ action: 'create:project-role', resource: 'project-role', includeBody: true })
+  @LogActivity({
+    action: 'create:project-role',
+    resource: 'project-role',
+    includeBody: true,
+  })
   createProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() dto: CreateProjectRoleDto,
@@ -100,7 +104,11 @@ export class ProjectRolesController {
   @ResponseMessage(PROJECT_ROLE_UPDATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('projectManagement', 'update')
-  @LogActivity({ action: 'update:project-role', resource: 'project-role', includeBody: true })
+  @LogActivity({
+    action: 'update:project-role',
+    resource: 'project-role',
+    includeBody: true,
+  })
   updateProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('roleId', ParseUUIDPipe) roleId: string,

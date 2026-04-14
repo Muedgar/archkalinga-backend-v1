@@ -87,7 +87,8 @@ export class TaskFiltersDto extends ListFilterDTO {
   includeDeleted?: boolean;
 
   @ApiPropertyOptional({
-    example: 'assignedMembers,reportee,checklist,comments,dependencies,viewMeta',
+    example:
+      'assignedMembers,reportee,checklist,comments,dependencies,viewMeta',
     description:
       'Comma-separated list of allowed relations: assignedMembers, reportee, checklist, dependencies, comments, viewMeta.',
   })
@@ -100,5 +101,4 @@ export class TaskFiltersDto extends ListFilterDTO {
   @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   flat?: boolean;
-
 }

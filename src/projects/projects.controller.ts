@@ -16,7 +16,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { JwtAuthGuard, PermissionGuard, ProjectPermissionGuard } from 'src/auth/guards';
+import {
+  JwtAuthGuard,
+  PermissionGuard,
+  ProjectPermissionGuard,
+} from 'src/auth/guards';
 import {
   GetUser,
   RequirePermission,
@@ -51,21 +55,33 @@ export class ProjectsController {
 
   @Post()
   @ApiOperation({
-    summary: 'Create a new project in the current organization and seed its board from the template',
+    summary:
+      'Create a new project in the current organization and seed its board from the template',
     description:
       'Workspace-scoped action. Requires workspace permission to create projects, then creates default project roles and seeds memberships/tasks from the selected template.',
   })
-  @ApiResponse({ status: 201, description: 'Project created with default project roles, memberships, workflow columns, seeded tasks, and activity logs' })
-  @ApiResponse({ status: 400, description: 'Validation error or member not in organization' })
-  @ApiResponse({ status: 404, description: 'Template not found in organization' })
+  @ApiResponse({
+    status: 201,
+    description:
+      'Project created with default project roles, memberships, workflow columns, seeded tasks, and activity logs',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error or member not in organization',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Template not found in organization',
+  })
   @ResponseMessage(PROJECT_CREATED)
   @UseGuards(PermissionGuard)
   @RequirePermission('projectManagement', 'create')
-  @LogActivity({ action: 'create:project', resource: 'project', includeBody: true })
-  createProject(
-    @Body() dto: CreateProjectDto,
-    @GetUser() user: RequestUser,
-  ) {
+  @LogActivity({
+    action: 'create:project',
+    resource: 'project',
+    includeBody: true,
+  })
+  createProject(@Body() dto: CreateProjectDto, @GetUser() user: RequestUser) {
     return this.projectsService.createProject(dto, user);
   }
 
@@ -94,7 +110,7 @@ export class ProjectsController {
   @ApiOperation({
     summary: 'Get a single project by UUID',
     description:
-      'Project-scoped action. Requires projectManagement.view on the caller\'s active project membership role. Returns template, seeded project roles with permission matrices, members with project-role assignments, invites, and recent activity.',
+      "Project-scoped action. Requires projectManagement.view on the caller's active project membership role. Returns template, seeded project roles with permission matrices, members with project-role assignments, invites, and recent activity.",
   })
   @ApiResponse({ status: 200, description: 'Project detail' })
   @ApiResponse({ status: 403, description: 'Not a member of this project' })
@@ -115,7 +131,7 @@ export class ProjectsController {
   @ApiOperation({
     summary: 'Update a project',
     description:
-      'Project-scoped action. Requires projectManagement.update on the caller\'s active project membership role. All fields optional. memberIds replaces the current member list (the Owner project role is never removed). templateId cannot be changed after project tasks exist.',
+      "Project-scoped action. Requires projectManagement.update on the caller's active project membership role. All fields optional. memberIds replaces the current member list (the Owner project role is never removed). templateId cannot be changed after project tasks exist.",
   })
   @ApiResponse({ status: 200, description: 'Updated project detail' })
   @ApiResponse({ status: 400, description: 'Member not in organization' })
@@ -123,7 +139,11 @@ export class ProjectsController {
   @ResponseMessage(PROJECT_UPDATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('projectManagement', 'update')
-  @LogActivity({ action: 'update:project', resource: 'project', includeBody: true })
+  @LogActivity({
+    action: 'update:project',
+    resource: 'project',
+    includeBody: true,
+  })
   updateProject(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateProjectDto,
@@ -138,27 +158,39 @@ export class ProjectsController {
     description:
       "Project-scoped settings action. Requires projectManagement.update on the caller's active project membership role. Protected member roles cannot be reassigned here.",
   })
-  @ApiResponse({ status: 200, description: 'Updated project detail with refreshed member roles' })
+  @ApiResponse({
+    status: 200,
+    description: 'Updated project detail with refreshed member roles',
+  })
   @ApiResponse({ status: 400, description: 'Invalid or protected role change' })
   @ApiResponse({ status: 404, description: 'Project member or role not found' })
   @ResponseMessage(PROJECT_MEMBER_ROLE_UPDATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('projectManagement', 'update')
-  @LogActivity({ action: 'update:project-member-role', resource: 'project-membership', includeBody: true })
+  @LogActivity({
+    action: 'update:project-member-role',
+    resource: 'project-membership',
+    includeBody: true,
+  })
   updateProjectMemberRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('memberId', ParseUUIDPipe) memberId: string,
     @Body() dto: UpdateProjectMemberRoleDto,
     @GetUser() user: RequestUser,
   ) {
-    return this.projectsService.updateMemberRole(projectId, memberId, dto, user);
+    return this.projectsService.updateMemberRole(
+      projectId,
+      memberId,
+      dto,
+      user,
+    );
   }
 
   @Delete(':id')
   @ApiOperation({
     summary: 'Delete a project',
     description:
-      'Project-scoped action. Requires projectManagement.delete on the caller\'s active project membership role. Deletes the project and its dependent memberships, workflow columns, tasks, and related records.',
+      "Project-scoped action. Requires projectManagement.delete on the caller's active project membership role. Deletes the project and its dependent memberships, workflow columns, tasks, and related records.",
   })
   @ApiResponse({ status: 200, description: 'Project deleted' })
   @ApiResponse({ status: 403, description: 'Not a member of this project' })

@@ -1,10 +1,4 @@
-import {
-  Column,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-} from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { Organization } from 'src/organizations/entities/organization.entity';
 import { Template } from 'src/templates/entities/template.entity';
@@ -16,16 +10,16 @@ import { ProjectRole } from './project-role.entity';
 
 export enum ProjectType {
   ARCHITECTURE = 'ARCHITECTURE',
-  STRUCTURE    = 'STRUCTURE',
-  MEP          = 'MEP',
-  INTERIOR     = 'INTERIOR',
+  STRUCTURE = 'STRUCTURE',
+  MEP = 'MEP',
+  INTERIOR = 'INTERIOR',
 }
 
 export enum ProjectStatus {
-  ACTIVE    = 'ACTIVE',
-  ON_HOLD   = 'ON_HOLD',
+  ACTIVE = 'ACTIVE',
+  ON_HOLD = 'ON_HOLD',
   COMPLETED = 'COMPLETED',
-  ARCHIVED  = 'ARCHIVED',
+  ARCHIVED = 'ARCHIVED',
 }
 
 @Entity('projects')

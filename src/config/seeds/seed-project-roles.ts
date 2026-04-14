@@ -9,7 +9,10 @@ import { Project, ProjectRole } from '../../projects/entities';
 import { DEFAULT_PROJECT_ROLE_DEFINITIONS } from '../../projects/constants';
 
 async function seedProjectRoles(): Promise<void> {
-  const ds = new DataSource({ ...(dataSourceOptions as any), synchronize: false });
+  const ds = new DataSource({
+    ...(dataSourceOptions as any),
+    synchronize: false,
+  });
   await ds.initialize();
 
   const projectRepo = ds.getRepository(Project);

@@ -5,336 +5,469 @@ This handoff is based only on backend APIs that currently exist and are exposed 
 ## RTK Query Endpoint Definitions
 
 ```ts
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
+import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
 export const api = createApi({
-  reducerPath: "api",
+  reducerPath: 'api',
   baseQuery: fetchBaseQuery({
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
     prepareHeaders: (headers, { getState }) => {
       const token = (getState() as { auth?: { token?: string } }).auth?.token;
-      if (token) headers.set("authorization", `Bearer ${token}`);
+      if (token) headers.set('authorization', `Bearer ${token}`);
       return headers;
     },
   }),
   tagTypes: [
-    "Template",
-    "Project",
-    "ProjectInvite",
-    "Task",
-    "TaskChecklist",
-    "TaskComment",
-    "TaskDependency",
-    "WorkflowColumn",
+    'Template',
+    'Project',
+    'ProjectInvite',
+    'Task',
+    'TaskChecklist',
+    'TaskComment',
+    'TaskDependency',
+    'WorkflowColumn',
   ],
   endpoints: (builder) => ({
     getTemplates: builder.query<PaginatedResponse<Template>, ListQuery | void>({
-      query: (params) => ({ url: "/templates", params }),
-      providesTags: ["Template"],
+      query: (params) => ({ url: '/templates', params }),
+      providesTags: ['Template'],
     }),
     getTemplate: builder.query<Template, string>({
       query: (identifier) => `/templates/${identifier}`,
-      providesTags: (_result, _error, identifier) => [{ type: "Template", id: identifier }],
+      providesTags: (_result, _error, identifier) => [
+        { type: 'Template', id: identifier },
+      ],
     }),
-    createTemplate: builder.mutation<ApiEnvelope<Template>, CreateTemplateBody>({
-      query: (body) => ({ url: "/templates", method: "POST", body }),
-      invalidatesTags: ["Template"],
-    }),
-    updateTemplate: builder.mutation<ApiEnvelope<Template>, { identifier: string; body: UpdateTemplateBody }>({
+    createTemplate: builder.mutation<ApiEnvelope<Template>, CreateTemplateBody>(
+      {
+        query: (body) => ({ url: '/templates', method: 'POST', body }),
+        invalidatesTags: ['Template'],
+      },
+    ),
+    updateTemplate: builder.mutation<
+      ApiEnvelope<Template>,
+      { identifier: string; body: UpdateTemplateBody }
+    >({
       query: ({ identifier, body }) => ({
         url: `/templates/${identifier}`,
-        method: "PATCH",
+        method: 'PATCH',
         body,
       }),
       invalidatesTags: (_result, _error, { identifier }) => [
-        "Template",
-        { type: "Template", id: identifier },
+        'Template',
+        { type: 'Template', id: identifier },
       ],
     }),
     deleteTemplate: builder.mutation<ApiEnvelope<{ id: string }>, string>({
-      query: (identifier) => ({ url: `/templates/${identifier}`, method: "DELETE" }),
-      invalidatesTags: ["Template"],
+      query: (identifier) => ({
+        url: `/templates/${identifier}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['Template'],
     }),
 
-    getProjects: builder.query<PaginatedResponse<ProjectListItem>, ListQuery | void>({
-      query: (params) => ({ url: "/projects", params }),
-      providesTags: ["Project"],
+    getProjects: builder.query<
+      PaginatedResponse<ProjectListItem>,
+      ListQuery | void
+    >({
+      query: (params) => ({ url: '/projects', params }),
+      providesTags: ['Project'],
     }),
     getProject: builder.query<ProjectDetail, string>({
       query: (projectId) => `/projects/${projectId}`,
-      providesTags: (_result, _error, projectId) => [{ type: "Project", id: projectId }],
+      providesTags: (_result, _error, projectId) => [
+        { type: 'Project', id: projectId },
+      ],
     }),
-    createProject: builder.mutation<ApiEnvelope<ProjectDetail>, CreateProjectBody>({
-      query: (body) => ({ url: "/projects", method: "POST", body }),
-      invalidatesTags: ["Project"],
+    createProject: builder.mutation<
+      ApiEnvelope<ProjectDetail>,
+      CreateProjectBody
+    >({
+      query: (body) => ({ url: '/projects', method: 'POST', body }),
+      invalidatesTags: ['Project'],
     }),
-    updateProject: builder.mutation<ApiEnvelope<ProjectDetail>, { projectId: string; body: UpdateProjectBody }>({
+    updateProject: builder.mutation<
+      ApiEnvelope<ProjectDetail>,
+      { projectId: string; body: UpdateProjectBody }
+    >({
       query: ({ projectId, body }) => ({
         url: `/projects/${projectId}`,
-        method: "PATCH",
+        method: 'PATCH',
         body,
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
-        "Project",
-        { type: "Project", id: projectId },
+        'Project',
+        { type: 'Project', id: projectId },
       ],
     }),
     deleteProject: builder.mutation<ApiEnvelope<{ id: string }>, string>({
-      query: (projectId) => ({ url: `/projects/${projectId}`, method: "DELETE" }),
+      query: (projectId) => ({
+        url: `/projects/${projectId}`,
+        method: 'DELETE',
+      }),
       invalidatesTags: (_result, _error, projectId) => [
-        "Project",
-        { type: "Project", id: projectId },
+        'Project',
+        { type: 'Project', id: projectId },
       ],
     }),
 
-    listProjectInvites: builder.query<PaginatedResponse<ProjectInvite>, { projectId: string } & InviteListQuery>({
+    listProjectInvites: builder.query<
+      PaginatedResponse<ProjectInvite>,
+      { projectId: string } & InviteListQuery
+    >({
       query: ({ projectId, ...params }) => ({
         url: `/projects/${projectId}/invites`,
         params,
       }),
       providesTags: (_result, _error, { projectId }) => [
-        "ProjectInvite",
-        { type: "Project", id: projectId },
+        'ProjectInvite',
+        { type: 'Project', id: projectId },
       ],
     }),
-    createProjectInvite: builder.mutation<ApiEnvelope<ProjectInvite>, CreateProjectInviteBody>({
-      query: (body) => ({ url: "/project-invites", method: "POST", body }),
+    createProjectInvite: builder.mutation<
+      ApiEnvelope<ProjectInvite>,
+      CreateProjectInviteBody
+    >({
+      query: (body) => ({ url: '/project-invites', method: 'POST', body }),
       invalidatesTags: (_result, _error, body) => [
-        "ProjectInvite",
-        { type: "Project", id: body.projectId },
+        'ProjectInvite',
+        { type: 'Project', id: body.projectId },
       ],
     }),
-    resendProjectInvite: builder.mutation<ApiEnvelope<ProjectInvite>, { inviteId: string; projectId: string }>({
-      query: ({ inviteId }) => ({ url: `/project-invites/${inviteId}/resend`, method: "POST" }),
+    resendProjectInvite: builder.mutation<
+      ApiEnvelope<ProjectInvite>,
+      { inviteId: string; projectId: string }
+    >({
+      query: ({ inviteId }) => ({
+        url: `/project-invites/${inviteId}/resend`,
+        method: 'POST',
+      }),
       invalidatesTags: (_result, _error, { projectId }) => [
-        "ProjectInvite",
-        { type: "Project", id: projectId },
+        'ProjectInvite',
+        { type: 'Project', id: projectId },
       ],
     }),
-    cancelProjectInvite: builder.mutation<ApiEnvelope<ProjectInvite>, { inviteId: string; projectId: string }>({
-      query: ({ inviteId }) => ({ url: `/project-invites/${inviteId}/cancel`, method: "POST" }),
+    cancelProjectInvite: builder.mutation<
+      ApiEnvelope<ProjectInvite>,
+      { inviteId: string; projectId: string }
+    >({
+      query: ({ inviteId }) => ({
+        url: `/project-invites/${inviteId}/cancel`,
+        method: 'POST',
+      }),
       invalidatesTags: (_result, _error, { projectId }) => [
-        "ProjectInvite",
-        { type: "Project", id: projectId },
+        'ProjectInvite',
+        { type: 'Project', id: projectId },
       ],
     }),
-    acceptProjectInvite: builder.mutation<ApiEnvelope<AcceptInviteResponse>, string>({
-      query: (token) => ({ url: "/project-invites/accept", method: "POST", params: { token } }),
-      invalidatesTags: ["Project", "ProjectInvite"],
+    acceptProjectInvite: builder.mutation<
+      ApiEnvelope<AcceptInviteResponse>,
+      string
+    >({
+      query: (token) => ({
+        url: '/project-invites/accept',
+        method: 'POST',
+        params: { token },
+      }),
+      invalidatesTags: ['Project', 'ProjectInvite'],
     }),
 
-    getProjectTasks: builder.query<PaginatedResponse<TaskItem> & { meta: { projectId: string; flat: boolean } }, { projectId: string } & TaskQuery>({
+    getProjectTasks: builder.query<
+      PaginatedResponse<TaskItem> & {
+        meta: { projectId: string; flat: boolean };
+      },
+      { projectId: string } & TaskQuery
+    >({
       query: ({ projectId, ...params }) => ({
         url: `/projects/${projectId}/tasks`,
         params,
       }),
       providesTags: (_result, _error, { projectId }) => [
-        "Task",
-        { type: "Project", id: projectId },
+        'Task',
+        { type: 'Project', id: projectId },
       ],
     }),
     getTask: builder.query<TaskItem, { projectId: string; taskId: string }>({
-      query: ({ projectId, taskId }) => `/projects/${projectId}/tasks/${taskId}`,
-      providesTags: (_result, _error, { taskId }) => [{ type: "Task", id: taskId }],
+      query: ({ projectId, taskId }) =>
+        `/projects/${projectId}/tasks/${taskId}`,
+      providesTags: (_result, _error, { taskId }) => [
+        { type: 'Task', id: taskId },
+      ],
     }),
-    createTask: builder.mutation<ApiEnvelope<TaskItem>, { projectId: string; body: CreateTaskBody }>({
+    createTask: builder.mutation<
+      ApiEnvelope<TaskItem>,
+      { projectId: string; body: CreateTaskBody }
+    >({
       query: ({ projectId, body }) => ({
         url: `/projects/${projectId}/tasks`,
-        method: "POST",
+        method: 'POST',
         body,
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
-        "Task",
-        "WorkflowColumn",
-        { type: "Project", id: projectId },
+        'Task',
+        'WorkflowColumn',
+        { type: 'Project', id: projectId },
       ],
     }),
-    updateTask: builder.mutation<ApiEnvelope<TaskItem>, { projectId: string; taskId: string; body: UpdateTaskBody }>({
+    updateTask: builder.mutation<
+      ApiEnvelope<TaskItem>,
+      { projectId: string; taskId: string; body: UpdateTaskBody }
+    >({
       query: ({ projectId, taskId, body }) => ({
         url: `/projects/${projectId}/tasks/${taskId}`,
-        method: "PATCH",
+        method: 'PATCH',
         body,
       }),
       invalidatesTags: (_result, _error, { projectId, taskId }) => [
-        "Task",
-        { type: "Task", id: taskId },
-        { type: "Project", id: projectId },
+        'Task',
+        { type: 'Task', id: taskId },
+        { type: 'Project', id: projectId },
       ],
     }),
-    bulkUpdateTasks: builder.mutation<ApiEnvelope<TaskItem[]>, { projectId: string; body: BulkUpdateTasksBody }>({
+    bulkUpdateTasks: builder.mutation<
+      ApiEnvelope<TaskItem[]>,
+      { projectId: string; body: BulkUpdateTasksBody }
+    >({
       query: ({ projectId, body }) => ({
         url: `/projects/${projectId}/tasks/bulk`,
-        method: "PATCH",
+        method: 'PATCH',
         body,
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
-        "Task",
-        { type: "Project", id: projectId },
+        'Task',
+        { type: 'Project', id: projectId },
       ],
     }),
-    moveTask: builder.mutation<ApiEnvelope<TaskItem>, { projectId: string; taskId: string; body: MoveTaskBody }>({
+    moveTask: builder.mutation<
+      ApiEnvelope<TaskItem>,
+      { projectId: string; taskId: string; body: MoveTaskBody }
+    >({
       query: ({ projectId, taskId, body }) => ({
         url: `/projects/${projectId}/tasks/${taskId}/position`,
-        method: "PATCH",
+        method: 'PATCH',
         body,
       }),
       invalidatesTags: (_result, _error, { projectId, taskId }) => [
-        "Task",
-        "WorkflowColumn",
-        { type: "Task", id: taskId },
-        { type: "Project", id: projectId },
+        'Task',
+        'WorkflowColumn',
+        { type: 'Task', id: taskId },
+        { type: 'Project', id: projectId },
       ],
     }),
-    deleteTask: builder.mutation<ApiEnvelope<DeleteTaskResponse>, { projectId: string; taskId: string }>({
+    deleteTask: builder.mutation<
+      ApiEnvelope<DeleteTaskResponse>,
+      { projectId: string; taskId: string }
+    >({
       query: ({ projectId, taskId }) => ({
         url: `/projects/${projectId}/tasks/${taskId}`,
-        method: "DELETE",
+        method: 'DELETE',
       }),
       invalidatesTags: (_result, _error, { projectId, taskId }) => [
-        "Task",
-        "WorkflowColumn",
-        { type: "Task", id: taskId },
-        { type: "Project", id: projectId },
+        'Task',
+        'WorkflowColumn',
+        { type: 'Task', id: taskId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
-    getTaskChecklist: builder.query<TaskChecklistItem[], { projectId: string; taskId: string }>({
-      query: ({ projectId, taskId }) => `/projects/${projectId}/tasks/${taskId}/checklist`,
-      providesTags: (_result, _error, { taskId }) => [{ type: "TaskChecklist", id: taskId }],
+    getTaskChecklist: builder.query<
+      TaskChecklistItem[],
+      { projectId: string; taskId: string }
+    >({
+      query: ({ projectId, taskId }) =>
+        `/projects/${projectId}/tasks/${taskId}/checklist`,
+      providesTags: (_result, _error, { taskId }) => [
+        { type: 'TaskChecklist', id: taskId },
+      ],
     }),
-    addChecklistItem: builder.mutation<ApiEnvelope<TaskChecklistItem>, { projectId: string; taskId: string; body: AddChecklistItemBody }>({
+    addChecklistItem: builder.mutation<
+      ApiEnvelope<TaskChecklistItem>,
+      { projectId: string; taskId: string; body: AddChecklistItemBody }
+    >({
       query: ({ projectId, taskId, body }) => ({
         url: `/projects/${projectId}/tasks/${taskId}/checklist`,
-        method: "POST",
+        method: 'POST',
         body,
       }),
       invalidatesTags: (_result, _error, { taskId }) => [
-        { type: "TaskChecklist", id: taskId },
-        { type: "Task", id: taskId },
+        { type: 'TaskChecklist', id: taskId },
+        { type: 'Task', id: taskId },
       ],
     }),
-    updateChecklistItem: builder.mutation<ApiEnvelope<TaskChecklistItem>, { projectId: string; taskId: string; itemId: string; body: UpdateChecklistItemBody }>({
+    updateChecklistItem: builder.mutation<
+      ApiEnvelope<TaskChecklistItem>,
+      {
+        projectId: string;
+        taskId: string;
+        itemId: string;
+        body: UpdateChecklistItemBody;
+      }
+    >({
       query: ({ projectId, taskId, itemId, body }) => ({
         url: `/projects/${projectId}/tasks/${taskId}/checklist/${itemId}`,
-        method: "PATCH",
+        method: 'PATCH',
         body,
       }),
       invalidatesTags: (_result, _error, { taskId }) => [
-        { type: "TaskChecklist", id: taskId },
-        { type: "Task", id: taskId },
+        { type: 'TaskChecklist', id: taskId },
+        { type: 'Task', id: taskId },
       ],
     }),
-    deleteChecklistItem: builder.mutation<ApiEnvelope<{ id: string; success: true }>, { projectId: string; taskId: string; itemId: string }>({
+    deleteChecklistItem: builder.mutation<
+      ApiEnvelope<{ id: string; success: true }>,
+      { projectId: string; taskId: string; itemId: string }
+    >({
       query: ({ projectId, taskId, itemId }) => ({
         url: `/projects/${projectId}/tasks/${taskId}/checklist/${itemId}`,
-        method: "DELETE",
+        method: 'DELETE',
       }),
       invalidatesTags: (_result, _error, { taskId }) => [
-        { type: "TaskChecklist", id: taskId },
-        { type: "Task", id: taskId },
+        { type: 'TaskChecklist', id: taskId },
+        { type: 'Task', id: taskId },
       ],
     }),
 
-    getTaskComments: builder.query<TaskComment[], { projectId: string; taskId: string }>({
-      query: ({ projectId, taskId }) => `/projects/${projectId}/tasks/${taskId}/comments`,
-      providesTags: (_result, _error, { taskId }) => [{ type: "TaskComment", id: taskId }],
+    getTaskComments: builder.query<
+      TaskComment[],
+      { projectId: string; taskId: string }
+    >({
+      query: ({ projectId, taskId }) =>
+        `/projects/${projectId}/tasks/${taskId}/comments`,
+      providesTags: (_result, _error, { taskId }) => [
+        { type: 'TaskComment', id: taskId },
+      ],
     }),
-    addTaskComment: builder.mutation<ApiEnvelope<TaskComment>, { projectId: string; taskId: string; body: AddCommentBody }>({
+    addTaskComment: builder.mutation<
+      ApiEnvelope<TaskComment>,
+      { projectId: string; taskId: string; body: AddCommentBody }
+    >({
       query: ({ projectId, taskId, body }) => ({
         url: `/projects/${projectId}/tasks/${taskId}/comments`,
-        method: "POST",
+        method: 'POST',
         body,
       }),
       invalidatesTags: (_result, _error, { taskId }) => [
-        { type: "TaskComment", id: taskId },
-        { type: "Task", id: taskId },
+        { type: 'TaskComment', id: taskId },
+        { type: 'Task', id: taskId },
       ],
     }),
-    updateTaskComment: builder.mutation<ApiEnvelope<TaskComment>, { projectId: string; taskId: string; commentId: string; body: UpdateCommentBody }>({
+    updateTaskComment: builder.mutation<
+      ApiEnvelope<TaskComment>,
+      {
+        projectId: string;
+        taskId: string;
+        commentId: string;
+        body: UpdateCommentBody;
+      }
+    >({
       query: ({ projectId, taskId, commentId, body }) => ({
         url: `/projects/${projectId}/tasks/${taskId}/comments/${commentId}`,
-        method: "PATCH",
+        method: 'PATCH',
         body,
       }),
       invalidatesTags: (_result, _error, { taskId }) => [
-        { type: "TaskComment", id: taskId },
-        { type: "Task", id: taskId },
+        { type: 'TaskComment', id: taskId },
+        { type: 'Task', id: taskId },
       ],
     }),
-    deleteTaskComment: builder.mutation<ApiEnvelope<{ id: string; success: true }>, { projectId: string; taskId: string; commentId: string }>({
+    deleteTaskComment: builder.mutation<
+      ApiEnvelope<{ id: string; success: true }>,
+      { projectId: string; taskId: string; commentId: string }
+    >({
       query: ({ projectId, taskId, commentId }) => ({
         url: `/projects/${projectId}/tasks/${taskId}/comments/${commentId}`,
-        method: "DELETE",
+        method: 'DELETE',
       }),
       invalidatesTags: (_result, _error, { taskId }) => [
-        { type: "TaskComment", id: taskId },
-        { type: "Task", id: taskId },
+        { type: 'TaskComment', id: taskId },
+        { type: 'Task', id: taskId },
       ],
     }),
 
-    getTaskDependencies: builder.query<TaskDependency[], { projectId: string; taskId: string }>({
-      query: ({ projectId, taskId }) => `/projects/${projectId}/tasks/${taskId}/dependencies`,
-      providesTags: (_result, _error, { taskId }) => [{ type: "TaskDependency", id: taskId }],
+    getTaskDependencies: builder.query<
+      TaskDependency[],
+      { projectId: string; taskId: string }
+    >({
+      query: ({ projectId, taskId }) =>
+        `/projects/${projectId}/tasks/${taskId}/dependencies`,
+      providesTags: (_result, _error, { taskId }) => [
+        { type: 'TaskDependency', id: taskId },
+      ],
     }),
-    addTaskDependency: builder.mutation<ApiEnvelope<TaskDependency>, { projectId: string; taskId: string; body: AddDependencyBody }>({
+    addTaskDependency: builder.mutation<
+      ApiEnvelope<TaskDependency>,
+      { projectId: string; taskId: string; body: AddDependencyBody }
+    >({
       query: ({ projectId, taskId, body }) => ({
         url: `/projects/${projectId}/tasks/${taskId}/dependencies`,
-        method: "POST",
+        method: 'POST',
         body,
       }),
       invalidatesTags: (_result, _error, { taskId }) => [
-        { type: "TaskDependency", id: taskId },
-        { type: "Task", id: taskId },
+        { type: 'TaskDependency', id: taskId },
+        { type: 'Task', id: taskId },
       ],
     }),
-    deleteTaskDependency: builder.mutation<ApiEnvelope<{ id: string; success: true }>, { projectId: string; taskId: string; depId: string }>({
+    deleteTaskDependency: builder.mutation<
+      ApiEnvelope<{ id: string; success: true }>,
+      { projectId: string; taskId: string; depId: string }
+    >({
       query: ({ projectId, taskId, depId }) => ({
         url: `/projects/${projectId}/tasks/${taskId}/dependencies/${depId}`,
-        method: "DELETE",
+        method: 'DELETE',
       }),
       invalidatesTags: (_result, _error, { taskId }) => [
-        { type: "TaskDependency", id: taskId },
-        { type: "Task", id: taskId },
+        { type: 'TaskDependency', id: taskId },
+        { type: 'Task', id: taskId },
       ],
     }),
 
     getWorkflowColumns: builder.query<WorkflowColumn[], { projectId: string }>({
       query: ({ projectId }) => `/projects/${projectId}/columns`,
       providesTags: (_result, _error, { projectId }) => [
-        "WorkflowColumn",
-        { type: "Project", id: projectId },
+        'WorkflowColumn',
+        { type: 'Project', id: projectId },
       ],
     }),
-    createWorkflowColumn: builder.mutation<ApiEnvelope<WorkflowColumn>, { projectId: string; body: CreateWorkflowColumnBody }>({
+    createWorkflowColumn: builder.mutation<
+      ApiEnvelope<WorkflowColumn>,
+      { projectId: string; body: CreateWorkflowColumnBody }
+    >({
       query: ({ projectId, body }) => ({
         url: `/projects/${projectId}/columns`,
-        method: "POST",
+        method: 'POST',
         body,
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
-        "WorkflowColumn",
-        { type: "Project", id: projectId },
+        'WorkflowColumn',
+        { type: 'Project', id: projectId },
       ],
     }),
-    updateWorkflowColumn: builder.mutation<ApiEnvelope<WorkflowColumn>, { projectId: string; columnId: string; body: UpdateWorkflowColumnBody }>({
+    updateWorkflowColumn: builder.mutation<
+      ApiEnvelope<WorkflowColumn>,
+      { projectId: string; columnId: string; body: UpdateWorkflowColumnBody }
+    >({
       query: ({ projectId, columnId, body }) => ({
         url: `/projects/${projectId}/columns/${columnId}`,
-        method: "PATCH",
+        method: 'PATCH',
         body,
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
-        "WorkflowColumn",
-        { type: "Project", id: projectId },
+        'WorkflowColumn',
+        { type: 'Project', id: projectId },
       ],
     }),
-    deleteWorkflowColumn: builder.mutation<ApiEnvelope<{ id: string; deleted: true }>, { projectId: string; columnId: string }>({
+    deleteWorkflowColumn: builder.mutation<
+      ApiEnvelope<{ id: string; deleted: true }>,
+      { projectId: string; columnId: string }
+    >({
       query: ({ projectId, columnId }) => ({
         url: `/projects/${projectId}/columns/${columnId}`,
-        method: "DELETE",
+        method: 'DELETE',
       }),
       invalidatesTags: (_result, _error, { projectId }) => [
-        "WorkflowColumn",
-        { type: "Project", id: projectId },
+        'WorkflowColumn',
+        { type: 'Project', id: projectId },
       ],
     }),
   }),
@@ -364,7 +497,7 @@ export type ListQuery = {
   page?: number;
   limit?: number;
   orderBy?: string;
-  sortOrder?: "ASC" | "DESC";
+  sortOrder?: 'ASC' | 'DESC';
   search?: string;
 };
 
@@ -402,7 +535,7 @@ export type CreateTemplateBody = {
   tasks: Array<{
     name: string;
     description?: string;
-    subtasks?: CreateTemplateBody["tasks"];
+    subtasks?: CreateTemplateBody['tasks'];
   }>;
 };
 
@@ -479,13 +612,13 @@ export type CreateProjectBody = {
   description?: string;
   startDate: string;
   endDate?: string | null;
-  type: "ARCHITECTURE" | "STRUCTURE" | "MEP" | "INTERIOR";
+  type: 'ARCHITECTURE' | 'STRUCTURE' | 'MEP' | 'INTERIOR';
   templateId: string;
   memberIds?: string[];
 };
 
 export type UpdateProjectBody = Partial<CreateProjectBody> & {
-  status?: "ACTIVE" | "ON_HOLD" | "COMPLETED" | "ARCHIVED";
+  status?: 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED';
 };
 
 export type CreateProjectInviteBody = {
@@ -570,7 +703,7 @@ export type TaskDependency = {
   id: string;
   taskId: string;
   dependsOnTaskId: string;
-  dependencyType: "FS" | "SS" | "FF" | "SF";
+  dependencyType: 'FS' | 'SS' | 'FF' | 'SF';
   lagDays: number | null;
   dependsOnTask: {
     id: string;
@@ -638,7 +771,7 @@ export type CreateTaskBody = {
   };
 };
 
-export type UpdateTaskBody = Partial<Omit<CreateTaskBody, "parentTaskId">>;
+export type UpdateTaskBody = Partial<Omit<CreateTaskBody, 'parentTaskId'>>;
 
 export type BulkUpdateTasksBody = {
   items: Array<{
@@ -691,7 +824,7 @@ export type UpdateCommentBody = {
 
 export type AddDependencyBody = {
   dependsOnTaskId: string;
-  dependencyType?: "FS" | "SS" | "FF" | "SF";
+  dependencyType?: 'FS' | 'SS' | 'FF' | 'SF';
   lagDays?: number;
 };
 
@@ -721,9 +854,9 @@ export type TaskQuery = {
   page?: number;
   limit?: number;
   orderBy?: string;
-  sortOrder?: "ASC" | "DESC";
+  sortOrder?: 'ASC' | 'DESC';
   search?: string;
-  parentTaskId?: string | "root";
+  parentTaskId?: string | 'root';
   status?: string;
   priority?: string;
   assignedUserId?: string;

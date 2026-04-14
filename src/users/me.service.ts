@@ -22,7 +22,9 @@ export class MeService {
       relations: ['organization', 'role'],
     });
     if (!user) throw new NotFoundException(USER_NOT_FOUND);
-    return plainToInstance(UserSerializer, user, { excludeExtraneousValues: true });
+    return plainToInstance(UserSerializer, user, {
+      excludeExtraneousValues: true,
+    });
   }
 
   async getMyProfile(userId: string): Promise<UserProfile | null> {

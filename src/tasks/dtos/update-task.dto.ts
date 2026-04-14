@@ -72,7 +72,8 @@ export class UpdateTaskDto {
 
   @ApiPropertyOptional({
     type: () => [TaskAssignedMemberDto],
-    description: 'Assigned project members with their active project-role linkage',
+    description:
+      'Assigned project members with their active project-role linkage',
   })
   @IsOptional()
   @IsArray()

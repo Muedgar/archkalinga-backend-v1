@@ -1,5 +1,8 @@
 import { SetMetadata } from '@nestjs/common';
-import type { PermissionDomain, PermissionAction } from 'src/roles/types/permission-matrix.type';
+import type {
+  PermissionDomain,
+  PermissionAction,
+} from 'src/roles/types/permission-matrix.type';
 import type { RequiredPermission } from '../guards/permission.guard';
 
 export const REQUIRE_PERMISSION_KEY = 'require_permission';
@@ -17,7 +20,10 @@ export const RequireWorkspacePermission = (
   domain: PermissionDomain,
   action: PermissionAction,
 ) =>
-  SetMetadata<string, RequiredPermission>(REQUIRE_PERMISSION_KEY, { domain, action });
+  SetMetadata<string, RequiredPermission>(REQUIRE_PERMISSION_KEY, {
+    domain,
+    action,
+  });
 
 /**
  * Backward-compatible alias for workspace-scoped authorization.

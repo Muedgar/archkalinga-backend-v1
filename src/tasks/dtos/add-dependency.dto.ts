@@ -7,7 +7,10 @@ export class AddDependencyDto {
   @IsUUID()
   dependsOnTaskId: string;
 
-  @ApiPropertyOptional({ enum: DependencyType, example: DependencyType.FINISH_TO_START })
+  @ApiPropertyOptional({
+    enum: DependencyType,
+    example: DependencyType.FINISH_TO_START,
+  })
   @IsOptional()
   @IsEnum(DependencyType)
   dependencyType?: DependencyType;

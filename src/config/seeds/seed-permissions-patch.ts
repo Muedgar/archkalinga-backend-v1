@@ -45,7 +45,10 @@ import {
 const ALL_ACTIONS = ['create', 'update', 'view', 'delete'] as const;
 
 async function patchPermissions(): Promise<void> {
-  const ds = new DataSource({ ...(dataSourceOptions as any), synchronize: false });
+  const ds = new DataSource({
+    ...(dataSourceOptions as any),
+    synchronize: false,
+  });
   await ds.initialize();
 
   const roleRepo = ds.getRepository(Role);
@@ -57,7 +60,9 @@ async function patchPermissions(): Promise<void> {
     return;
   }
 
-  console.log(`\n🔍  Scanning ${allRoles.length} role(s) across all organisations…\n`);
+  console.log(
+    `\n🔍  Scanning ${allRoles.length} role(s) across all organisations…\n`,
+  );
 
   let patchCount = 0;
 
@@ -66,18 +71,20 @@ async function patchPermissions(): Promise<void> {
     let dirty = false;
 
     // Clone current permissions so we can mutate safely
-    const patched: PermissionMatrix = { ...(role.permissions as PermissionMatrix) };
+    const patched: PermissionMatrix = {
+      ...(role.permissions as PermissionMatrix),
+    };
 
     for (const domain of PERMISSION_DOMAINS) {
       if (!patched[domain]) {
         // Domain is missing entirely — fill it in
         patched[domain] = isAdmin
-          ? { ...FULL_ACCESS_MATRIX[domain] }   // admin → all true
-          : { ...EMPTY_ACCESS_MATRIX[domain] };  // others → all false
+          ? { ...FULL_ACCESS_MATRIX[domain] } // admin → all true
+          : { ...EMPTY_ACCESS_MATRIX[domain] }; // others → all false
         dirty = true;
         console.log(
           `  + [${role.slug}] "${role.name}" (org: ${role.organizationId}): ` +
-          `added domain "${domain}" → ${isAdmin ? 'FULL' : 'EMPTY'}`,
+            `added domain "${domain}" → ${isAdmin ? 'FULL' : 'EMPTY'}`,
         );
       } else {
         // Domain exists but might be missing individual action keys
@@ -89,7 +96,7 @@ async function patchPermissions(): Promise<void> {
             dirty = true;
             console.log(
               `  + [${role.slug}] "${role.name}" (org: ${role.organizationId}): ` +
-              `added action "${domain}.${action}" → ${isAdmin}`,
+                `added action "${domain}.${action}" → ${isAdmin}`,
             );
           }
         }
@@ -106,7 +113,9 @@ async function patchPermissions(): Promise<void> {
   await ds.destroy();
 
   if (patchCount === 0) {
-    console.log('  ✓ All roles already have complete permission matrices — no changes needed.\n');
+    console.log(
+      '  ✓ All roles already have complete permission matrices — no changes needed.\n',
+    );
   } else {
     console.log(`\n✅ Patched ${patchCount} role(s) successfully.\n`);
   }

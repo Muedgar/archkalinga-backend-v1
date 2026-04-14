@@ -8,7 +8,10 @@ import { Reflector } from '@nestjs/core';
 import { REQUIRE_PERMISSION_KEY } from '../decorators/require-permission.decorator';
 import { INSUFFICIENT_PERMISSIONS } from '../messages';
 import { User } from 'src/users/entities';
-import type { PermissionDomain, PermissionAction } from 'src/roles/types/permission-matrix.type';
+import type {
+  PermissionDomain,
+  PermissionAction,
+} from 'src/roles/types/permission-matrix.type';
 
 export interface RequiredPermission {
   domain: PermissionDomain;

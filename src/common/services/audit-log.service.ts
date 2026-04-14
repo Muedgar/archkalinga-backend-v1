@@ -29,7 +29,9 @@ export class AuditLogService {
     try {
       const log = this.auditLogRepo.create({
         actor: dto.actorId ? ({ id: dto.actorId } as any) : null,
-        organization: dto.organizationId ? ({ id: dto.organizationId } as any) : null,
+        organization: dto.organizationId
+          ? ({ id: dto.organizationId } as any)
+          : null,
         action: dto.action,
         resource: dto.resource,
         resourceId: dto.resourceId ?? null,

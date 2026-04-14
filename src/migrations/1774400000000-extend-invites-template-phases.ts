@@ -3,9 +3,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 /**
  * Migration: extend project_invites with task-context columns.
  */
-export class ExtendInvitesTemplatePhases1774400000000
-  implements MigrationInterface
-{
+export class ExtendInvitesTemplatePhases1774400000000 implements MigrationInterface {
   name = 'ExtendInvitesTemplatePhases1774400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -83,7 +81,6 @@ export class ExtendInvitesTemplatePhases1774400000000
         ON "project_invites" ("subtaskId")
         WHERE "subtaskId" IS NOT NULL
     `);
-
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

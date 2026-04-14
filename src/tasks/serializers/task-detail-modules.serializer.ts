@@ -29,15 +29,13 @@ export class TaskCommentDetailSerializer extends BaseSerializer {
       title: author.title ?? null,
     };
   })
-  author:
-    | {
-        id: string;
-        firstName: string | null;
-        lastName: string | null;
-        email: string | null;
-        title: string | null;
-      }
-    | null;
+  author: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+    title: string | null;
+  } | null;
 }
 
 export class TaskDependencyDetailSerializer extends BaseSerializer {
@@ -58,13 +56,11 @@ export class TaskDependencyDetailSerializer extends BaseSerializer {
       endDate: predecessor.endDate ?? null,
     };
   })
-  dependsOnTask:
-    | {
-        id: string;
-        title: string | null;
-        status: string | null;
-        startDate: string | null;
-        endDate: string | null;
-      }
-    | null;
+  dependsOnTask: {
+    id: string;
+    title: string | null;
+    status: string | null;
+    startDate: string | null;
+    endDate: string | null;
+  } | null;
 }

@@ -34,7 +34,8 @@ const SEEDS: { label: string; script: string }[] = [
     script: 'src/config/seeds/seed-permissions-patch.ts',
   },
   {
-    label: 'Starter project roles (Owner / Manager / Contributor / Reviewer / Viewer)',
+    label:
+      'Starter project roles (Owner / Manager / Contributor / Reviewer / Viewer)',
     script: 'src/config/seeds/seed-project-roles.ts',
   },
   // Add future seeds here in dependency order, e.g.:

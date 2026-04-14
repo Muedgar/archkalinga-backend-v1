@@ -37,13 +37,18 @@ import { PermissionMatrix } from '../../roles/types/permission-matrix.type';
  * can view (but not manage) users/roles.
  */
 const MANAGER_PERMISSIONS: PermissionMatrix = {
-  projectManagement:       { create: true,  update: true,  view: true,  delete: true  },
-  changeRequestManagement: { create: true,  update: true,  view: true,  delete: true  },
-  taskManagement:          { create: true,  update: true,  view: true,  delete: true  },
-  documentManagement:      { create: true,  update: true,  view: true,  delete: true  },
-  userManagement:          { create: false, update: false, view: true,  delete: false },
-  roleManagement:          { create: false, update: false, view: true,  delete: false },
-  templateManagement:      { create: true,  update: true,  view: true,  delete: false },
+  projectManagement: { create: true, update: true, view: true, delete: true },
+  changeRequestManagement: {
+    create: true,
+    update: true,
+    view: true,
+    delete: true,
+  },
+  taskManagement: { create: true, update: true, view: true, delete: true },
+  documentManagement: { create: true, update: true, view: true, delete: true },
+  userManagement: { create: false, update: false, view: true, delete: false },
+  roleManagement: { create: false, update: false, view: true, delete: false },
+  templateManagement: { create: true, update: true, view: true, delete: false },
 };
 
 /**
@@ -51,26 +56,61 @@ const MANAGER_PERMISSIONS: PermissionMatrix = {
  * no user, role, or document management.
  */
 const MEMBER_PERMISSIONS: PermissionMatrix = {
-  projectManagement:       { create: false, update: true,  view: true,  delete: false },
-  changeRequestManagement: { create: false, update: false, view: true,  delete: false },
-  taskManagement:          { create: true,  update: true,  view: true,  delete: false },
-  documentManagement:      { create: false, update: false, view: true,  delete: false },
-  userManagement:          { create: false, update: false, view: false, delete: false },
-  roleManagement:          { create: false, update: false, view: false, delete: false },
-  templateManagement:      { create: false, update: false, view: true,  delete: false },
+  projectManagement: { create: false, update: true, view: true, delete: false },
+  changeRequestManagement: {
+    create: false,
+    update: false,
+    view: true,
+    delete: false,
+  },
+  taskManagement: { create: true, update: true, view: true, delete: false },
+  documentManagement: {
+    create: false,
+    update: false,
+    view: true,
+    delete: false,
+  },
+  userManagement: { create: false, update: false, view: false, delete: false },
+  roleManagement: { create: false, update: false, view: false, delete: false },
+  templateManagement: {
+    create: false,
+    update: false,
+    view: true,
+    delete: false,
+  },
 };
 
 /**
  * Viewer: read-only across all domains; cannot create or modify anything.
  */
 const VIEWER_PERMISSIONS: PermissionMatrix = {
-  projectManagement:       { create: false, update: false, view: true,  delete: false },
-  changeRequestManagement: { create: false, update: false, view: true,  delete: false },
-  taskManagement:          { create: false, update: false, view: true,  delete: false },
-  documentManagement:      { create: false, update: false, view: true,  delete: false },
-  userManagement:          { create: false, update: false, view: false, delete: false },
-  roleManagement:          { create: false, update: false, view: false, delete: false },
-  templateManagement:      { create: false, update: false, view: true,  delete: false },
+  projectManagement: {
+    create: false,
+    update: false,
+    view: true,
+    delete: false,
+  },
+  changeRequestManagement: {
+    create: false,
+    update: false,
+    view: true,
+    delete: false,
+  },
+  taskManagement: { create: false, update: false, view: true, delete: false },
+  documentManagement: {
+    create: false,
+    update: false,
+    view: true,
+    delete: false,
+  },
+  userManagement: { create: false, update: false, view: false, delete: false },
+  roleManagement: { create: false, update: false, view: false, delete: false },
+  templateManagement: {
+    create: false,
+    update: false,
+    view: true,
+    delete: false,
+  },
 };
 
 // ── Default roles definition ──────────────────────────────────────────────────
@@ -81,17 +121,20 @@ const DEFAULT_ROLES: Array<{
   permissions: PermissionMatrix;
 }> = [
   { name: 'Manager', slug: 'manager', permissions: MANAGER_PERMISSIONS },
-  { name: 'Member',  slug: 'member',  permissions: MEMBER_PERMISSIONS  },
-  { name: 'Viewer',  slug: 'viewer',  permissions: VIEWER_PERMISSIONS  },
+  { name: 'Member', slug: 'member', permissions: MEMBER_PERMISSIONS },
+  { name: 'Viewer', slug: 'viewer', permissions: VIEWER_PERMISSIONS },
 ];
 
 // ── Seed ──────────────────────────────────────────────────────────────────────
 
 async function seedRoles(): Promise<void> {
-  const ds = new DataSource({ ...(dataSourceOptions as any), synchronize: false });
+  const ds = new DataSource({
+    ...(dataSourceOptions as any),
+    synchronize: false,
+  });
   await ds.initialize();
 
-  const orgRepo  = ds.getRepository(Organization);
+  const orgRepo = ds.getRepository(Organization);
   const roleRepo = ds.getRepository(Role);
 
   const organisations = await orgRepo.find();

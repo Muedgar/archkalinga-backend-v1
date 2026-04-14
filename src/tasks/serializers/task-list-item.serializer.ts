@@ -85,13 +85,17 @@ export class TaskListItemSerializer extends BaseSerializer {
 
   @Expose()
   @Transform(({ obj }) =>
-    [...(obj?.checklistItems ?? [])].sort((a, b) => a.orderIndex - b.orderIndex),
+    [...(obj?.checklistItems ?? [])].sort(
+      (a, b) => a.orderIndex - b.orderIndex,
+    ),
   )
   @Type(() => TaskListChecklistItemSerializer)
   checklistItems: TaskListChecklistItemSerializer[];
 
   @Expose()
-  @Transform(({ obj }) => (obj?.comments ?? []).filter((comment) => !comment.deletedAt))
+  @Transform(({ obj }) =>
+    (obj?.comments ?? []).filter((comment) => !comment.deletedAt),
+  )
   @Type(() => TaskListCommentSerializer)
   comments: TaskListCommentSerializer[];
 

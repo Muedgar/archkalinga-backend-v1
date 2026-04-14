@@ -142,7 +142,8 @@ export class CreateTaskDto {
 
   @ApiPropertyOptional({
     type: () => [TaskAssignedMemberDto],
-    description: 'Assigned project members with their active project-role linkage. Optional at initial creation.',
+    description:
+      'Assigned project members with their active project-role linkage. Optional at initial creation.',
   })
   @IsOptional()
   @IsArray()
@@ -153,7 +154,8 @@ export class CreateTaskDto {
 
   @ApiPropertyOptional({
     type: () => TaskReporteeDto,
-    description: 'Reportee member with project-role context. Optional at initial creation.',
+    description:
+      'Reportee member with project-role context. Optional at initial creation.',
   })
   @IsOptional()
   @ValidateNested()

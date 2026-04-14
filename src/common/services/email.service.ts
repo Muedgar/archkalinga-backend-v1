@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { InjectQueue } from '@nestjs/bull';
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { Job, Queue } from 'bull';
 
 import { ConfigService } from '@nestjs/config';
@@ -40,7 +44,10 @@ export class EmailService {
       job.finished().then(() => undefined),
       new Promise<void>((_, reject) =>
         setTimeout(
-          () => reject(new Error(`Mail job ${job.id} timed out after ${timeoutMs}ms`)),
+          () =>
+            reject(
+              new Error(`Mail job ${job.id} timed out after ${timeoutMs}ms`),
+            ),
           timeoutMs,
         ),
       ),

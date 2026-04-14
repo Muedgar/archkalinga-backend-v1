@@ -5,9 +5,7 @@ import { AuditLogService } from 'src/common/services/audit-log.service';
 import { AuditLogsController } from './audit-logs.controller';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([AuditLog]),
-  ],
+  imports: [TypeOrmModule.forFeature([AuditLog])],
   providers: [AuditLogService],
   controllers: [AuditLogsController],
 })

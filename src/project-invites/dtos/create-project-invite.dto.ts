@@ -18,7 +18,9 @@ export class CreateProjectInviteDto {
   @IsEmail()
   inviteeEmail: string;
 
-  @ApiProperty({ description: 'Project role UUID the invitee will receive on acceptance' })
+  @ApiProperty({
+    description: 'Project role UUID the invitee will receive on acceptance',
+  })
   @IsUUID()
   projectRoleId: string;
 
@@ -40,7 +42,9 @@ export class CreateProjectInviteDto {
 
   // ── Optional extras ────────────────────────────────────────────────────────
 
-  @ApiPropertyOptional({ description: 'Personal message shown in the invite email/UI' })
+  @ApiPropertyOptional({
+    description: 'Personal message shown in the invite email/UI',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(1000)

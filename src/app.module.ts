@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { BullModule } from '@nestjs/bull';
@@ -32,12 +32,11 @@ import { dataSourceOptions } from './config/db/db.config';
     // ── Database ─────────────────────────────────────────────────────────────
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: () =>
-        ({
-          ...dataSourceOptions,
-          autoLoadEntities: true,
-          synchronize: process.env.NODE_ENV !== 'production',
-        }) as any,
+      useFactory: (): TypeOrmModuleOptions => ({
+        ...dataSourceOptions,
+        autoLoadEntities: true,
+        synchronize: process.env.NODE_ENV !== 'production',
+      }),
     }),
 
     // ── Redis / Email Queue ───────────────────────────────────────────────────

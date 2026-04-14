@@ -192,9 +192,17 @@ export class CreateProjects1774200000000 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE IF EXISTS "project_invites"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "project_roles"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "projects"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."project_invites_status_enum"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."project_memberships_status_enum"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."projects_status_enum"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."projects_type_enum"`);
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."project_invites_status_enum"`,
+    );
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."project_memberships_status_enum"`,
+    );
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."projects_status_enum"`,
+    );
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."projects_type_enum"`,
+    );
   }
 }

@@ -1,151 +1,164 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Account Temporarily Locked</title>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: #f0f4f8;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      color: #1e293b;
-    }
+<html lang='en'>
+  <head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Account Temporarily Locked</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #f0f4f8;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: #1e293b;
+      }
 
-    .container {
-      max-width: 600px;
-      margin: 40px auto;
-      background-color: #ffffff;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-      border: 1px solid #cbd5e1;
-    }
+      .container {
+        max-width: 600px;
+        margin: 40px auto;
+        background-color: #ffffff;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        border: 1px solid #cbd5e1;
+      }
 
-    .header {
-      background-color: #1e3a5f;
-      padding: 28px 24px;
-      text-align: center;
-    }
+      .header {
+        background-color: #1e3a5f;
+        padding: 28px 24px;
+        text-align: center;
+      }
 
-    .header h1 {
-      margin: 0;
-      color: #ffffff;
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-    }
+      .header h1 {
+        margin: 0;
+        color: #ffffff;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
 
-    .header p {
-      margin: 6px 0 0;
-      color: #93c5fd;
-      font-size: 13px;
-    }
+      .header p {
+        margin: 6px 0 0;
+        color: #93c5fd;
+        font-size: 13px;
+      }
 
-    .content {
-      padding: 32px;
-    }
+      .content {
+        padding: 32px;
+      }
 
-    .content p {
-      font-size: 15px;
-      line-height: 1.7;
-      margin: 0 0 18px;
-      color: #334155;
-    }
+      .content p {
+        font-size: 15px;
+        line-height: 1.7;
+        margin: 0 0 18px;
+        color: #334155;
+      }
 
-    .alert {
-      background-color: #fef2f2;
-      border-left: 4px solid #ef4444;
-      padding: 14px 16px;
-      border-radius: 4px;
-      font-size: 14px;
-      color: #7f1d1d;
-      margin: 20px 0;
-    }
-
-    .button {
-      display: inline-block;
-      background-color: #2563eb;
-      color: #ffffff !important;
-      padding: 14px 28px;
-      text-decoration: none;
-      border-radius: 6px;
-      font-weight: 600;
-      font-size: 15px;
-      margin-top: 8px;
-    }
-
-    .notice {
-      background-color: #fefce8;
-      border-left: 4px solid #eab308;
-      padding: 14px 16px;
-      border-radius: 4px;
-      font-size: 13px;
-      color: #713f12;
-      margin-top: 28px;
-    }
-
-    .divider {
-      border: none;
-      border-top: 1px solid #e2e8f0;
-      margin: 28px 0;
-    }
-
-    .footer {
-      padding: 20px 24px;
-      text-align: center;
-      font-size: 13px;
-      background-color: #f8fafc;
-      color: #64748b;
-      border-top: 1px solid #e2e8f0;
-    }
-
-    @media (max-width: 600px) {
-      .content, .header, .footer {
-        padding: 16px;
+      .alert {
+        background-color: #fef2f2;
+        border-left: 4px solid #ef4444;
+        padding: 14px 16px;
+        border-radius: 4px;
+        font-size: 14px;
+        color: #7f1d1d;
+        margin: 20px 0;
       }
 
       .button {
-        display: block;
-        width: 100%;
-        text-align: center;
-        box-sizing: border-box;
+        display: inline-block;
+        background-color: #2563eb;
+        color: #ffffff !important;
+        padding: 14px 28px;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 15px;
+        margin-top: 8px;
       }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>ArchKalinga</h1>
-      <p>Project &amp; Architecture Management</p>
-    </div>
-    <div class="content">
-      <p>Hi {{data.firstName}},</p>
 
-      <div class="alert">
-        Your account has been <strong>temporarily locked</strong> due to multiple failed sign-in attempts.
+      .notice {
+        background-color: #fefce8;
+        border-left: 4px solid #eab308;
+        padding: 14px 16px;
+        border-radius: 4px;
+        font-size: 13px;
+        color: #713f12;
+        margin-top: 28px;
+      }
+
+      .divider {
+        border: none;
+        border-top: 1px solid #e2e8f0;
+        margin: 28px 0;
+      }
+
+      .footer {
+        padding: 20px 24px;
+        text-align: center;
+        font-size: 13px;
+        background-color: #f8fafc;
+        color: #64748b;
+        border-top: 1px solid #e2e8f0;
+      }
+
+      @media (max-width: 600px) {
+        .content,
+        .header,
+        .footer {
+          padding: 16px;
+        }
+
+        .button {
+          display: block;
+          width: 100%;
+          text-align: center;
+          box-sizing: border-box;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class='container'>
+      <div class='header'>
+        <h1>ArchKalinga</h1>
+        <p>Project &amp; Architecture Management</p>
       </div>
+      <div class='content'>
+        <p>Hi {{data.firstName}},</p>
 
-      <p>For your security, we've locked your ArchKalinga account for <strong>15 minutes</strong>. After that, you can try signing in again.</p>
+        <div class='alert'>
+          Your account has been
+          <strong>temporarily locked</strong>
+          due to multiple failed sign-in attempts.
+        </div>
 
-      <p>If this wasn't you, your account may be under attack. We recommend resetting your password immediately.</p>
+        <p>For your security, we've locked your ArchKalinga account for
+          <strong>15 minutes</strong>. After that, you can try signing in again.</p>
 
-      <a href="{{data.clientUrl}}/auth/forgot-password" target="_blank" class="button">Reset My Password →</a>
+        <p>If this wasn't you, your account may be under attack. We recommend
+          resetting your password immediately.</p>
 
-      <div class="notice">
-        If you made these attempts yourself and simply forgot your password, you can wait 15 minutes and try again, or reset your password using the button above.
+        <a
+          href='{{data.clientUrl}}/auth/forgot-password'
+          target='_blank'
+          class='button'
+        >Reset My Password →</a>
+
+        <div class='notice'>
+          If you made these attempts yourself and simply forgot your password,
+          you can wait 15 minutes and try again, or reset your password using
+          the button above.
+        </div>
+
+        <hr class='divider' />
+        <p style='font-size: 13px; color: #94a3b8; margin: 0;'>
+          If you believe this is a mistake, please contact your administrator.
+        </p>
       </div>
-
-      <hr class="divider" />
-      <p style="font-size: 13px; color: #94a3b8; margin: 0;">
-        If you believe this is a mistake, please contact your administrator.
-      </p>
+      <div class='footer'>
+        ©
+        {{data.year}}
+        ArchKalinga. All rights reserved.
+      </div>
     </div>
-    <div class="footer">
-      © {{data.year}} ArchKalinga. All rights reserved.
-    </div>
-  </div>
-</body>
+  </body>
 </html>

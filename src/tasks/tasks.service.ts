@@ -176,7 +176,9 @@ export class TasksService {
     );
   }
 
-  private toTaskSerializer(task: Partial<Task> & Partial<TaskCounts>): TaskSerializer {
+  private toTaskSerializer(
+    task: Partial<Task> & Partial<TaskCounts>,
+  ): TaskSerializer {
     return plainToInstance(TaskSerializer, task, {
       excludeExtraneousValues: true,
     });
@@ -190,13 +192,17 @@ export class TasksService {
     });
   }
 
-  private toTaskChecklistItemSerializer(item: Partial<TaskChecklistItem>): TaskChecklistItemDetailSerializer {
+  private toTaskChecklistItemSerializer(
+    item: Partial<TaskChecklistItem>,
+  ): TaskChecklistItemDetailSerializer {
     return plainToInstance(TaskChecklistItemDetailSerializer, item, {
       excludeExtraneousValues: true,
     });
   }
 
-  private toTaskCommentSerializer(comment: Partial<TaskComment>): TaskCommentDetailSerializer {
+  private toTaskCommentSerializer(
+    comment: Partial<TaskComment>,
+  ): TaskCommentDetailSerializer {
     return plainToInstance(TaskCommentDetailSerializer, comment, {
       excludeExtraneousValues: true,
     });
@@ -233,7 +239,10 @@ export class TasksService {
     return includes;
   }
 
-  private ensureDateRange(startDate?: string | null, endDate?: string | null): void {
+  private ensureDateRange(
+    startDate?: string | null,
+    endDate?: string | null,
+  ): void {
     if (startDate && endDate && startDate > endDate) {
       throw new BadRequestException(INVALID_TASK_DATE_RANGE);
     }
@@ -280,7 +289,7 @@ export class TasksService {
     });
 
     const movingItem = movingItemId
-      ? items.find((item) => item.id === movingItemId) ?? null
+      ? (items.find((item) => item.id === movingItemId) ?? null)
       : null;
     const remaining = movingItem
       ? items.filter((item) => item.id !== movingItemId)
@@ -289,7 +298,10 @@ export class TasksService {
     const targetIndex =
       requestedOrderIndex === undefined
         ? remaining.length
-        : this.normalizeRequestedChecklistOrder(requestedOrderIndex, remaining.length);
+        : this.normalizeRequestedChecklistOrder(
+            requestedOrderIndex,
+            remaining.length,
+          );
 
     if (movingItem) {
       remaining.splice(targetIndex, 0, movingItem);
@@ -315,7 +327,7 @@ export class TasksService {
     });
 
     const movingColumn = movingColumnId
-      ? columns.find((column) => column.id === movingColumnId) ?? null
+      ? (columns.find((column) => column.id === movingColumnId) ?? null)
       : null;
     const remaining = movingColumn
       ? columns.filter((column) => column.id !== movingColumnId)
@@ -352,7 +364,10 @@ export class TasksService {
     return parent;
   }
 
-  private async ensureAssigneeUsers(projectId: string, userIds: string[]): Promise<User[]> {
+  private async ensureAssigneeUsers(
+    projectId: string,
+    userIds: string[],
+  ): Promise<User[]> {
     if (!userIds.length) return [];
 
     const memberships = await this.membershipRepo.find({
@@ -384,7 +399,9 @@ export class TasksService {
       throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
     }
 
-    const uniqueUserIds = [...new Set(assignedMembers.map((member) => member.userId))];
+    const uniqueUserIds = [
+      ...new Set(assignedMembers.map((member) => member.userId)),
+    ];
     if (uniqueUserIds.length !== assignedMembers.length) {
       throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
     }
@@ -402,7 +419,9 @@ export class TasksService {
       throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
     }
 
-    const membershipMap = new Map(memberships.map((membership) => [membership.userId, membership]));
+    const membershipMap = new Map(
+      memberships.map((membership) => [membership.userId, membership]),
+    );
 
     for (const member of assignedMembers) {
       const membership = membershipMap.get(member.userId);
@@ -514,7 +533,10 @@ export class TasksService {
     };
   }
 
-  private async ensureDependencyTasks(projectId: string, taskIds: string[]): Promise<Task[]> {
+  private async ensureDependencyTasks(
+    projectId: string,
+    taskIds: string[],
+  ): Promise<Task[]> {
     if (!taskIds.length) return [];
 
     const tasks = await this.taskRepo.find({
@@ -589,7 +611,9 @@ export class TasksService {
       order: { rank: 'ASC', createdAt: 'ASC' },
     });
 
-    return excludeTaskId ? tasks.filter((task) => task.id !== excludeTaskId) : tasks;
+    return excludeTaskId
+      ? tasks.filter((task) => task.id !== excludeTaskId)
+      : tasks;
   }
 
   private async rebalanceScopeRanks(
@@ -634,9 +658,17 @@ export class TasksService {
       throw new BadRequestException(INVALID_TASK_MOVE_TARGET);
     }
     if (beforeTaskId && afterTaskId) {
-      const beforeIndex = siblings.findIndex((sibling) => sibling.id === beforeTaskId);
-      const afterIndex = siblings.findIndex((sibling) => sibling.id === afterTaskId);
-      if (beforeIndex === -1 || afterIndex === -1 || afterIndex + 1 !== beforeIndex) {
+      const beforeIndex = siblings.findIndex(
+        (sibling) => sibling.id === beforeTaskId,
+      );
+      const afterIndex = siblings.findIndex(
+        (sibling) => sibling.id === afterTaskId,
+      );
+      if (
+        beforeIndex === -1 ||
+        afterIndex === -1 ||
+        afterIndex + 1 !== beforeIndex
+      ) {
         throw new BadRequestException(INVALID_TASK_MOVE_TARGET);
       }
     }
@@ -657,7 +689,13 @@ export class TasksService {
         return this.formatRankValue((beforeRank + afterRank) / 2n);
       }
       await this.rebalanceScopeRanks(manager, scope, excludeTaskId);
-      return this.calculateRankWithinScope(manager, scope, beforeTaskId, afterTaskId, excludeTaskId);
+      return this.calculateRankWithinScope(
+        manager,
+        scope,
+        beforeTaskId,
+        afterTaskId,
+        excludeTaskId,
+      );
     }
 
     if (beforeRank !== null) {
@@ -665,7 +703,13 @@ export class TasksService {
         return this.formatRankValue(beforeRank / 2n);
       }
       await this.rebalanceScopeRanks(manager, scope, excludeTaskId);
-      return this.calculateRankWithinScope(manager, scope, beforeTaskId, afterTaskId, excludeTaskId);
+      return this.calculateRankWithinScope(
+        manager,
+        scope,
+        beforeTaskId,
+        afterTaskId,
+        excludeTaskId,
+      );
     }
 
     if (afterRank !== null) {
@@ -702,7 +746,10 @@ export class TasksService {
     while (queue.length > 0) {
       const currentId = queue.shift()!;
       for (const candidate of tasks) {
-        if (candidate.parentTaskId === currentId && !descendants.has(candidate.id)) {
+        if (
+          candidate.parentTaskId === currentId &&
+          !descendants.has(candidate.id)
+        ) {
           descendants.add(candidate.id);
           queue.push(candidate.id);
         }
@@ -722,7 +769,11 @@ export class TasksService {
   ): Promise<string> {
     return this.calculateRankWithinScope(
       manager,
-      this.buildTaskScope(projectId, parentTaskId ?? null, workflowColumnId ?? null),
+      this.buildTaskScope(
+        projectId,
+        parentTaskId ?? null,
+        workflowColumnId ?? null,
+      ),
     );
   }
 
@@ -765,12 +816,21 @@ export class TasksService {
   ): Promise<void> {
     if (!viewMeta) return;
 
-    const pairs: Array<{ viewType: ViewType; metaJson: Record<string, unknown> }> = [];
+    const pairs: Array<{
+      viewType: ViewType;
+      metaJson: Record<string, unknown>;
+    }> = [];
     if (viewMeta.mindmap) {
-      pairs.push({ viewType: ViewType.MINDMAP, metaJson: viewMeta.mindmap as Record<string, unknown> });
+      pairs.push({
+        viewType: ViewType.MINDMAP,
+        metaJson: viewMeta.mindmap as Record<string, unknown>,
+      });
     }
     if (viewMeta.gantt) {
-      pairs.push({ viewType: ViewType.GANTT, metaJson: viewMeta.gantt as Record<string, unknown> });
+      pairs.push({
+        viewType: ViewType.GANTT,
+        metaJson: viewMeta.gantt as Record<string, unknown>,
+      });
     }
 
     for (const pair of pairs) {
@@ -794,7 +854,10 @@ export class TasksService {
     }
   }
 
-  private async loadTaskOrFail(taskId: string, projectId: string): Promise<Task> {
+  private async loadTaskOrFail(
+    taskId: string,
+    projectId: string,
+  ): Promise<Task> {
     const task = await this.taskRepo.findOne({
       where: { id: taskId, projectId, deletedAt: IsNull() },
       relations: [
@@ -812,7 +875,10 @@ export class TasksService {
     return task;
   }
 
-  private async loadTasksForList(taskIds: string[], projectId: string): Promise<TaskListItemSerializer[]> {
+  private async loadTasksForList(
+    taskIds: string[],
+    projectId: string,
+  ): Promise<TaskListItemSerializer[]> {
     if (!taskIds.length) return [];
 
     const tasks = await this.taskRepo.find({
@@ -1027,23 +1093,37 @@ export class TasksService {
     dto: CreateWorkflowColumnDto,
     requestUser: RequestUser,
   ): Promise<WorkflowColumnSerializer> {
-    const project = await this.verifyProjectPermission(projectId, requestUser, 'create');
+    const project = await this.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'create',
+    );
 
-    const saved = await this.workflowColumnRepo.manager.transaction(async (tx) => {
-      const column = tx.create(WorkflowColumn, {
-        project,
-        projectId,
-        name: dto.name.trim(),
-        statusKey: dto.statusKey?.trim() ?? null,
-        orderIndex: 0,
-        wipLimit: dto.wipLimit ?? null,
-        locked: false,
-      });
+    const saved = await this.workflowColumnRepo.manager.transaction(
+      async (tx) => {
+        const column = tx.create(WorkflowColumn, {
+          project,
+          projectId,
+          name: dto.name.trim(),
+          statusKey: dto.statusKey?.trim() ?? null,
+          orderIndex: 0,
+          wipLimit: dto.wipLimit ?? null,
+          locked: false,
+        });
 
-      const savedColumn = await tx.save(column);
-      await this.reorderWorkflowColumns(tx, projectId, savedColumn.id, dto.orderIndex);
-      return tx.findOneByOrFail(WorkflowColumn, { id: savedColumn.id, projectId });
-    });
+        const savedColumn = await tx.save(column);
+        await this.reorderWorkflowColumns(
+          tx,
+          projectId,
+          savedColumn.id,
+          dto.orderIndex,
+        );
+        return tx.findOneByOrFail(WorkflowColumn, {
+          id: savedColumn.id,
+          projectId,
+        });
+      },
+    );
 
     return this.toWorkflowColumnSerializer(saved);
   }
@@ -1066,16 +1146,27 @@ export class TasksService {
 
     const requestedOrderIndex = dto.orderIndex;
     if (dto.name !== undefined) column.name = dto.name.trim();
-    if (dto.statusKey !== undefined) column.statusKey = dto.statusKey?.trim() ?? null;
+    if (dto.statusKey !== undefined)
+      column.statusKey = dto.statusKey?.trim() ?? null;
     if (dto.wipLimit !== undefined) column.wipLimit = dto.wipLimit ?? null;
 
-    const saved = await this.workflowColumnRepo.manager.transaction(async (tx) => {
-      const persisted = await tx.save(column);
-      if (requestedOrderIndex !== undefined) {
-        await this.reorderWorkflowColumns(tx, projectId, persisted.id, requestedOrderIndex);
-      }
-      return tx.findOneByOrFail(WorkflowColumn, { id: persisted.id, projectId });
-    });
+    const saved = await this.workflowColumnRepo.manager.transaction(
+      async (tx) => {
+        const persisted = await tx.save(column);
+        if (requestedOrderIndex !== undefined) {
+          await this.reorderWorkflowColumns(
+            tx,
+            projectId,
+            persisted.id,
+            requestedOrderIndex,
+          );
+        }
+        return tx.findOneByOrFail(WorkflowColumn, {
+          id: persisted.id,
+          projectId,
+        });
+      },
+    );
 
     return this.toWorkflowColumnSerializer(saved);
   }
@@ -1119,21 +1210,31 @@ export class TasksService {
     dto: CreateTaskDto,
     requestUser: RequestUser,
   ): Promise<TaskSerializer> {
-    const project = await this.verifyProjectPermission(projectId, requestUser, 'create');
+    const project = await this.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'create',
+    );
 
-    const [parent, workflowColumn, assignedMemberships, reporteeMembership, dependencyTasks, actorUser] =
-      await Promise.all([
-        this.ensureParentTask(projectId, dto.parentTaskId),
-        this.ensureWorkflowColumn(projectId, dto.workflowColumnId),
-        dto.assignedMembers !== undefined
-          ? this.ensureAssignedMembers(projectId, dto.assignedMembers)
-          : Promise.resolve([]),
-        dto.reportee !== undefined
-          ? this.ensureReporteeMember(projectId, dto.reportee)
-          : Promise.resolve(null),
-        this.ensureDependencyTasks(projectId, dto.dependencyIds ?? []),
-        this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
-      ]);
+    const [
+      parent,
+      workflowColumn,
+      assignedMemberships,
+      reporteeMembership,
+      dependencyTasks,
+      actorUser,
+    ] = await Promise.all([
+      this.ensureParentTask(projectId, dto.parentTaskId),
+      this.ensureWorkflowColumn(projectId, dto.workflowColumnId),
+      dto.assignedMembers !== undefined
+        ? this.ensureAssignedMembers(projectId, dto.assignedMembers)
+        : Promise.resolve([]),
+      dto.reportee !== undefined
+        ? this.ensureReporteeMember(projectId, dto.reportee)
+        : Promise.resolve(null),
+      this.ensureDependencyTasks(projectId, dto.dependencyIds ?? []),
+      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
+    ]);
 
     this.ensureDateRange(dto.startDate, dto.endDate);
 
@@ -1208,9 +1309,15 @@ export class TasksService {
       }
 
       await this.upsertViewMetadata(tx, saved, dto.viewMeta);
-      await this.logTaskActivity(tx, { ...saved, project }, actorUser, TaskActionType.TASK_CREATED, {
-        title: saved.title,
-      });
+      await this.logTaskActivity(
+        tx,
+        { ...saved, project },
+        actorUser,
+        TaskActionType.TASK_CREATED,
+        {
+          title: saved.title,
+        },
+      );
 
       return saved;
     });
@@ -1228,11 +1335,23 @@ export class TasksService {
 
     const task = await this.taskRepo.findOne({
       where: { id: taskId, projectId, deletedAt: IsNull() },
-      relations: ['project', 'assignees', 'dependencyEdges', 'viewMetadataEntries', 'reporteeUser'],
+      relations: [
+        'project',
+        'assignees',
+        'dependencyEdges',
+        'viewMetadataEntries',
+        'reporteeUser',
+      ],
     });
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
 
-    const [workflowColumn, assignedMemberships, reporteeMembership, dependencyTasks, actorUser] = await Promise.all([
+    const [
+      workflowColumn,
+      assignedMemberships,
+      reporteeMembership,
+      dependencyTasks,
+      actorUser,
+    ] = await Promise.all([
       dto.workflowColumnId !== undefined
         ? this.ensureWorkflowColumn(projectId, dto.workflowColumnId)
         : Promise.resolve(undefined),
@@ -1248,8 +1367,10 @@ export class TasksService {
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
 
-    const nextStartDate = dto.startDate !== undefined ? dto.startDate ?? null : task.startDate;
-    const nextEndDate = dto.endDate !== undefined ? dto.endDate ?? null : task.endDate;
+    const nextStartDate =
+      dto.startDate !== undefined ? (dto.startDate ?? null) : task.startDate;
+    const nextEndDate =
+      dto.endDate !== undefined ? (dto.endDate ?? null) : task.endDate;
     this.ensureDateRange(nextStartDate, nextEndDate);
 
     const changedFields: string[] = [];
@@ -1298,9 +1419,15 @@ export class TasksService {
       await tx.save(task);
 
       if (dto.assignedMembers !== undefined) {
-        const currentAssignees = await tx.find(TaskAssignee, { where: { taskId: task.id } });
-        const currentIds = new Set(currentAssignees.map((assignee) => assignee.userId));
-        const desiredIds = new Set(dto.assignedMembers.map((member) => member.userId));
+        const currentAssignees = await tx.find(TaskAssignee, {
+          where: { taskId: task.id },
+        });
+        const currentIds = new Set(
+          currentAssignees.map((assignee) => assignee.userId),
+        );
+        const desiredIds = new Set(
+          dto.assignedMembers.map((member) => member.userId),
+        );
 
         const toRemove = currentAssignees
           .filter((assignee) => !desiredIds.has(assignee.userId))
@@ -1346,8 +1473,12 @@ export class TasksService {
       }
 
       if (dto.dependencyIds !== undefined) {
-        const existingDeps = await tx.find(TaskDependency, { where: { taskId: task.id } });
-        const existingMap = new Map(existingDeps.map((dep) => [dep.dependsOnTaskId, dep]));
+        const existingDeps = await tx.find(TaskDependency, {
+          where: { taskId: task.id },
+        });
+        const existingMap = new Map(
+          existingDeps.map((dep) => [dep.dependsOnTaskId, dep]),
+        );
         const desiredIds = new Set(dto.dependencyIds);
 
         const toRemove = existingDeps
@@ -1379,9 +1510,15 @@ export class TasksService {
         changedFields.push('viewMeta');
       }
 
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.TASK_UPDATED, {
-        changedFields,
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_UPDATED,
+        {
+          changedFields,
+        },
+      );
     });
 
     return this.getTask(projectId, task.id, requestUser);
@@ -1412,9 +1549,13 @@ export class TasksService {
     );
 
     const nextParentTaskId =
-      dto.parentTaskId !== undefined ? dto.parentTaskId ?? null : task.parentTaskId;
+      dto.parentTaskId !== undefined
+        ? (dto.parentTaskId ?? null)
+        : task.parentTaskId;
     const nextWorkflowColumnId =
-      dto.workflowColumnId !== undefined ? dto.workflowColumnId ?? null : task.workflowColumnId;
+      dto.workflowColumnId !== undefined
+        ? (dto.workflowColumnId ?? null)
+        : task.workflowColumnId;
 
     await this.assertNotDescendant(projectId, task.id, nextParentTaskId);
 
@@ -1461,11 +1602,17 @@ export class TasksService {
         task.rank = refreshedTask.rank;
       }
 
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.TASK_MOVED, {
-        parentTaskId: task.parentTaskId,
-        workflowColumnId: task.workflowColumnId,
-        rank: task.rank,
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_MOVED,
+        {
+          parentTaskId: task.parentTaskId,
+          workflowColumnId: task.workflowColumnId,
+          rank: task.rank,
+        },
+      );
     });
 
     return this.getTask(projectId, task.id, requestUser);
@@ -1478,7 +1625,9 @@ export class TasksService {
   ): Promise<TaskListItemSerializer[]> {
     await this.verifyProjectPermission(projectId, requestUser, 'update');
 
-    const actorUser = await this.userRepo.findOneOrFail({ where: { id: requestUser.id } });
+    const actorUser = await this.userRepo.findOneOrFail({
+      where: { id: requestUser.id },
+    });
     const requestedIds = [...new Set(dto.items.map((item) => item.taskId))];
     const tasks = await this.taskRepo.find({
       where: {
@@ -1498,15 +1647,21 @@ export class TasksService {
         if (!task) continue;
 
         const nextStartDate =
-          item.startDate !== undefined ? item.startDate ?? null : task.startDate;
+          item.startDate !== undefined
+            ? (item.startDate ?? null)
+            : task.startDate;
         const nextEndDate =
-          item.endDate !== undefined ? item.endDate ?? null : task.endDate;
+          item.endDate !== undefined ? (item.endDate ?? null) : task.endDate;
         this.ensureDateRange(nextStartDate, nextEndDate);
 
         const nextParentTaskId =
-          item.parentTaskId !== undefined ? item.parentTaskId ?? null : task.parentTaskId;
+          item.parentTaskId !== undefined
+            ? (item.parentTaskId ?? null)
+            : task.parentTaskId;
         const nextWorkflowColumnId =
-          item.workflowColumnId !== undefined ? item.workflowColumnId ?? null : task.workflowColumnId;
+          item.workflowColumnId !== undefined
+            ? (item.workflowColumnId ?? null)
+            : task.workflowColumnId;
 
         if (item.parentTaskId !== undefined) {
           await this.assertNotDescendant(projectId, task.id, nextParentTaskId);
@@ -1548,7 +1703,11 @@ export class TasksService {
         if (movedScope) {
           task.rank = await this.calculateRankWithinScope(
             tx,
-            this.buildTaskScope(projectId, task.parentTaskId, task.workflowColumnId),
+            this.buildTaskScope(
+              projectId,
+              task.parentTaskId,
+              task.workflowColumnId,
+            ),
             undefined,
             undefined,
             task.id,
@@ -1628,9 +1787,15 @@ export class TasksService {
         }),
       );
 
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.COMMENT_ADDED, {
-        commentId: comment.id,
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.COMMENT_ADDED,
+        {
+          commentId: comment.id,
+        },
+      );
       return this.toTaskCommentSerializer({
         ...comment,
         authorUser: actorUser,
@@ -1663,10 +1828,16 @@ export class TasksService {
 
     return this.commentRepo.manager.transaction(async (tx) => {
       const saved = await tx.save(comment);
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.TASK_UPDATED, {
-        commentId: saved.id,
-        operation: 'comment_updated',
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_UPDATED,
+        {
+          commentId: saved.id,
+          operation: 'comment_updated',
+        },
+      );
       return this.toTaskCommentSerializer({
         ...saved,
         authorUser: actorUser,
@@ -1695,10 +1866,16 @@ export class TasksService {
     await this.commentRepo.manager.transaction(async (tx) => {
       comment.deletedAt = new Date();
       await tx.save(comment);
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.TASK_UPDATED, {
-        commentId: comment.id,
-        operation: 'comment_deleted',
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_UPDATED,
+        {
+          commentId: comment.id,
+          operation: 'comment_deleted',
+        },
+      );
     });
 
     return { id: commentId, success: true };
@@ -1752,10 +1929,16 @@ export class TasksService {
         taskId: task.id,
       });
 
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.CHECKLIST_UPDATED, {
-        itemId: savedItem.id,
-        operation: 'checklist_item_added',
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.CHECKLIST_UPDATED,
+        {
+          itemId: savedItem.id,
+          operation: 'checklist_item_added',
+        },
+      );
       return this.toTaskChecklistItemSerializer(savedItem);
     });
   }
@@ -1796,10 +1979,16 @@ export class TasksService {
         id: saved.id,
         taskId: task.id,
       });
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.CHECKLIST_UPDATED, {
-        itemId: refreshed.id,
-        operation: 'checklist_item_updated',
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.CHECKLIST_UPDATED,
+        {
+          itemId: refreshed.id,
+          operation: 'checklist_item_updated',
+        },
+      );
       return this.toTaskChecklistItemSerializer(refreshed);
     });
   }
@@ -1821,10 +2010,16 @@ export class TasksService {
     await this.checklistRepo.manager.transaction(async (tx) => {
       await tx.remove(item);
       await this.reorderChecklistItems(tx, task.id, null);
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.CHECKLIST_UPDATED, {
-        itemId,
-        operation: 'checklist_item_deleted',
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.CHECKLIST_UPDATED,
+        {
+          itemId,
+          operation: 'checklist_item_deleted',
+        },
+      );
     });
 
     return { id: itemId, success: true };
@@ -1844,7 +2039,9 @@ export class TasksService {
       order: { createdAt: 'ASC' },
     });
 
-    return dependencies.map((dependency) => this.toTaskDependencySerializer(dependency));
+    return dependencies.map((dependency) =>
+      this.toTaskDependencySerializer(dependency),
+    );
   }
 
   async addTaskDependency(
@@ -1882,11 +2079,17 @@ export class TasksService {
         }),
       );
 
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.DEPENDENCY_ADDED, {
-        dependencyId: dependency.id,
-        dependsOnTaskId: dependency.dependsOnTaskId,
-        operation: 'dependency_added',
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.DEPENDENCY_ADDED,
+        {
+          dependencyId: dependency.id,
+          dependsOnTaskId: dependency.dependsOnTaskId,
+          operation: 'dependency_added',
+        },
+      );
       return this.toTaskDependencySerializer({
         ...dependency,
         dependsOnTask: dependencyTask,
@@ -1910,11 +2113,17 @@ export class TasksService {
 
     await this.dependencyRepo.manager.transaction(async (tx) => {
       await tx.remove(dependency);
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.TASK_UPDATED, {
-        dependencyId: depId,
-        dependsOnTaskId: dependency.dependsOnTaskId,
-        operation: 'dependency_deleted',
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_UPDATED,
+        {
+          dependencyId: depId,
+          dependsOnTaskId: dependency.dependsOnTaskId,
+          operation: 'dependency_deleted',
+        },
+      );
     });
 
     return { id: depId, success: true };
@@ -1953,7 +2162,10 @@ export class TasksService {
     while (queue.length > 0) {
       const currentId = queue.shift()!;
       for (const candidate of allLiveTasks) {
-        if (candidate.parentTaskId === currentId && !toDelete.has(candidate.id)) {
+        if (
+          candidate.parentTaskId === currentId &&
+          !toDelete.has(candidate.id)
+        ) {
           toDelete.add(candidate.id);
           queue.push(candidate.id);
         }
@@ -1961,11 +2173,21 @@ export class TasksService {
     }
 
     await this.taskRepo.manager.transaction(async (tx) => {
-      await tx.update(Task, { id: In([...toDelete]) }, { deletedAt: new Date() });
+      await tx.update(
+        Task,
+        { id: In([...toDelete]) },
+        { deletedAt: new Date() },
+      );
       await this.rebalanceScopeRanks(tx, sourceScope);
-      await this.logTaskActivity(tx, task, actorUser, TaskActionType.TASK_DELETED, {
-        deletedCount: toDelete.size,
-      });
+      await this.logTaskActivity(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_DELETED,
+        {
+          deletedCount: toDelete.size,
+        },
+      );
     });
 
     return { id: taskId, success: true, deletedTaskCount: toDelete.size };
@@ -1980,10 +2202,15 @@ export class TasksService {
 
     const task = await this.loadTaskOrFail(taskId, projectId);
     const counts = await this.computeCounts(task.id);
-    const membershipRoleContext = await this.loadProjectRoleContextMap(projectId, [
-      ...[task.reporteeUserId].filter((value): value is string => Boolean(value)),
-      ...(task.assignees ?? []).map((assignee) => assignee.userId),
-    ]);
+    const membershipRoleContext = await this.loadProjectRoleContextMap(
+      projectId,
+      [
+        ...[task.reporteeUserId].filter((value): value is string =>
+          Boolean(value),
+        ),
+        ...(task.assignees ?? []).map((assignee) => assignee.userId),
+      ],
+    );
 
     return this.toTaskSerializer(
       this.buildTaskReadModel(task, membershipRoleContext, {
@@ -1997,13 +2224,18 @@ export class TasksService {
     projectId: string,
     filters: TaskFiltersDto,
     requestUser: RequestUser,
-  ): Promise<FilterResponse<TaskListItemSerializer> & { meta: { projectId: string; flat: boolean } }> {
+  ): Promise<
+    FilterResponse<TaskListItemSerializer> & {
+      meta: { projectId: string; flat: boolean };
+    }
+  > {
     await this.verifyProjectPermission(projectId, requestUser, 'view');
 
     this.parseIncludes(filters.include);
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 10;
-    const includeDeleted = filters.includeDeleted === true && this.isAdmin(requestUser);
+    const includeDeleted =
+      filters.includeDeleted === true && this.isAdmin(requestUser);
 
     const qb = this.taskRepo
       .createQueryBuilder('task')
@@ -2089,10 +2321,12 @@ export class TasksService {
     }
 
     if (filters.search) {
-      qb.andWhere([
-        'task.title ILIKE :search',
-        'task.description ILIKE :search',
-      ].join(' OR '), { search: `%${filters.search}%` });
+      qb.andWhere(
+        ['task.title ILIKE :search', 'task.description ILIKE :search'].join(
+          ' OR ',
+        ),
+        { search: `%${filters.search}%` },
+      );
     }
 
     if (filters.startDateFrom) {
@@ -2141,7 +2375,11 @@ export class TasksService {
       .leftJoinAndSelect('assignees.user', 'assigneeUser')
       .leftJoinAndSelect('task.checklistItems', 'checklistItems')
       .leftJoinAndSelect('task.dependencyEdges', 'dependencyEdges')
-      .leftJoinAndSelect('task.comments', 'comments', 'comments.deletedAt IS NULL')
+      .leftJoinAndSelect(
+        'task.comments',
+        'comments',
+        'comments.deletedAt IS NULL',
+      )
       .leftJoinAndSelect('task.viewMetadataEntries', 'viewMetadataEntries')
       .leftJoinAndSelect('task.reporteeUser', 'reporteeUser');
 
