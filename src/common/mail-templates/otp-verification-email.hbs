@@ -1,147 +1,154 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Your ArchKalinga Verification Code</title>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: #f0f4f8;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      color: #1e293b;
-    }
+<html lang='en'>
+  <head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Your ArchKalinga Verification Code</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #f0f4f8;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: #1e293b;
+      }
 
-    .container {
-      max-width: 600px;
-      margin: 40px auto;
-      background-color: #ffffff;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-      border: 1px solid #cbd5e1;
-    }
+      .container {
+        max-width: 600px;
+        margin: 40px auto;
+        background-color: #ffffff;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        border: 1px solid #cbd5e1;
+      }
 
-    .header {
-      background-color: #1e3a5f;
-      padding: 28px 24px;
-      text-align: center;
-    }
+      .header {
+        background-color: #1e3a5f;
+        padding: 28px 24px;
+        text-align: center;
+      }
 
-    .header h1 {
-      margin: 0;
-      color: #ffffff;
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-    }
+      .header h1 {
+        margin: 0;
+        color: #ffffff;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
 
-    .header p {
-      margin: 6px 0 0;
-      color: #93c5fd;
-      font-size: 13px;
-    }
+      .header p {
+        margin: 6px 0 0;
+        color: #93c5fd;
+        font-size: 13px;
+      }
 
-    .content {
-      padding: 32px;
-    }
+      .content {
+        padding: 32px;
+      }
 
-    .content p {
-      font-size: 15px;
-      line-height: 1.7;
-      margin: 0 0 18px;
-      color: #334155;
-    }
-
-    .otp-box {
-      display: flex;
-      justify-content: center;
-      gap: 10px;
-      margin: 28px 0;
-    }
-
-    .otp-digit {
-      background-color: #eff6ff;
-      color: #1d4ed8;
-      padding: 16px 20px;
-      font-size: 26px;
-      font-weight: 700;
-      border-radius: 8px;
-      border: 2px solid #bfdbfe;
-      min-width: 44px;
-      text-align: center;
-      letter-spacing: 2px;
-    }
-
-    .notice {
-      background-color: #fefce8;
-      border-left: 4px solid #eab308;
-      padding: 14px 16px;
-      border-radius: 4px;
-      font-size: 13px;
-      color: #713f12;
-      margin-top: 8px;
-    }
-
-    .divider {
-      border: none;
-      border-top: 1px solid #e2e8f0;
-      margin: 28px 0;
-    }
-
-    .footer {
-      padding: 20px 24px;
-      text-align: center;
-      font-size: 13px;
-      background-color: #f8fafc;
-      color: #64748b;
-      border-top: 1px solid #e2e8f0;
-    }
-
-    @media (max-width: 600px) {
-      .content, .header, .footer {
-        padding: 16px;
+      .content p {
+        font-size: 15px;
+        line-height: 1.7;
+        margin: 0 0 18px;
+        color: #334155;
       }
 
       .otp-box {
-        flex-wrap: wrap;
+        display: flex;
         justify-content: center;
+        gap: 10px;
+        margin: 28px 0;
       }
 
       .otp-digit {
-        padding: 12px 14px;
-        font-size: 22px;
+        background-color: #eff6ff;
+        color: #1d4ed8;
+        padding: 16px 20px;
+        font-size: 26px;
+        font-weight: 700;
+        border-radius: 8px;
+        border: 2px solid #bfdbfe;
+        min-width: 44px;
+        text-align: center;
+        letter-spacing: 2px;
       }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>ArchKalinga</h1>
-      <p>Project &amp; Architecture Management</p>
-    </div>
-    <div class="content">
-      <p>Hello {{data.firstName}},</p>
-      <p>Use the one-time code below to verify your ArchKalinga account. This code expires in <strong>5 minutes</strong>.</p>
 
-      <div class="otp-box">
-        {{#each data.otp}}
-          <div class="otp-digit">{{this}}</div>
-        {{/each}}
+      .notice {
+        background-color: #fefce8;
+        border-left: 4px solid #eab308;
+        padding: 14px 16px;
+        border-radius: 4px;
+        font-size: 13px;
+        color: #713f12;
+        margin-top: 8px;
+      }
+
+      .divider {
+        border: none;
+        border-top: 1px solid #e2e8f0;
+        margin: 28px 0;
+      }
+
+      .footer {
+        padding: 20px 24px;
+        text-align: center;
+        font-size: 13px;
+        background-color: #f8fafc;
+        color: #64748b;
+        border-top: 1px solid #e2e8f0;
+      }
+
+      @media (max-width: 600px) {
+        .content,
+        .header,
+        .footer {
+          padding: 16px;
+        }
+
+        .otp-box {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        .otp-digit {
+          padding: 12px 14px;
+          font-size: 22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class='container'>
+      <div class='header'>
+        <h1>ArchKalinga</h1>
+        <p>Project &amp; Architecture Management</p>
       </div>
+      <div class='content'>
+        <p>Hello {{data.firstName}},</p>
+        <p>Use the one-time code below to verify your ArchKalinga account. This
+          code expires in
+          <strong>5 minutes</strong>.</p>
 
-      <div class="notice">
-        For your security, never share this code with anyone. ArchKalinga will never ask for it by phone or email.
+        <div class='otp-box'>
+          {{#each data.otp}}
+            <div class='otp-digit'>{{this}}</div>
+          {{/each}}
+        </div>
+
+        <div class='notice'>
+          For your security, never share this code with anyone. ArchKalinga will
+          never ask for it by phone or email.
+        </div>
+
+        <hr class='divider' />
+        <p style='font-size: 13px; color: #94a3b8; margin: 0;'>If you didn't
+          request this code, you can safely ignore this email.</p>
       </div>
-
-      <hr class="divider" />
-      <p style="font-size: 13px; color: #94a3b8; margin: 0;">If you didn't request this code, you can safely ignore this email.</p>
+      <div class='footer'>
+        ©
+        {{data.year}}
+        ArchKalinga. All rights reserved.
+      </div>
     </div>
-    <div class="footer">
-      © {{data.year}} ArchKalinga. All rights reserved.
-    </div>
-  </div>
-</body>
+  </body>
 </html>

@@ -69,9 +69,17 @@ export class AuthController {
 
   @Post('signup')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new account (INDIVIDUAL or ORGANIZATION)' })
-  @ApiResponse({ status: 201, description: 'Account created — returns token pair and user object' })
-  @ApiResponse({ status: 400, description: 'Validation error or email already in use' })
+  @ApiOperation({
+    summary: 'Create a new account (INDIVIDUAL or ORGANIZATION)',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Account created — returns token pair and user object',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error or email already in use',
+  })
   @ResponseMessage(USER_REGISTERED)
   @LogActivity({ action: 'signup', resource: 'user', includeBody: true })
   @Throttle({ default: { ttl: 60000, limit: 10 } })
@@ -82,8 +90,14 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Sign in with email and password' })
-  @ApiResponse({ status: 200, description: 'Login successful — returns token pair and user object' })
-  @ApiResponse({ status: 401, description: 'Invalid credentials or account locked' })
+  @ApiResponse({
+    status: 200,
+    description: 'Login successful — returns token pair and user object',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid credentials or account locked',
+  })
   @ResponseMessage(AUTHENTICATED)
   @LogActivity({ action: 'login', resource: 'user' })
   @Throttle({ default: { ttl: 60000, limit: 10 } })
@@ -100,15 +114,27 @@ export class AuthController {
   @LogActivity({ action: 'validate:otp', resource: 'user' })
   @Throttle({ default: { ttl: 60000, limit: 10 } })
   validateOtp(@Body() otpDTO: OtpDTO, @Req() req: Request) {
-    return this.authService.validateOTP(otpDTO, getIp(req), getDeviceLabel(req));
+    return this.authService.validateOTP(
+      otpDTO,
+      getIp(req),
+      getDeviceLabel(req),
+    );
   }
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request a password-reset email' })
-  @ApiResponse({ status: 200, description: 'Reset email dispatched (identical response whether email exists or not)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Reset email dispatched (identical response whether email exists or not)',
+  })
   @ResponseMessage(FORGOT_PASSWORD_EMAIL_SENT)
-  @LogActivity({ action: 'request:password-reset', resource: 'user', includeBody: true })
+  @LogActivity({
+    action: 'request:password-reset',
+    resource: 'user',
+    includeBody: true,
+  })
   @Throttle({ default: { ttl: 60000, limit: 5 } })
   requestPasswordReset(@Body() dto: RequestResetPasswordDto) {
     return this.authService.requestPasswordReset(dto);
@@ -118,7 +144,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using a one-time token from email' })
   @ApiResponse({ status: 200, description: 'Password updated successfully' })
-  @ApiResponse({ status: 400, description: 'Token invalid, expired, or already used' })
+  @ApiResponse({
+    status: 400,
+    description: 'Token invalid, expired, or already used',
+  })
   @ResponseMessage(PASSWORD_RESET)
   @LogActivity({ action: 'reset:password', resource: 'user' })
   @Throttle({ default: { ttl: 60000, limit: 5 } })
@@ -128,22 +157,37 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Rotate refresh token and receive a new access token' })
+  @ApiOperation({
+    summary: 'Rotate refresh token and receive a new access token',
+  })
   @ApiResponse({ status: 200, description: 'New token pair issued' })
-  @ApiResponse({ status: 401, description: 'Refresh token invalid, expired, or revoked' })
+  @ApiResponse({
+    status: 401,
+    description: 'Refresh token invalid, expired, or revoked',
+  })
   @ResponseMessage(TOKEN_REFRESHED)
   @LogActivity({ action: 'refresh:token', resource: 'session' })
   @Throttle({ default: { ttl: 60000, limit: 30 } })
   refresh(@Body() dto: RefreshTokenDto, @Req() req: Request) {
-    return this.authService.refreshToken(dto.refreshToken, getIp(req), getDeviceLabel(req));
+    return this.authService.refreshToken(
+      dto.refreshToken,
+      getIp(req),
+      getDeviceLabel(req),
+    );
   }
 
   // ── Protected endpoints ─────────────────────────────────────────────────────
 
   @Get('me')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Return the authenticated user with org and workspace role' })
-  @ApiResponse({ status: 200, description: 'User object including organization and workspace role permissions' })
+  @ApiOperation({
+    summary: 'Return the authenticated user with org and workspace role',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'User object including organization and workspace role permissions',
+  })
   @ApiResponse({ status: 401, description: 'Missing or invalid access token' })
   @ResponseMessage('User fetched')
   @UseGuards(JwtAuthGuard)
@@ -154,8 +198,14 @@ export class AuthController {
   @Patch('change-password')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Change own password (requires re-auth token)' })
-  @ApiResponse({ status: 200, description: 'Password changed — all other sessions revoked' })
-  @ApiResponse({ status: 401, description: 'Invalid access token or re-auth token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Password changed — all other sessions revoked',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid access token or re-auth token',
+  })
   @ResponseMessage(PASSWORD_CHANGED)
   @LogActivity({ action: 'change:password', resource: 'user' })
   @UseGuards(JwtAuthGuard, ReauthGuard)
@@ -191,7 +241,9 @@ export class AuthController {
 
   @Get('sessions')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'List all active sessions for the authenticated user' })
+  @ApiOperation({
+    summary: 'List all active sessions for the authenticated user',
+  })
   @ApiResponse({ status: 200, description: 'Array of active session records' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
   @ResponseMessage(SESSIONS_FETCHED)
@@ -217,9 +269,18 @@ export class AuthController {
   @Post('reauth')
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify current password before a sensitive action — returns a short-lived re-auth token' })
-  @ApiResponse({ status: 200, description: 'Identity confirmed — re-auth token returned' })
-  @ApiResponse({ status: 401, description: 'Wrong password or invalid access token' })
+  @ApiOperation({
+    summary:
+      'Verify current password before a sensitive action — returns a short-lived re-auth token',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Identity confirmed — re-auth token returned',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Wrong password or invalid access token',
+  })
   @ResponseMessage(REAUTH_SUCCESS)
   @LogActivity({ action: 'reauth', resource: 'user' })
   @UseGuards(JwtAuthGuard)

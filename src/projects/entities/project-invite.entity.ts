@@ -5,11 +5,11 @@ import { Project } from './project.entity';
 import { ProjectRole } from './project-role.entity';
 
 export enum InviteStatus {
-  PENDING  = 'PENDING',
+  PENDING = 'PENDING',
   ACCEPTED = 'ACCEPTED',
   DECLINED = 'DECLINED',
-  EXPIRED  = 'EXPIRED',
-  REVOKED  = 'REVOKED',
+  EXPIRED = 'EXPIRED',
+  REVOKED = 'REVOKED',
 }
 
 @Entity('project_invites')

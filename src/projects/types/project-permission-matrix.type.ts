@@ -21,7 +21,8 @@ export const PROJECT_PERMISSION_DOMAINS = [
   'changeRequestManagement',
 ] as const;
 
-export type ProjectPermissionDomain = (typeof PROJECT_PERMISSION_DOMAINS)[number];
+export type ProjectPermissionDomain =
+  (typeof PROJECT_PERMISSION_DOMAINS)[number];
 export type ProjectPermissionAction = 'create' | 'update' | 'view' | 'delete';
 
 export type ProjectPermissionMatrix = {

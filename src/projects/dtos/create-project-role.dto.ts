@@ -4,7 +4,8 @@ import { IsNotEmpty, IsObject, IsString, MaxLength } from 'class-validator';
 export class CreateProjectRoleDto {
   @ApiProperty({
     example: 'Site Supervisor',
-    description: 'Human-readable project role name shown in settings and assignment pickers',
+    description:
+      'Human-readable project role name shown in settings and assignment pickers',
   })
   @IsString()
   @IsNotEmpty()

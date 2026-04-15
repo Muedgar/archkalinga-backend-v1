@@ -10,8 +10,12 @@ export class ProjectRoleSerializer extends BaseSerializer {
   @Expose() isProtected: boolean;
 
   @Expose()
-  @Transform(({ obj }: { obj: { permissions?: Record<string, Record<string, boolean>> } }) =>
-    obj?.permissions ?? {},
+  @Transform(
+    ({
+      obj,
+    }: {
+      obj: { permissions?: Record<string, Record<string, boolean>> };
+    }) => obj?.permissions ?? {},
   )
   permissions: Record<string, Record<string, boolean>>;
 

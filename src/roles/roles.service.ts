@@ -62,7 +62,9 @@ export class RoleService {
     });
 
     const saved = await this.roleRepo.save(role);
-    return plainToInstance(RoleSerializer, saved, { excludeExtraneousValues: true });
+    return plainToInstance(RoleSerializer, saved, {
+      excludeExtraneousValues: true,
+    });
   }
 
   /** Load role by primary ID — used internally by guards / services. */
@@ -75,7 +77,9 @@ export class RoleService {
   async getRoleById(id: string, workspaceId: string): Promise<RoleSerializer> {
     const role = await this.roleRepo.findOne({ where: { id, workspaceId } });
     if (!role) throw new NotFoundException(ROLE_NOT_FOUND);
-    return plainToInstance(RoleSerializer, role, { excludeExtraneousValues: true });
+    return plainToInstance(RoleSerializer, role, {
+      excludeExtraneousValues: true,
+    });
   }
 
   async getRoles(
@@ -116,6 +120,8 @@ export class RoleService {
     }
 
     const saved = await this.roleRepo.save(role);
-    return plainToInstance(RoleSerializer, saved, { excludeExtraneousValues: true });
+    return plainToInstance(RoleSerializer, saved, {
+      excludeExtraneousValues: true,
+    });
   }
 }

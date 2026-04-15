@@ -42,9 +42,7 @@ export class AuditLogInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const request = context
-      .switchToHttp()
-      .getRequest<Record<string, any>>();
+    const request = context.switchToHttp().getRequest<Record<string, any>>();
 
     return next.handle().pipe(
       tap(async (responseData: unknown) => {
@@ -79,7 +77,9 @@ export class AuditLogInterceptor implements NestInterceptor {
     if (data === null || data === undefined || typeof data !== 'object') {
       return null;
     }
-    const clone: Record<string, unknown> = { ...(data as Record<string, unknown>) };
+    const clone: Record<string, unknown> = {
+      ...(data as Record<string, unknown>),
+    };
     for (const key of Object.keys(clone)) {
       if (SENSITIVE_KEYS.has(key)) {
         clone[key] = '[REDACTED]';

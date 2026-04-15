@@ -11,7 +11,7 @@ const migrationsPath = isTsRuntime
   ? ['src/migrations/*.ts']
   : ['dist/migrations/*.js'];
 
-export const dataSourceOptions = {
+export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
   host: process.env.POSTGRES_HOST,
   port: Number(process.env.POSTGRES_PORT),
@@ -20,7 +20,6 @@ export const dataSourceOptions = {
   database: process.env.POSTGRES_DB,
   entities: entitiesPath,
   migrations: migrationsPath,
-  autoLoadEntities: true,
   synchronize: false,
   logging: false,
   // poolSize: Number(process.env.POSTGRES_POOL_SIZE),

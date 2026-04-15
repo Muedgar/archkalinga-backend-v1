@@ -129,7 +129,7 @@ The collaborator detail drawer also expects profile-like fields:
 type UserProfile = {
   id: string;
   userId: string;
-  userType: "INDIVIDUAL" | "ORGANIZATION";
+  userType: 'INDIVIDUAL' | 'ORGANIZATION';
   profession?: string;
   specialty?: string;
   bio?: string;
@@ -638,13 +638,48 @@ Recommended role payload:
   "name": "Admin",
   "status": true,
   "permissions": {
-    "projectManagement": { "create": true, "update": true, "view": true, "delete": true },
-    "changeRequestManagement": { "create": true, "update": true, "view": true, "delete": true },
-    "taskManagement": { "create": true, "update": true, "view": true, "delete": true },
-    "documentManagement": { "create": true, "update": true, "view": true, "delete": true },
-    "userManagement": { "create": true, "update": true, "view": true, "delete": true },
-    "roleManagement": { "create": true, "update": true, "view": true, "delete": true },
-    "templateManagement": { "create": true, "update": true, "view": true, "delete": true }
+    "projectManagement": {
+      "create": true,
+      "update": true,
+      "view": true,
+      "delete": true
+    },
+    "changeRequestManagement": {
+      "create": true,
+      "update": true,
+      "view": true,
+      "delete": true
+    },
+    "taskManagement": {
+      "create": true,
+      "update": true,
+      "view": true,
+      "delete": true
+    },
+    "documentManagement": {
+      "create": true,
+      "update": true,
+      "view": true,
+      "delete": true
+    },
+    "userManagement": {
+      "create": true,
+      "update": true,
+      "view": true,
+      "delete": true
+    },
+    "roleManagement": {
+      "create": true,
+      "update": true,
+      "view": true,
+      "delete": true
+    },
+    "templateManagement": {
+      "create": true,
+      "update": true,
+      "view": true,
+      "delete": true
+    }
   },
   "createdAt": "ISO",
   "updatedAt": "ISO"

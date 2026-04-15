@@ -62,10 +62,10 @@ import { WorkspaceMemberSerializer } from 'src/workspaces/serializers/workspace-
 // ── Module-level constants ────────────────────────────────────────────────────
 
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const RESET_TOKEN_TTL_MS   = 60 * 60 * 1000;            // 1 hour
-const MAX_FAILED_ATTEMPTS  = 5;
-const LOCK_DURATION_MS     = 15 * 60 * 1000;            // 15 minutes
-const INACTIVITY_DAYS      = 7;
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+const INACTIVITY_DAYS = 7;
 
 /** Constant-time dummy — prevents email-enumeration via response timing. */
 const DUMMY_HASH = bcrypt.hashSync('__archkalinga_timing_dummy__', 12);
@@ -150,7 +150,12 @@ export class AuthService {
     deviceLabel: string | null,
     lastUsedAt: Date | null = null,
   ): Promise<{ accessToken: string; refreshToken: string }> {
-    const rawRefresh = await this.createSession(user, ipAddress, deviceLabel, lastUsedAt);
+    const rawRefresh = await this.createSession(
+      user,
+      ipAddress,
+      deviceLabel,
+      lastUsedAt,
+    );
     const session = await this.sessionRepo.findOne({
       where: { refreshTokenHash: this.sha256Hex(rawRefresh) },
     });
@@ -520,19 +525,22 @@ export class AuthService {
 
     if (!user) throw new NotFoundException(USER_NOT_FOUND);
 
-    const rawToken  = randomBytes(32).toString('hex');
+    const rawToken = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
 
-    user.passwordResetTokenHash      = this.sha256Hex(rawToken);
+    user.passwordResetTokenHash = this.sha256Hex(rawToken);
     user.passwordResetTokenExpiresAt = expiresAt;
-    user.passwordResetTokenUsedAt    = null;
+    user.passwordResetTokenUsedAt = null;
     await this.userRepo.save(user);
 
     const emailData: Mail = {
       to: user.email,
       data: { firstName: user.firstName, token: rawToken },
     };
-    await this.emailService.sendEmailStrict(emailData, RESET_PASSWORD_EMAIL_JOB);
+    await this.emailService.sendEmailStrict(
+      emailData,
+      RESET_PASSWORD_EMAIL_JOB,
+    );
   }
 
   async resetPassword(rawToken: string, dto: ResetPasswordDto): Promise<void> {
@@ -542,19 +550,26 @@ export class AuthService {
     });
 
     if (!user) throw new BadRequestException(PASSWORD_RESET_TOKEN_INVALID);
-    if (user.passwordResetTokenUsedAt) throw new BadRequestException(PASSWORD_RESET_TOKEN_USED);
-    if (!user.passwordResetTokenExpiresAt || user.passwordResetTokenExpiresAt < new Date()) {
+    if (user.passwordResetTokenUsedAt)
+      throw new BadRequestException(PASSWORD_RESET_TOKEN_USED);
+    if (
+      !user.passwordResetTokenExpiresAt ||
+      user.passwordResetTokenExpiresAt < new Date()
+    ) {
       throw new BadRequestException(PASSWORD_RESET_TOKEN_EXPIRED);
     }
 
-    user.password                 = bcrypt.hashSync(dto.password, bcrypt.genSaltSync(12));
-    user.isDefaultPassword        = false;
-    user.tokenVersion             = (user.tokenVersion ?? 0) + 1;
+    user.password = bcrypt.hashSync(dto.password, bcrypt.genSaltSync(12));
+    user.isDefaultPassword = false;
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     user.passwordResetTokenUsedAt = new Date();
     await this.userRepo.save(user);
     await this.revokeAllSessions(user.pkid);
 
-    const emailData: Mail = { to: user.email, data: { firstName: user.firstName } };
+    const emailData: Mail = {
+      to: user.email,
+      data: { firstName: user.firstName },
+    };
     await this.emailService.sendEmail(emailData, PASSWORD_RESET_EMAIL_JOB);
   }
 
@@ -562,7 +577,10 @@ export class AuthService {
   // Change password (self-service, requires current password)
   // ---------------------------------------------------------------------------
 
-  async changePassword(dto: ChangePasswordDto, reqUser: RequestUser): Promise<void> {
+  async changePassword(
+    dto: ChangePasswordDto,
+    reqUser: RequestUser,
+  ): Promise<void> {
     const user = await this.userRepo.findOne({ where: { id: reqUser.id } });
     if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS);
 
@@ -570,9 +588,9 @@ export class AuthService {
       throw new BadRequestException(INVALID_CURRENT_PASSWORD);
     }
 
-    user.password          = bcrypt.hashSync(dto.newPassword, bcrypt.genSaltSync(12));
+    user.password = bcrypt.hashSync(dto.newPassword, bcrypt.genSaltSync(12));
     user.isDefaultPassword = false;
-    user.tokenVersion      = (user.tokenVersion ?? 0) + 1;
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     await this.userRepo.save(user);
     await this.revokeAllSessions(user.pkid);
   }
@@ -586,7 +604,7 @@ export class AuthService {
     ipAddress: string | null,
     deviceLabel: string | null,
   ): Promise<{ accessToken: string; refreshToken: string }> {
-    const hash    = this.sha256Hex(rawToken);
+    const hash = this.sha256Hex(rawToken);
     const session = await this.sessionRepo.findOne({
       where: { refreshTokenHash: hash },
       relations: ['user'],
@@ -603,8 +621,10 @@ export class AuthService {
       throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
     }
 
-    const inactivityCutoff = new Date(Date.now() - INACTIVITY_DAYS * 24 * 60 * 60 * 1000);
-    const lastActivity     = session.lastUsedAt ?? session.createdAt;
+    const inactivityCutoff = new Date(
+      Date.now() - INACTIVITY_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const lastActivity = session.lastUsedAt ?? session.createdAt;
     if (lastActivity < inactivityCutoff) {
       session.revokedAt = new Date();
       await this.sessionRepo.save(session);
@@ -614,8 +634,11 @@ export class AuthService {
     session.revokedAt = new Date();
     await this.sessionRepo.save(session);
 
-    const user = await this.userRepo.findOne({ where: { pkid: session.user.pkid } });
-    if (!user || !user.status) throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
+    const user = await this.userRepo.findOne({
+      where: { pkid: session.user.pkid },
+    });
+    if (!user || !user.status)
+      throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
 
     return this.issueTokenPair(user, ipAddress, deviceLabel, new Date());
   }
@@ -664,7 +687,7 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async logout(dto: LogoutDto): Promise<void> {
-    const hash    = this.sha256Hex(dto.refreshToken);
+    const hash = this.sha256Hex(dto.refreshToken);
     const session = await this.sessionRepo.findOne({
       where: { refreshTokenHash: hash },
     });
@@ -688,7 +711,10 @@ export class AuthService {
   // Re-auth gate
   // ---------------------------------------------------------------------------
 
-  async reauth(reqUser: RequestUser, dto: ReauthDto): Promise<{ reauthToken: string }> {
+  async reauth(
+    reqUser: RequestUser,
+    dto: ReauthDto,
+  ): Promise<{ reauthToken: string }> {
     const user = await this.userRepo.findOne({ where: { id: reqUser.id } });
 
     if (!user || !bcrypt.compareSync(dto.currentPassword, user.password)) {

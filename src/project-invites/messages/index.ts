@@ -20,6 +20,9 @@ export const INVITE_PROJECT_ROLE_UNAVAILABLE =
   'The invited project role is no longer available for acceptance';
 export const INVITEE_ACCOUNT_NOT_FOUND =
   'Invitee account not found. Please complete registration first.';
-export const INVITE_TASK_NOT_FOUND  = 'The referenced task was not found in this project';
-export const INVITE_SUBTASK_INVALID = 'The referenced subtask does not belong to the given task';
-export const INVITE_FORBIDDEN       = 'You do not have permission to manage invites for this project';
+export const INVITE_TASK_NOT_FOUND =
+  'The referenced task was not found in this project';
+export const INVITE_SUBTASK_INVALID =
+  'The referenced subtask does not belong to the given task';
+export const INVITE_FORBIDDEN =
+  'You do not have permission to manage invites for this project';

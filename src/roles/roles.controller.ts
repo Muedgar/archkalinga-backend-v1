@@ -42,7 +42,10 @@ export class RolesController {
   @ApiOperation({ summary: 'Create a workspace role for the current workspace' })
   @ApiResponse({ status: 201, description: 'Workspace role created with the supplied permission matrix' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
-  @ApiResponse({ status: 403, description: 'Insufficient permissions (requires roleManagement.create)' })
+  @ApiResponse({
+    status: 403,
+    description: 'Insufficient permissions (requires roleManagement.create)',
+  })
   @ResponseMessage(ROLE_CREATED)
   @UseGuards(PermissionGuard)
   @RequirePermission('roleManagement', 'create')
@@ -55,7 +58,10 @@ export class RolesController {
   @ApiOperation({ summary: 'List workspace roles in the current workspace' })
   @ApiResponse({ status: 200, description: 'Paginated list of workspace roles' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
-  @ApiResponse({ status: 403, description: 'Insufficient permissions (requires roleManagement.view)' })
+  @ApiResponse({
+    status: 403,
+    description: 'Insufficient permissions (requires roleManagement.view)',
+  })
   @ResponseMessage(ROLES_FETCHED)
   @UseGuards(PermissionGuard)
   @RequirePermission('roleManagement', 'view')
@@ -76,7 +82,9 @@ export class RolesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a workspace role name or permission matrix' })
+  @ApiOperation({
+    summary: 'Update a workspace role name or permission matrix',
+  })
   @ApiResponse({ status: 200, description: 'Workspace role updated' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions (requires roleManagement.update)' })
   @ApiResponse({ status: 404, description: 'Role not found in this workspace' })

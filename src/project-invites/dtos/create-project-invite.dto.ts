@@ -14,7 +14,9 @@ export class CreateProjectInviteDto {
   @IsUUID()
   inviteeUserId: string;
 
-  @ApiProperty({ description: 'Project role UUID the invitee will receive on acceptance' })
+  @ApiProperty({
+    description: 'Project role UUID the invitee will receive on acceptance',
+  })
   @IsUUID()
   projectRoleId: string;
 

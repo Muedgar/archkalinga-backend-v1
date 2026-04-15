@@ -11,7 +11,12 @@ import { ListFilterDTO } from 'src/common/dtos';
 import { FilterResponse } from 'src/common/interfaces';
 import { ListFilterService } from 'src/common/services/list-filter.service';
 import { MembershipStatus } from './entities/project-membership.entity';
-import { Project, ProjectInvite, ProjectMembership, ProjectRole } from './entities';
+import {
+  Project,
+  ProjectInvite,
+  ProjectMembership,
+  ProjectRole,
+} from './entities';
 import {
   INVALID_PROJECT_ROLE_DISABLE,
   INVALID_PROJECT_ROLE_NAME,
@@ -94,7 +99,10 @@ export class ProjectRolesService {
     }
   }
 
-  private async getProjectRole(projectId: string, roleId: string): Promise<ProjectRole> {
+  private async getProjectRole(
+    projectId: string,
+    roleId: string,
+  ): Promise<ProjectRole> {
     const role = await this.projectRoleRepo.findOne({
       where: { id: roleId, projectId },
     });
@@ -204,7 +212,12 @@ export class ProjectRolesService {
       if (!nextSlug) {
         throw new BadRequestException(INVALID_PROJECT_ROLE_NAME);
       }
-      await this.ensureRoleNameAndSlugAvailable(projectId, nextName, nextSlug, role.id);
+      await this.ensureRoleNameAndSlugAvailable(
+        projectId,
+        nextName,
+        nextSlug,
+        role.id,
+      );
       role.name = nextName;
       if (!role.isSystem) {
         role.slug = nextSlug;
@@ -231,7 +244,10 @@ export class ProjectRolesService {
     return this.toSerializer(saved);
   }
 
-  async deleteProjectRole(projectId: string, roleId: string): Promise<{ id: string }> {
+  async deleteProjectRole(
+    projectId: string,
+    roleId: string,
+  ): Promise<{ id: string }> {
     await this.ensureProjectExists(projectId);
     const role = await this.getProjectRole(projectId, roleId);
 

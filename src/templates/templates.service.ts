@@ -13,7 +13,11 @@ import { ListFilterService } from 'src/common/services';
 import { Workspace } from 'src/workspaces/entities/workspace.entity';
 import { Project } from 'src/projects/entities';
 import { CreateTemplateDto, UpdateTemplateDto } from './dtos';
-import { TEMPLATE_EXISTS, TEMPLATE_IN_USE, TEMPLATE_NOT_FOUND } from './messages';
+import {
+  TEMPLATE_EXISTS,
+  TEMPLATE_IN_USE,
+  TEMPLATE_NOT_FOUND,
+} from './messages';
 import { Template, TemplateTask } from './entities';
 import { TemplateSerializer } from './serializers';
 

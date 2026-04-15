@@ -79,7 +79,11 @@ export class TemplatesController {
   @ResponseMessage(TEMPLATE_UPDATED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'update')
-  @LogActivity({ action: 'update:template', resource: 'template', includeBody: true })
+  @LogActivity({
+    action: 'update:template',
+    resource: 'template',
+    includeBody: true,
+  })
   updateTemplate(
     @Param('identifier') identifier: string,
     @Body() dto: UpdateTemplateDto,

@@ -119,13 +119,18 @@ export class ProjectsService {
     return workspaceMember?.workspaceRole?.slug === 'admin';
   }
 
-  private toSerializer(project: Project & Partial<ProjectDetail>): ProjectSerializer {
+  private toSerializer(
+    project: Project & Partial<ProjectDetail>,
+  ): ProjectSerializer {
     return plainToInstance(ProjectSerializer, project, {
       excludeExtraneousValues: true,
     });
   }
 
-  private ensureDateRange(startDate?: string | null, endDate?: string | null): void {
+  private ensureDateRange(
+    startDate?: string | null,
+    endDate?: string | null,
+  ): void {
     if (startDate && endDate && startDate > endDate) {
       throw new BadRequestException(INVALID_PROJECT_DATE_RANGE);
     }
@@ -396,7 +401,13 @@ export class ProjectsService {
       }),
     );
 
-    await this.logSeededTaskActivity(manager, project, savedTask, actorUser, templateTask.id);
+    await this.logSeededTaskActivity(
+      manager,
+      project,
+      savedTask,
+      actorUser,
+      templateTask.id,
+    );
 
     let createdCount = 1;
     for (const child of templateTask.subtasks) {

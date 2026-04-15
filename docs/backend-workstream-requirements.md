@@ -395,10 +395,30 @@ Required response shape:
         "slug": "owner",
         "status": true,
         "permissions": {
-          "taskManagement": { "view": true, "create": true, "update": true, "delete": true },
-          "projectManagement": { "view": true, "create": true, "update": true, "delete": true },
-          "documentManagement": { "view": true, "create": true, "update": true, "delete": true },
-          "changeRequestManagement": { "view": true, "create": true, "update": true, "delete": true }
+          "taskManagement": {
+            "view": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "projectManagement": {
+            "view": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "documentManagement": {
+            "view": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "changeRequestManagement": {
+            "view": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          }
         }
       }
     }

@@ -16,7 +16,10 @@ export class MailHealthService {
     private readonly configService: ConfigService,
   ) {}
 
-  async sendRuntimeTestEmail(to: string, requestedByEmail: string): Promise<void> {
+  async sendRuntimeTestEmail(
+    to: string,
+    requestedByEmail: string,
+  ): Promise<void> {
     if (!to) {
       throw new BadRequestException('Recipient email is required.');
     }

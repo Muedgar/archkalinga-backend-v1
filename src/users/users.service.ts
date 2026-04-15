@@ -78,7 +78,10 @@ export class UserService {
       throw new BadRequestException(ROLE_NOT_IN_WORKSPACE);
     }
 
-    const hashedPassword = bcrypt.hashSync(dto.password, bcrypt.genSaltSync(12));
+    const hashedPassword = bcrypt.hashSync(
+      dto.password,
+      bcrypt.genSaltSync(12),
+    );
 
     const user = await this.userRepo.manager.transaction(async (tx) => {
       const newUser = tx.create(User, {
@@ -190,14 +193,15 @@ export class UserService {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(USER_NOT_FOUND);
 
-    if (dto.email && dto.email !== user.email) await this.ensureEmailFree(dto.email);
+    if (dto.email && dto.email !== user.email)
+      await this.ensureEmailFree(dto.email);
 
     if (dto.firstName !== undefined) user.firstName = dto.firstName;
-    if (dto.lastName  !== undefined) user.lastName  = dto.lastName;
-    if (dto.userName  !== undefined) user.userName  = dto.userName;
-    if (dto.title     !== undefined) user.title     = dto.title ?? null;
-    if (dto.email     !== undefined) user.email     = dto.email;
-    if (dto.status    !== undefined) user.status    = dto.status;
+    if (dto.lastName !== undefined) user.lastName = dto.lastName;
+    if (dto.userName !== undefined) user.userName = dto.userName;
+    if (dto.title !== undefined) user.title = dto.title ?? null;
+    if (dto.email !== undefined) user.email = dto.email;
+    if (dto.status !== undefined) user.status = dto.status;
 
     // Role change → update workspace member record
     if (dto.roleId !== undefined) {

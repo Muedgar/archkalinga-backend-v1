@@ -71,7 +71,7 @@ export class TasksController {
   @ApiOperation({
     summary: 'List project tasks',
     description:
-      'Project-scoped action. Requires taskManagement.view through the caller\'s active project role.',
+      "Project-scoped action. Requires taskManagement.view through the caller's active project role.",
   })
   @ApiResponse({ status: 200, description: 'Tasks fetched' })
   @ResponseMessage(TASKS_FETCHED)
@@ -89,7 +89,7 @@ export class TasksController {
   @ApiOperation({
     summary: 'Create a task in a project',
     description:
-      'Project-scoped action. Requires taskManagement.create through the caller\'s active project role.',
+      "Project-scoped action. Requires taskManagement.create through the caller's active project role.",
   })
   @ApiResponse({ status: 201, description: 'Task created' })
   @ResponseMessage(TASK_CREATED)
@@ -108,13 +108,17 @@ export class TasksController {
   @ApiOperation({
     summary: 'Bulk update tasks in a project',
     description:
-      'Project-scoped action. Requires taskManagement.update through the caller\'s active project role. Supports Gantt-oriented bulk edits for status, progress, dates, positioning, and optional viewMeta updates.',
+      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Supports Gantt-oriented bulk edits for status, progress, dates, positioning, and optional viewMeta updates.",
   })
   @ApiResponse({ status: 200, description: 'Tasks updated' })
   @ResponseMessage(TASKS_BULK_UPDATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
-  @LogActivity({ action: 'bulk-update:task', resource: 'task', includeBody: true })
+  @LogActivity({
+    action: 'bulk-update:task',
+    resource: 'task',
+    includeBody: true,
+  })
   bulkUpdateTasks(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() dto: BulkUpdateTasksDto,
@@ -127,7 +131,7 @@ export class TasksController {
   @ApiOperation({
     summary: 'Get a single task',
     description:
-      'Project-scoped action. Requires taskManagement.view through the caller\'s active project role.',
+      "Project-scoped action. Requires taskManagement.view through the caller's active project role.",
   })
   @ApiResponse({ status: 200, description: 'Task fetched' })
   @ResponseMessage(TASK_FETCHED)
@@ -145,7 +149,7 @@ export class TasksController {
   @ApiOperation({
     summary: 'Update a task',
     description:
-      'Project-scoped action. Requires taskManagement.update through the caller\'s active project role. Supports timeline edits for startDate, endDate, progress, dependencyIds, and optional viewMeta.gantt updates.',
+      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Supports timeline edits for startDate, endDate, progress, dependencyIds, and optional viewMeta.gantt updates.",
   })
   @ApiResponse({ status: 200, description: 'Task updated' })
   @ResponseMessage(TASK_UPDATED)
@@ -165,7 +169,7 @@ export class TasksController {
   @ApiOperation({
     summary: 'Move or reorder a task',
     description:
-      'Project-scoped action. Requires taskManagement.update through the caller\'s active project role. Supports drag-and-drop across workflow columns, sibling reordering, and subtask reparenting.',
+      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Supports drag-and-drop across workflow columns, sibling reordering, and subtask reparenting.",
   })
   @ApiResponse({ status: 200, description: 'Task moved' })
   @ResponseMessage(TASK_MOVED)
@@ -185,7 +189,7 @@ export class TasksController {
   @ApiOperation({
     summary: 'Soft-delete a task',
     description:
-      'Project-scoped action. Requires taskManagement.delete through the caller\'s active project role. Soft-deletes the selected task and its descendant subtasks, then returns delete summary metadata for the frontend.',
+      "Project-scoped action. Requires taskManagement.delete through the caller's active project role. Soft-deletes the selected task and its descendant subtasks, then returns delete summary metadata for the frontend.",
   })
   @ApiResponse({ status: 200, description: 'Task deleted' })
   @ResponseMessage(TASK_DELETED)
@@ -220,7 +224,11 @@ export class TasksController {
   @ResponseMessage(TASK_COMMENT_ADDED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'create')
-  @LogActivity({ action: 'create:task-comment', resource: 'task-comment', includeBody: true })
+  @LogActivity({
+    action: 'create:task-comment',
+    resource: 'task-comment',
+    includeBody: true,
+  })
   addTaskComment(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -236,7 +244,11 @@ export class TasksController {
   @ResponseMessage(TASK_COMMENT_UPDATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
-  @LogActivity({ action: 'update:task-comment', resource: 'task-comment', includeBody: true })
+  @LogActivity({
+    action: 'update:task-comment',
+    resource: 'task-comment',
+    includeBody: true,
+  })
   updateTaskComment(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -244,7 +256,13 @@ export class TasksController {
     @Body() dto: UpdateCommentDto,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.updateTaskComment(projectId, taskId, commentId, dto, user);
+    return this.tasksService.updateTaskComment(
+      projectId,
+      taskId,
+      commentId,
+      dto,
+      user,
+    );
   }
 
   @Delete('tasks/:taskId/comments/:commentId')
@@ -260,7 +278,12 @@ export class TasksController {
     @Param('commentId', ParseUUIDPipe) commentId: string,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.deleteTaskComment(projectId, taskId, commentId, user);
+    return this.tasksService.deleteTaskComment(
+      projectId,
+      taskId,
+      commentId,
+      user,
+    );
   }
 
   @Get('tasks/:taskId/checklist')
@@ -283,7 +306,11 @@ export class TasksController {
   @ResponseMessage(TASK_CHECKLIST_ITEM_ADDED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
-  @LogActivity({ action: 'create:task-checklist-item', resource: 'task-checklist-item', includeBody: true })
+  @LogActivity({
+    action: 'create:task-checklist-item',
+    resource: 'task-checklist-item',
+    includeBody: true,
+  })
   addChecklistItem(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -299,7 +326,11 @@ export class TasksController {
   @ResponseMessage(TASK_CHECKLIST_ITEM_UPDATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
-  @LogActivity({ action: 'update:task-checklist-item', resource: 'task-checklist-item', includeBody: true })
+  @LogActivity({
+    action: 'update:task-checklist-item',
+    resource: 'task-checklist-item',
+    includeBody: true,
+  })
   updateChecklistItem(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -307,7 +338,13 @@ export class TasksController {
     @Body() dto: UpdateChecklistItemDto,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.updateChecklistItem(projectId, taskId, itemId, dto, user);
+    return this.tasksService.updateChecklistItem(
+      projectId,
+      taskId,
+      itemId,
+      dto,
+      user,
+    );
   }
 
   @Delete('tasks/:taskId/checklist/:itemId')
@@ -316,14 +353,22 @@ export class TasksController {
   @ResponseMessage(TASK_CHECKLIST_ITEM_DELETED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
-  @LogActivity({ action: 'delete:task-checklist-item', resource: 'task-checklist-item' })
+  @LogActivity({
+    action: 'delete:task-checklist-item',
+    resource: 'task-checklist-item',
+  })
   deleteChecklistItem(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @Param('itemId', ParseUUIDPipe) itemId: string,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.deleteChecklistItem(projectId, taskId, itemId, user);
+    return this.tasksService.deleteChecklistItem(
+      projectId,
+      taskId,
+      itemId,
+      user,
+    );
   }
 
   @Get('tasks/:taskId/dependencies')
@@ -346,7 +391,11 @@ export class TasksController {
   @ResponseMessage(TASK_DEPENDENCY_ADDED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
-  @LogActivity({ action: 'create:task-dependency', resource: 'task-dependency', includeBody: true })
+  @LogActivity({
+    action: 'create:task-dependency',
+    resource: 'task-dependency',
+    includeBody: true,
+  })
   addTaskDependency(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -362,21 +411,29 @@ export class TasksController {
   @ResponseMessage(TASK_DEPENDENCY_DELETED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
-  @LogActivity({ action: 'delete:task-dependency', resource: 'task-dependency' })
+  @LogActivity({
+    action: 'delete:task-dependency',
+    resource: 'task-dependency',
+  })
   deleteTaskDependency(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @Param('depId', ParseUUIDPipe) depId: string,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.deleteTaskDependency(projectId, taskId, depId, user);
+    return this.tasksService.deleteTaskDependency(
+      projectId,
+      taskId,
+      depId,
+      user,
+    );
   }
 
   @Get('columns')
   @ApiOperation({
     summary: 'List workflow columns for a project',
     description:
-      'Project-scoped action. Requires taskManagement.view through the caller\'s active project role. Returns Kanban-ready column metadata including task counts, orderIndex, and locked state.',
+      "Project-scoped action. Requires taskManagement.view through the caller's active project role. Returns Kanban-ready column metadata including task counts, orderIndex, and locked state.",
   })
   @ApiResponse({ status: 200, description: 'Workflow columns fetched' })
   @ResponseMessage(WORKFLOW_COLUMNS_FETCHED)
@@ -393,13 +450,17 @@ export class TasksController {
   @ApiOperation({
     summary: 'Create a workflow column for a project',
     description:
-      'Project-scoped action. Requires taskManagement.create through the caller\'s active project role. New columns are created unlocked and column ordering is normalized automatically.',
+      "Project-scoped action. Requires taskManagement.create through the caller's active project role. New columns are created unlocked and column ordering is normalized automatically.",
   })
   @ApiResponse({ status: 201, description: 'Workflow column created' })
   @ResponseMessage(WORKFLOW_COLUMN_CREATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'create')
-  @LogActivity({ action: 'create:workflow-column', resource: 'workflow-column', includeBody: true })
+  @LogActivity({
+    action: 'create:workflow-column',
+    resource: 'workflow-column',
+    includeBody: true,
+  })
   createWorkflowColumn(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() dto: CreateWorkflowColumnDto,
@@ -412,33 +473,45 @@ export class TasksController {
   @ApiOperation({
     summary: 'Update a workflow column',
     description:
-      'Project-scoped action. Requires taskManagement.update through the caller\'s active project role. Updating orderIndex reorders sibling columns consistently.',
+      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Updating orderIndex reorders sibling columns consistently.",
   })
   @ApiResponse({ status: 200, description: 'Workflow column updated' })
   @ResponseMessage(WORKFLOW_COLUMN_UPDATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
-  @LogActivity({ action: 'update:workflow-column', resource: 'workflow-column', includeBody: true })
+  @LogActivity({
+    action: 'update:workflow-column',
+    resource: 'workflow-column',
+    includeBody: true,
+  })
   updateWorkflowColumn(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('columnId', ParseUUIDPipe) columnId: string,
     @Body() dto: UpdateWorkflowColumnDto,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.updateWorkflowColumn(projectId, columnId, dto, user);
+    return this.tasksService.updateWorkflowColumn(
+      projectId,
+      columnId,
+      dto,
+      user,
+    );
   }
 
   @Delete('columns/:columnId')
   @ApiOperation({
     summary: 'Delete a workflow column if it has no live tasks',
     description:
-      'Project-scoped action. Requires taskManagement.delete through the caller\'s active project role. Locked default columns cannot be deleted, and deleting a custom column reindexes remaining columns.',
+      "Project-scoped action. Requires taskManagement.delete through the caller's active project role. Locked default columns cannot be deleted, and deleting a custom column reindexes remaining columns.",
   })
   @ApiResponse({ status: 200, description: 'Workflow column deleted' })
   @ResponseMessage(WORKFLOW_COLUMN_DELETED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'delete')
-  @LogActivity({ action: 'delete:workflow-column', resource: 'workflow-column' })
+  @LogActivity({
+    action: 'delete:workflow-column',
+    resource: 'workflow-column',
+  })
   deleteWorkflowColumn(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('columnId', ParseUUIDPipe) columnId: string,

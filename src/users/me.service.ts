@@ -19,7 +19,9 @@ export class MeService {
   async getMe(userId: string): Promise<UserSerializer> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException(USER_NOT_FOUND);
-    return plainToInstance(UserSerializer, user, { excludeExtraneousValues: true });
+    return plainToInstance(UserSerializer, user, {
+      excludeExtraneousValues: true,
+    });
   }
 
   async getMyProfile(userId: string): Promise<UserProfile | null> {

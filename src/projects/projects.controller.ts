@@ -16,7 +16,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { JwtAuthGuard, PermissionGuard, ProjectPermissionGuard } from 'src/auth/guards';
+import {
+  JwtAuthGuard,
+  PermissionGuard,
+  ProjectPermissionGuard,
+} from 'src/auth/guards';
 import {
   GetUser,
   RequirePermission,

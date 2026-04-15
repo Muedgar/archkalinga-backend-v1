@@ -14,8 +14,12 @@ export class RoleSerializer extends BaseSerializer {
   @Expose() isSystem: boolean;
 
   @Expose()
-  @Transform(({ obj }: { obj: { permissions?: Record<string, Record<string, boolean>> } }) =>
-    obj?.permissions ?? {},
+  @Transform(
+    ({
+      obj,
+    }: {
+      obj: { permissions?: Record<string, Record<string, boolean>> };
+    }) => obj?.permissions ?? {},
   )
   permissions: Record<string, Record<string, boolean>>;
 

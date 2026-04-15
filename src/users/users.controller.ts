@@ -137,7 +137,9 @@ export class UserController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a collaborator and optionally change their workspace role' })
+  @ApiOperation({
+    summary: 'Update a collaborator and optionally change their workspace role',
+  })
   @ApiResponse({ status: 200, description: 'User updated' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions (requires userManagement.update)' })
   @ResponseMessage(USER_UPDATED)

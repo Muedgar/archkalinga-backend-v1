@@ -14,9 +14,13 @@ export const TASK_COMMENT_ADDED = 'Task comment added successfully';
 export const TASK_COMMENT_UPDATED = 'Task comment updated successfully';
 export const TASK_COMMENT_DELETED = 'Task comment deleted successfully';
 export const TASK_CHECKLIST_FETCHED = 'Task checklist fetched successfully';
-export const TASK_CHECKLIST_ITEM_ADDED = 'Task checklist item added successfully';
-export const TASK_CHECKLIST_ITEM_UPDATED = 'Task checklist item updated successfully';
-export const TASK_CHECKLIST_ITEM_DELETED = 'Task checklist item deleted successfully';
-export const TASK_DEPENDENCIES_FETCHED = 'Task dependencies fetched successfully';
+export const TASK_CHECKLIST_ITEM_ADDED =
+  'Task checklist item added successfully';
+export const TASK_CHECKLIST_ITEM_UPDATED =
+  'Task checklist item updated successfully';
+export const TASK_CHECKLIST_ITEM_DELETED =
+  'Task checklist item deleted successfully';
+export const TASK_DEPENDENCIES_FETCHED =
+  'Task dependencies fetched successfully';
 export const TASK_DEPENDENCY_ADDED = 'Task dependency added successfully';
 export const TASK_DEPENDENCY_DELETED = 'Task dependency deleted successfully';

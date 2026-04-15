@@ -20,8 +20,13 @@ export class MeController {
   constructor(private readonly meService: MeService) {}
 
   @Get()
-  @ApiOperation({ summary: "Get the authenticated user's full profile with org and role" })
-  @ApiResponse({ status: 200, description: 'User object including organization and permission matrix' })
+  @ApiOperation({
+    summary: "Get the authenticated user's full profile with org and role",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User object including organization and permission matrix',
+  })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
   @ResponseMessage(ME_FETCHED)
   getMe(@GetUser() user: User) {
@@ -29,7 +34,10 @@ export class MeController {
   }
 
   @Get('profile')
-  @ApiOperation({ summary: "Get the authenticated user's extended profile (profession, bio, etc.)" })
+  @ApiOperation({
+    summary:
+      "Get the authenticated user's extended profile (profession, bio, etc.)",
+  })
   @ApiResponse({ status: 200, description: 'UserProfile record' })
   @ApiResponse({ status: 401, description: 'Invalid or missing access token' })
   @ResponseMessage('Profile fetched')

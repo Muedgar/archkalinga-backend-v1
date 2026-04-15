@@ -27,9 +27,7 @@ export class ReauthGuard implements CanActivate {
   ) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const request = context
-      .switchToHttp()
-      .getRequest<Record<string, any>>();
+    const request = context.switchToHttp().getRequest<Record<string, any>>();
 
     const token = request.headers?.['x-reauth-token'] as string | undefined;
 

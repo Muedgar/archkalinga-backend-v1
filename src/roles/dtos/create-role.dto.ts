@@ -18,7 +18,10 @@ export class PermissionActionsDto {
 
 /** The permissions field accepts the full matrix shape. */
 export class CreateRoleDTO {
-  @ApiProperty({ example: 'Workspace Viewer', description: 'Human-readable workspace role name' })
+  @ApiProperty({
+    example: 'Workspace Viewer',
+    description: 'Human-readable workspace role name',
+  })
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -27,8 +30,18 @@ export class CreateRoleDTO {
     description: `Workspace permission matrix. Provide any subset of the ${PERMISSION_DOMAINS.length} domains.
 Missing domains default to all-false. Each domain key maps to { create, update, view, delete }.`,
     example: {
-      projectManagement: { create: false, update: false, view: true, delete: false },
-      taskManagement:    { create: false, update: false, view: true, delete: false },
+      projectManagement: {
+        create: false,
+        update: false,
+        view: true,
+        delete: false,
+      },
+      taskManagement: {
+        create: false,
+        update: false,
+        view: true,
+        delete: false,
+      },
     },
   })
   @IsObject()
