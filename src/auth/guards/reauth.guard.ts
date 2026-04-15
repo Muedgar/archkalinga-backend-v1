@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { Request } from 'express';
 import { JwtPayload } from '../interfaces';
 import { REAUTH_REQUIRED, REAUTH_TOKEN_INVALID } from '../messages';
 
@@ -27,7 +28,7 @@ export class ReauthGuard implements CanActivate {
   ) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest<Record<string, any>>();
+    const request = context.switchToHttp().getRequest<Request>();
 
     const token = request.headers?.['x-reauth-token'] as string | undefined;
 

@@ -17,29 +17,29 @@ import { User } from 'src/users/entities';
 export class UserSession extends AppBaseEntity {
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
-  user: User;
+  user!: User;
 
   /** SHA-256 hex-digest of the raw refresh token sent to the client. */
   @Column({ type: 'varchar', length: 64, nullable: false, unique: true })
-  refreshTokenHash: string;
+  refreshTokenHash!: string;
 
   /** IPv4 / IPv6 address at session creation. */
   @Column({ type: 'varchar', length: 45, nullable: true })
-  ipAddress: string | null;
+  ipAddress!: string | null;
 
   /** Parsed from User-Agent (e.g. "Chrome on macOS"). */
   @Column({ type: 'varchar', length: 250, nullable: true })
-  deviceLabel: string | null;
+  deviceLabel!: string | null;
 
   /** Absolute expiry — the token cannot be used after this point. */
   @Column({ type: 'timestamptz', nullable: false })
-  expiresAt: Date;
+  expiresAt!: Date;
 
   /** Updated on every successful token refresh (sliding inactivity window). */
   @Column({ type: 'timestamptz', nullable: true })
-  lastUsedAt: Date | null;
+  lastUsedAt!: Date | null;
 
   /** Set when the session is explicitly logged out or rotated. */
   @Column({ type: 'timestamptz', nullable: true })
-  revokedAt: Date | null;
+  revokedAt!: Date | null;
 }
