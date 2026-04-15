@@ -5,7 +5,7 @@ import { AuditLog } from '../entities/audit-log.entity';
 
 export interface CreateAuditLogDto {
   actorId?: string;
-  organizationId?: string;
+  workspaceId?: string;
   action: string;
   resource: string;
   resourceId?: string | null;
@@ -28,14 +28,14 @@ export class AuditLogService {
   async log(dto: CreateAuditLogDto): Promise<void> {
     try {
       const log = this.auditLogRepo.create({
-        actor: dto.actorId ? ({ id: dto.actorId } as any) : null,
-        organization: dto.organizationId ? ({ id: dto.organizationId } as any) : null,
-        action: dto.action,
-        resource: dto.resource,
+        actor:     dto.actorId     ? ({ id: dto.actorId }     as any) : null,
+        workspace: dto.workspaceId ? ({ id: dto.workspaceId } as any) : null,
+        action:     dto.action,
+        resource:   dto.resource,
         resourceId: dto.resourceId ?? null,
-        payload: dto.payload ?? null,
-        result: dto.result ?? null,
-        ipAddress: dto.ipAddress ?? null,
+        payload:    dto.payload    ?? null,
+        result:     dto.result     ?? null,
+        ipAddress:  dto.ipAddress  ?? null,
       });
       await this.auditLogRepo.save(log);
     } catch {
@@ -44,18 +44,19 @@ export class AuditLogService {
   }
 
   /**
-   * Retrieve audit logs for a specific organization, newest first.
-   * @param organizationId  The organization's UUID.
-   * @param limit           Page size (default 50, max 200).
-   * @param offset          Pagination offset (default 0).
+   * Retrieve audit logs for a specific workspace, newest first.
+   *
+   * @param workspaceId  The workspace UUID.
+   * @param limit        Page size (default 50, max 200).
+   * @param offset       Pagination offset (default 0).
    */
   async findAll(
-    organizationId: string,
+    workspaceId: string,
     limit = 50,
     offset = 0,
   ): Promise<[AuditLog[], number]> {
     return this.auditLogRepo.findAndCount({
-      where: { organization: { id: organizationId } },
+      where: { workspace: { id: workspaceId } },
       relations: ['actor'],
       order: { createdAt: 'DESC' },
       take: Math.min(limit, 200),

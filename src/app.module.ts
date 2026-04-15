@@ -11,12 +11,13 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
-import { OrganizationsModule } from './organizations/organizations.module';
+import { WorkspacesModule } from './workspaces/workspaces.module';
 import { CommonModule } from './common/common.module';
 import { TemplatesModule } from './templates/templates.module';
 import { ProjectsModule } from './projects/projects.module';
 import { ProjectInvitesModule } from './project-invites/project-invites.module';
 import { TasksModule } from './tasks/tasks.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 import { ResponseInterceptor } from './common/interceptors';
 import { dataSourceOptions } from './config/db/db.config';
@@ -59,7 +60,7 @@ import { dataSourceOptions } from './config/db/db.config';
 
     // ── Feature modules ───────────────────────────────────────────────────────
     CommonModule,
-    OrganizationsModule,
+    WorkspacesModule,
     RolesModule,
     UsersModule,
     AuthModule,
@@ -67,13 +68,12 @@ import { dataSourceOptions } from './config/db/db.config';
     ProjectsModule,
     ProjectInvitesModule,
     TasksModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    // Global rate-limit guard
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-    // Global response envelope
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
   ],
 })

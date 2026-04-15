@@ -19,14 +19,4 @@ export class UserProfile extends AppBaseEntity {
 
   @Column({ type: 'text', nullable: true })
   bio: string | null;
-
-  /** For INDIVIDUAL users who also run a firm / studio. */
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  organizationName: string | null;
-
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  organizationWebsite: string | null;
-
-  @Column({ type: 'integer', nullable: true })
-  teamSize: number | null;
 }

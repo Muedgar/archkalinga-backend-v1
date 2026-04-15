@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { User, UserType } from 'src/users/entities';
+import { User } from 'src/users/entities';
 import { UserProfile } from 'src/users/entities/user-profile.entity';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -52,12 +52,12 @@ import {
   ACCOUNT_LOCKED_EMAIL_JOB,
 } from 'src/common/constants';
 import { UserSession } from './entities/user-session.entity';
-import { Organization } from 'src/organizations/entities/organization.entity';
-import { Role } from 'src/roles/roles.entity';
-import {
-  FULL_ACCESS_MATRIX,
-} from 'src/roles/types/permission-matrix.type';
+import { Workspace } from 'src/workspaces/entities/workspace.entity';
+import { WorkspaceMember, WorkspaceMemberStatus } from 'src/workspaces/entities/workspace-member.entity';
+import { WorkspaceRole } from 'src/roles/roles.entity';
+import { FULL_ACCESS_MATRIX } from 'src/roles/types/permission-matrix.type';
 import { plainToInstance } from 'class-transformer';
+import { WorkspaceMemberSerializer } from 'src/workspaces/serializers/workspace-member.serializer';
 
 // ── Module-level constants ────────────────────────────────────────────────────
 
@@ -77,10 +77,12 @@ export class AuthService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(UserProfile)
     private readonly profileRepo: Repository<UserProfile>,
-    @InjectRepository(Organization)
-    private readonly orgRepo: Repository<Organization>,
-    @InjectRepository(Role)
-    private readonly roleRepo: Repository<Role>,
+    @InjectRepository(Workspace)
+    private readonly workspaceRepo: Repository<Workspace>,
+    @InjectRepository(WorkspaceRole)
+    private readonly workspaceRoleRepo: Repository<WorkspaceRole>,
+    @InjectRepository(WorkspaceMember)
+    private readonly workspaceMemberRepo: Repository<WorkspaceMember>,
     @InjectRepository(UserSession)
     private readonly sessionRepo: Repository<UserSession>,
     private readonly jwtService: JwtService,
@@ -167,14 +169,45 @@ export class AuthService {
       .execute();
   }
 
-  /** Load a user with all relations needed for API responses. */
+  /** Load a user (no workspace-specific relations — those travel via WorkspaceMember). */
   private async loadFullUser(userId: string): Promise<User> {
-    const user = await this.userRepo.findOne({
-      where: { id: userId },
-      relations: ['organization', 'role'],
-    });
+    const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS);
     return user;
+  }
+
+  /**
+   * Load the user's first active workspace membership (ordered by joinedAt ASC),
+   * with workspace and workspaceRole relations loaded.
+   * Returns null if the user has no active memberships (edge case).
+   */
+  private async loadFirstMembership(userId: string): Promise<WorkspaceMember | null> {
+    const members = await this.workspaceMemberRepo.find({
+      where: { userId, status: WorkspaceMemberStatus.ACTIVE },
+      relations: ['workspace', 'workspaceRole'],
+      order: { joinedAt: 'ASC' },
+      take: 1,
+    });
+    return members[0] ?? null;
+  }
+
+  /** Generate a URL-safe workspace slug from a name, guaranteed unique. */
+  private async generateWorkspaceSlug(name: string): Promise<string> {
+    const base = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 200);
+
+    let slug = base;
+    let attempt = 0;
+    while (true) {
+      const exists = await this.workspaceRepo.findOne({ where: { slug } });
+      if (!exists) return slug;
+      attempt++;
+      slug = `${base}-${attempt}`;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -185,44 +218,24 @@ export class AuthService {
     dto: SignupDto,
     ipAddress: string | null,
     deviceLabel: string | null,
-  ): Promise<{ accessToken: string; refreshToken: string; user: UserSerializer }> {
-    // Check email uniqueness
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    user: UserSerializer;
+    workspaceId: string;
+    workspaceName: string;
+    workspaceMemberId: string;
+    workspaceMember: WorkspaceMemberSerializer;
+  }> {
+    // Check email uniqueness early (before the slug query + transaction)
     const existing = await this.userRepo.findOne({ where: { email: dto.email } });
     if (existing) throw new ConflictException('Email already in use');
 
     const hashedPassword = bcrypt.hashSync(dto.password, bcrypt.genSaltSync(12));
+    const slug = await this.generateWorkspaceSlug(dto.workspaceName);
 
-    const user = await this.userRepo.manager.transaction(async (tx) => {
-      // 1. Create Organization
-      //    INDIVIDUAL → personal workspace derived from user's name
-      //    ORGANIZATION → use supplied org fields
-      const orgName =
-        dto.userType === UserType.ORGANIZATION && dto.organizationName
-          ? dto.organizationName.trim()
-          : `${dto.firstName.trim()} ${dto.lastName.trim()}'s Workspace`;
-
-      const org = tx.create(Organization, {
-        name: orgName,
-        address: dto.organizationAddress ?? null,
-        city: dto.organizationCity ?? null,
-        country: dto.organizationCountry ?? null,
-        website: dto.organizationWebsite ?? null,
-      });
-      const savedOrg = await tx.save(org);
-
-      // 2. Create Admin role for this organization
-      const roleName = 'Admin';
-      const role = tx.create(Role, {
-        name: roleName,
-        slug: 'admin',
-        status: true,
-        permissions: FULL_ACCESS_MATRIX,
-        organizationId: savedOrg.id,
-        organization: savedOrg,
-      });
-      const savedRole = await tx.save(role);
-
-      // 3. Create User
+    const { user, workspace, member } = await this.userRepo.manager.transaction(async (tx) => {
+      // 1. Create User
       const newUser = tx.create(User, {
         firstName: dto.firstName,
         lastName: dto.lastName,
@@ -230,34 +243,63 @@ export class AuthService {
         email: dto.email,
         password: hashedPassword,
         title: dto.title ?? null,
-        userType: dto.userType,
         status: true,
         isDefaultPassword: false,
         twoFactorAuthentication: false,
         emailVerified: false,
-        organizationId: savedOrg.id,
-        organization: savedOrg,
-        roleId: savedRole.id,
-        role: savedRole,
         createdById: null,
       });
       const savedUser = await tx.save(newUser);
 
-      // 4. Create UserProfile
-      const profile = tx.create(UserProfile, {
-        userId: savedUser.id,
-        user: savedUser,
-        profession: dto.profession ?? null,
-        specialty: dto.specialty ?? null,
-        bio: null,
-        organizationName:
-          dto.userType === UserType.ORGANIZATION ? orgName : null,
-        organizationWebsite: dto.organizationWebsite ?? null,
-        teamSize: null,
-      });
-      await tx.save(profile);
+      // 2. Create Workspace
+      const savedWorkspace = await tx.save(
+        tx.create(Workspace, {
+          name: dto.workspaceName.trim(),
+          slug,
+          description: dto.workspaceDescription?.trim() ?? null,
+        }),
+      );
 
-      return savedUser;
+      // 3. Create Admin WorkspaceRole (workspace-scoped, isSystem = true)
+      const adminRole = await tx.save(
+        tx.create(WorkspaceRole, {
+          name: 'Admin',
+          slug: 'admin',
+          status: true,
+          isSystem: true,
+          permissions: FULL_ACCESS_MATRIX,
+          workspace: savedWorkspace,
+          workspaceId: savedWorkspace.id,
+        }),
+      );
+
+      // 4. Create UserProfile
+      await tx.save(
+        tx.create(UserProfile, {
+          userId: savedUser.id,
+          user: savedUser,
+          profession: null,
+          specialty: null,
+          bio: null,
+        }),
+      );
+
+      // 5. Create WorkspaceMember (user + workspace + Admin role)
+      const savedMember = await tx.save(
+        tx.create(WorkspaceMember, {
+          workspace: savedWorkspace,
+          workspaceId: savedWorkspace.id,
+          user: savedUser,
+          userId: savedUser.id,
+          workspaceRole: adminRole,
+          workspaceRoleId: adminRole.id,
+          status: WorkspaceMemberStatus.ACTIVE,
+          joinedAt: new Date(),
+          invitedByUserId: null,
+        }),
+      );
+
+      return { user: savedUser, workspace: savedWorkspace, member: savedMember };
     });
 
     const fullUser = await this.loadFullUser(user.id);
@@ -267,12 +309,21 @@ export class AuthService {
       deviceLabel,
     );
 
+    // Reload member with full relations for serialization
+    const fullMember = await this.loadFirstMembership(fullUser.id);
+
     return {
       accessToken,
       refreshToken,
-      user: plainToInstance(UserSerializer, fullUser, {
-        excludeExtraneousValues: true,
-      }),
+      user: plainToInstance(UserSerializer, fullUser, { excludeExtraneousValues: true }),
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      workspaceMemberId: member.id,
+      workspaceMember: plainToInstance(
+        WorkspaceMemberSerializer,
+        fullMember ?? member,
+        { excludeExtraneousValues: true },
+      ),
     };
   }
 
@@ -289,6 +340,9 @@ export class AuthService {
     refreshToken?: string;
     user?: UserSerializer | { email: string };
     requiresOtp?: boolean;
+    workspaceId?: string | null;
+    workspaceMemberId?: string | null;
+    workspaceMember?: WorkspaceMemberSerializer | null;
   }> {
     const { email, password } = loginDTO;
     const user = await this.userRepo.findOne({ where: { email } });
@@ -378,12 +432,17 @@ export class AuthService {
       deviceLabel,
     );
 
+    const member = await this.loadFirstMembership(fullUser.id);
+
     return {
       accessToken,
       refreshToken,
-      user: plainToInstance(UserSerializer, fullUser, {
-        excludeExtraneousValues: true,
-      }),
+      user: plainToInstance(UserSerializer, fullUser, { excludeExtraneousValues: true }),
+      workspaceId: member?.workspaceId ?? null,
+      workspaceMemberId: member?.id ?? null,
+      workspaceMember: member
+        ? plainToInstance(WorkspaceMemberSerializer, member, { excludeExtraneousValues: true })
+        : null,
     };
   }
 
@@ -395,7 +454,14 @@ export class AuthService {
     otpDto: OtpDTO,
     ipAddress: string | null,
     deviceLabel: string | null,
-  ): Promise<{ accessToken: string; refreshToken: string; user: UserSerializer }> {
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    user: UserSerializer;
+    workspaceId: string | null;
+    workspaceMemberId: string | null;
+    workspaceMember: WorkspaceMemberSerializer | null;
+  }> {
     const { email, otp } = otpDto;
     const user = await this.userRepo.findOne({ where: { email } });
 
@@ -421,12 +487,17 @@ export class AuthService {
       deviceLabel,
     );
 
+    const member = await this.loadFirstMembership(fullUser.id);
+
     return {
       accessToken,
       refreshToken,
-      user: plainToInstance(UserSerializer, fullUser, {
-        excludeExtraneousValues: true,
-      }),
+      user: plainToInstance(UserSerializer, fullUser, { excludeExtraneousValues: true }),
+      workspaceId: member?.workspaceId ?? null,
+      workspaceMemberId: member?.id ?? null,
+      workspaceMember: member
+        ? plainToInstance(WorkspaceMemberSerializer, member, { excludeExtraneousValues: true })
+        : null,
     };
   }
 
@@ -435,7 +506,8 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async getMe(userId: string): Promise<UserSerializer> {
-    const user = await this.loadFullUser(userId);
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS);
     return plainToInstance(UserSerializer, user, { excludeExtraneousValues: true });
   }
 

@@ -16,8 +16,10 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard, PermissionGuard } from 'src/auth/guards';
-import { GetUser, RequirePermission } from 'src/auth/decorators';
-import { User } from 'src/users/entities';
+import { RequirePermission } from 'src/auth/decorators';
+import { WorkspaceGuard } from 'src/workspaces/guards/workspace.guard';
+import { GetWorkspaceMember } from 'src/workspaces/decorators/get-workspace-member.decorator';
+import type { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
 import { ListFilterDTO } from 'src/common/dtos';
 import { LogActivity, ResponseMessage } from 'src/common/decorators';
 import { CreateTemplateDto, UpdateTemplateDto } from './dtos';
@@ -33,59 +35,46 @@ import { TemplatesService } from './templates.service';
 @ApiTags('Templates')
 @Controller('templates')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, WorkspaceGuard)
 export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 
   @Post()
-  @ApiOperation({
-    summary: 'Create a template for the current organization',
-    description:
-      'Workspace-scoped action. Requires templateManagement.create on the caller\'s workspace role.',
-  })
+  @ApiOperation({ summary: 'Create a template for the current workspace' })
   @ApiResponse({ status: 201, description: 'Template created' })
   @ResponseMessage(TEMPLATE_CREATED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'create')
   @LogActivity({ action: 'create:template', resource: 'template', includeBody: true })
-  createTemplate(@Body() dto: CreateTemplateDto, @GetUser() user: User) {
-    return this.templatesService.createTemplate(dto, user.organizationId);
+  createTemplate(@Body() dto: CreateTemplateDto, @GetWorkspaceMember() member: WorkspaceMember) {
+    return this.templatesService.createTemplate(dto, member.workspaceId);
   }
 
   @Get()
-  @ApiOperation({
-    summary: 'List templates in the current organization',
-    description:
-      'Workspace-scoped action. Requires templateManagement.view on the caller\'s workspace role.',
-  })
+  @ApiOperation({ summary: 'List templates in the current workspace' })
   @ApiResponse({ status: 200, description: 'Paginated list of templates' })
   @ResponseMessage(TEMPLATES_FETCHED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'view')
-  getTemplates(@Query() filters: ListFilterDTO, @GetUser() user: User) {
-    return this.templatesService.getTemplates(filters, user.organizationId);
+  getTemplates(@Query() filters: ListFilterDTO, @GetWorkspaceMember() member: WorkspaceMember) {
+    return this.templatesService.getTemplates(filters, member.workspaceId);
   }
 
   @Get(':identifier')
-  @ApiOperation({
-    summary: 'Get a template by id or name',
-    description:
-      'Workspace-scoped action. Requires templateManagement.view on the caller\'s workspace role.',
-  })
+  @ApiOperation({ summary: 'Get a template by id or name' })
   @ApiResponse({ status: 200, description: 'Template object with recursive tasks' })
   @ResponseMessage(TEMPLATE_FETCHED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'view')
-  getTemplate(@Param('identifier') identifier: string, @GetUser() user: User) {
-    return this.templatesService.getTemplateByIdentifier(identifier, user.organizationId);
+  getTemplate(
+    @Param('identifier') identifier: string,
+    @GetWorkspaceMember() member: WorkspaceMember,
+  ) {
+    return this.templatesService.getTemplateByIdentifier(identifier, member.workspaceId);
   }
 
   @Patch(':identifier')
-  @ApiOperation({
-    summary: 'Update a template by id or name',
-    description:
-      'Workspace-scoped action. Requires templateManagement.update on the caller\'s workspace role.',
-  })
+  @ApiOperation({ summary: 'Update a template by id or name' })
   @ApiResponse({ status: 200, description: 'Template updated' })
   @ResponseMessage(TEMPLATE_UPDATED)
   @UseGuards(PermissionGuard)
@@ -94,27 +83,22 @@ export class TemplatesController {
   updateTemplate(
     @Param('identifier') identifier: string,
     @Body() dto: UpdateTemplateDto,
-    @GetUser() user: User,
+    @GetWorkspaceMember() member: WorkspaceMember,
   ) {
-    return this.templatesService.updateTemplateByIdentifier(
-      identifier,
-      dto,
-      user.organizationId,
-    );
+    return this.templatesService.updateTemplateByIdentifier(identifier, dto, member.workspaceId);
   }
 
   @Delete(':identifier')
-  @ApiOperation({
-    summary: 'Delete a template by id or name',
-    description:
-      'Workspace-scoped action. Requires templateManagement.delete on the caller\'s workspace role.',
-  })
+  @ApiOperation({ summary: 'Delete a template by id or name' })
   @ApiResponse({ status: 200, description: 'Template deleted' })
   @ResponseMessage(TEMPLATE_DELETED)
   @UseGuards(PermissionGuard)
   @RequirePermission('templateManagement', 'delete')
   @LogActivity({ action: 'delete:template', resource: 'template' })
-  deleteTemplate(@Param('identifier') identifier: string, @GetUser() user: User) {
-    return this.templatesService.deleteTemplateByIdentifier(identifier, user.organizationId);
+  deleteTemplate(
+    @Param('identifier') identifier: string,
+    @GetWorkspaceMember() member: WorkspaceMember,
+  ) {
+    return this.templatesService.deleteTemplateByIdentifier(identifier, member.workspaceId);
   }
 }

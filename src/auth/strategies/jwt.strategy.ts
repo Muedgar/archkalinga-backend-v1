@@ -21,14 +21,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   /**
-   * Loads the user with organization + workspace role (including permissions matrix)
-   * so downstream workspace guards can enforce RBAC without an extra DB query.
+   * Validates the JWT payload and attaches the bare User to req.user.
+   * Workspace-role relations are loaded per-request by WorkspaceGuard.
    */
   async validate(payload: JwtPayload): Promise<Omit<User, 'password'>> {
-    const user = await this.userRepo.findOne({
-      where: { id: payload.id },
-      relations: ['organization', 'role'],
-    });
+    const user = await this.userRepo.findOne({ where: { id: payload.id } });
 
     if (!user || !user.status) {
       throw new UnauthorizedException(UNAUTHORIZED);
@@ -41,7 +38,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException(TOKEN_REVOKED);
     }
 
-    // Strip password before attaching to request
     const { password: _pw, ...safeUser } = user;
     return safeUser as Omit<User, 'password'>;
   }

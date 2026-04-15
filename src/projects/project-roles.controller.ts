@@ -47,7 +47,7 @@ export class ProjectRolesController {
   @ApiResponse({ status: 201, description: 'Project role created' })
   @ResponseMessage(PROJECT_ROLE_CREATED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('projectManagement', 'update')
+  @RequireProjectPermission('canManageProject')
   @LogActivity({ action: 'create:project-role', resource: 'project-role', includeBody: true })
   createProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,
@@ -65,7 +65,7 @@ export class ProjectRolesController {
   @ApiResponse({ status: 200, description: 'Paginated list of project roles' })
   @ResponseMessage(PROJECT_ROLES_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('projectManagement', 'view')
+  @RequireProjectPermission('canManageProject')
   listProjectRoles(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Query() filters: ListFilterDTO,
@@ -82,7 +82,7 @@ export class ProjectRolesController {
   @ApiResponse({ status: 200, description: 'Project role detail' })
   @ResponseMessage(PROJECT_ROLE_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('projectManagement', 'view')
+  @RequireProjectPermission('canManageProject')
   getProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('roleId', ParseUUIDPipe) roleId: string,
@@ -99,7 +99,7 @@ export class ProjectRolesController {
   @ApiResponse({ status: 200, description: 'Project role updated' })
   @ResponseMessage(PROJECT_ROLE_UPDATED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('projectManagement', 'update')
+  @RequireProjectPermission('canManageProject')
   @LogActivity({ action: 'update:project-role', resource: 'project-role', includeBody: true })
   updateProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,
@@ -118,7 +118,7 @@ export class ProjectRolesController {
   @ApiResponse({ status: 200, description: 'Project role deleted' })
   @ResponseMessage(PROJECT_ROLE_DELETED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('projectManagement', 'update')
+  @RequireProjectPermission('canManageProject')
   @LogActivity({ action: 'delete:project-role', resource: 'project-role' })
   deleteProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,

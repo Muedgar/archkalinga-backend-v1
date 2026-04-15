@@ -10,16 +10,16 @@ import { FilterResponse } from 'src/common/interfaces';
 import { FindManyOptions, Repository } from 'typeorm';
 import { CreateRoleDTO, UpdateRoleDTO } from './dtos';
 import { ROLE_EXISTS, ROLE_NOT_FOUND } from './messages';
-import { Role } from './roles.entity';
+import { WorkspaceRole } from './roles.entity';
 import { RoleSerializer } from './serializers';
 import { ListFilterService } from 'src/common/services/list-filter.service';
-import { EMPTY_ACCESS_MATRIX } from './types/permission-matrix.type';
+import { EMPTY_ACCESS_MATRIX, FULL_ACCESS_MATRIX } from './types/permission-matrix.type';
 import type { PermissionMatrix } from './types/permission-matrix.type';
 
 @Injectable()
 export class RoleService {
   constructor(
-    @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
+    @InjectRepository(WorkspaceRole) private readonly roleRepo: Repository<WorkspaceRole>,
     private readonly listFilterService: ListFilterService,
   ) {}
 
@@ -27,9 +27,9 @@ export class RoleService {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  private async ensureNameFree(name: string, organizationId: string, excludeId?: string): Promise<void> {
+  private async ensureNameFree(name: string, workspaceId: string, excludeId?: string): Promise<void> {
     const existing = await this.roleRepo.findOne({
-      where: { name: name.toLowerCase(), organizationId },
+      where: { name: name.toLowerCase(), workspaceId },
     });
     if (existing && existing.id !== excludeId) {
       throw new ConflictException(ROLE_EXISTS);
@@ -40,13 +40,13 @@ export class RoleService {
   // Workspace role CRUD
   // ---------------------------------------------------------------------------
 
-  async createRole(dto: CreateRoleDTO, organizationId: string): Promise<RoleSerializer> {
+  async createRole(dto: CreateRoleDTO, workspaceId: string): Promise<RoleSerializer> {
     const name = dto.name.toLowerCase();
     const slug = name.replace(/\s+/g, '-');
 
-    await this.ensureNameFree(name, organizationId);
+    await this.ensureNameFree(name, workspaceId);
 
-    // Merge provided permissions over an empty base to ensure all domains present
+    // Merge provided permissions over an empty base to ensure all domains are present
     const permissions: PermissionMatrix = {
       ...EMPTY_ACCESS_MATRIX,
       ...(dto.permissions as unknown as PermissionMatrix),
@@ -56,31 +56,33 @@ export class RoleService {
       name,
       slug,
       status: true,
+      isSystem: false,
       permissions,
-      organizationId,
+      workspaceId,
     });
 
     const saved = await this.roleRepo.save(role);
     return plainToInstance(RoleSerializer, saved, { excludeExtraneousValues: true });
   }
 
-  async getRole(id: string): Promise<Role> {
+  /** Load role by primary ID — used internally by guards / services. */
+  async getRole(id: string): Promise<WorkspaceRole> {
     const role = await this.roleRepo.findOne({ where: { id } });
     if (!role) throw new NotFoundException(ROLE_NOT_FOUND);
     return role;
   }
 
-  async getRoleById(id: string, organizationId: string): Promise<RoleSerializer> {
-    const role = await this.roleRepo.findOne({ where: { id, organizationId } });
+  async getRoleById(id: string, workspaceId: string): Promise<RoleSerializer> {
+    const role = await this.roleRepo.findOne({ where: { id, workspaceId } });
     if (!role) throw new NotFoundException(ROLE_NOT_FOUND);
     return plainToInstance(RoleSerializer, role, { excludeExtraneousValues: true });
   }
 
   async getRoles(
     filters: ListFilterDTO,
-    organizationId: string,
+    workspaceId: string,
   ): Promise<FilterResponse<RoleSerializer>> {
-    const options: FindManyOptions<Role> = { where: { organizationId } };
+    const options: FindManyOptions<WorkspaceRole> = { where: { workspaceId } };
 
     return this.listFilterService.filter({
       repository: this.roleRepo,
@@ -94,14 +96,14 @@ export class RoleService {
   async updateRole(
     id: string,
     dto: UpdateRoleDTO,
-    organizationId: string,
+    workspaceId: string,
   ): Promise<RoleSerializer> {
-    const role = await this.roleRepo.findOne({ where: { id, organizationId } });
+    const role = await this.roleRepo.findOne({ where: { id, workspaceId } });
     if (!role) throw new NotFoundException(ROLE_NOT_FOUND);
 
     if (dto.name) {
       const name = dto.name.toLowerCase();
-      await this.ensureNameFree(name, organizationId, id);
+      await this.ensureNameFree(name, workspaceId, id);
       role.name = name;
       role.slug = name.replace(/\s+/g, '-');
     }

@@ -61,9 +61,10 @@ export class ProjectRolesService {
     });
   }
 
-  private async ensureProjectExists(projectId: string): Promise<void> {
+  private async ensureProjectExists(projectId: string): Promise<Project> {
     const project = await this.projectRepo.findOne({ where: { id: projectId } });
     if (!project) throw new NotFoundException(PROJECT_NOT_FOUND);
+    return project;
   }
 
   private async ensureRoleNameAndSlugAvailable(
@@ -126,7 +127,7 @@ export class ProjectRolesService {
   }
 
   private mergePermissions(
-    permissions?: Record<string, Record<string, boolean>>,
+    permissions?: Record<string, boolean | Record<string, boolean>>,
   ): ProjectPermissionMatrix {
     return {
       ...EMPTY_PROJECT_ACCESS_MATRIX,
@@ -164,7 +165,7 @@ export class ProjectRolesService {
     projectId: string,
     dto: CreateProjectRoleDto,
   ): Promise<ProjectRoleSerializer> {
-    await this.ensureProjectExists(projectId);
+    const project = await this.ensureProjectExists(projectId);
 
     const name = this.normalizeName(dto.name);
     const slug = this.slugify(name);
@@ -175,7 +176,8 @@ export class ProjectRolesService {
     await this.ensureRoleNameAndSlugAvailable(projectId, name, slug);
 
     const role = this.projectRoleRepo.create({
-      projectId,
+      project,       // relation object → populates project_id FK
+      projectId,     // scalar accessor
       name,
       slug,
       status: true,

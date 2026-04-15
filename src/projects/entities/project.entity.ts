@@ -6,7 +6,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
-import { Organization } from 'src/organizations/entities/organization.entity';
+import { Workspace } from 'src/workspaces/entities/workspace.entity';
 import { Template } from 'src/templates/entities/template.entity';
 import { User } from 'src/users/entities/user.entity';
 import { ProjectMembership } from './project-membership.entity';
@@ -57,12 +57,12 @@ export class Project extends AppBaseEntity {
   archivedAt: Date | null;
 
   // ── Tenant ────────────────────────────────────────────────────────────────
-  @ManyToOne(() => Organization, { nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organization_id' })
-  organization: Organization;
+  @ManyToOne(() => Workspace, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'workspace_id' })
+  workspace: Workspace;
 
   @Column({ type: 'uuid', nullable: false })
-  organizationId: string;
+  workspaceId: string;
 
   // ── Template ──────────────────────────────────────────────────────────────
   @ManyToOne(() => Template, { nullable: false, onDelete: 'RESTRICT' })

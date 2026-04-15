@@ -1,11 +1,11 @@
 import { AppBaseEntity } from 'src/common/entities';
-import { Column, Entity, ManyToOne, JoinColumn } from 'typeorm';
-import { Organization } from 'src/organizations/entities/organization.entity';
+import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Workspace } from 'src/workspaces/entities/workspace.entity';
 import type { PermissionMatrix } from './types/permission-matrix.type';
 
-/** Workspace role assigned directly to a user within an organization. */
-@Entity('roles')
-export class Role extends AppBaseEntity {
+/** Workspace role scoped to a single workspace and assigned via WorkspaceMember. */
+@Entity('workspace_roles')
+export class WorkspaceRole extends AppBaseEntity {
   @Column({ type: 'varchar', length: 100, nullable: false })
   name: string;
 
@@ -22,11 +22,21 @@ export class Role extends AppBaseEntity {
   @Column({ type: 'jsonb', nullable: false })
   permissions: PermissionMatrix;
 
-  // ── Organization scope ────────────────────────────────────────────────────
-  @ManyToOne(() => Organization, { nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'organization_id' })
-  organization: Organization;
+  /**
+   * System roles (e.g. the seeded Admin role) cannot be deleted.
+   * They can still be updated by workspace admins.
+   */
+  @Column({ type: 'boolean', nullable: false, default: false })
+  isSystem: boolean;
+
+  // ── Workspace scope ────────────────────────────────────────────────────────
+  @ManyToOne(() => Workspace, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'workspace_id' })
+  workspace: Workspace;
 
   @Column({ type: 'uuid', nullable: false })
-  organizationId: string;
+  workspaceId: string;
 }
+
+/** Backward-compat alias so existing imports of `Role` keep working during migration. */
+export { WorkspaceRole as Role };

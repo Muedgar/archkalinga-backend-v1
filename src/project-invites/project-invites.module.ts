@@ -9,9 +9,11 @@ import {
   Project,
   ProjectRole,
 } from 'src/projects/entities';
-import { Task } from 'src/tasks/entities/task.entity';
-import { TaskAssignee } from 'src/tasks/entities/task-assignee.entity';
 import { User } from 'src/users/entities/user.entity';
+import { Workspace } from 'src/workspaces/entities/workspace.entity';
+import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
+import { WorkspaceRole } from 'src/roles/roles.entity';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 
 import { ProjectInvitesController } from './project-invites.controller';
 import { ProjectInvitesService } from './project-invites.service';
@@ -24,11 +26,13 @@ import { ProjectInvitesService } from './project-invites.service';
       ProjectActivityLog,
       Project,
       ProjectRole,
-      Task,
-      TaskAssignee,
       User,
+      Workspace,
+      WorkspaceMember,
+      WorkspaceRole,
     ]),
     CommonModule,
+    NotificationsModule,
   ],
   controllers: [ProjectInvitesController],
   providers: [ProjectInvitesService, ProjectPermissionGuard],

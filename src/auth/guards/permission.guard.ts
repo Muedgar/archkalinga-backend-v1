@@ -3,11 +3,12 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { REQUIRE_PERMISSION_KEY } from '../decorators/require-permission.decorator';
 import { INSUFFICIENT_PERMISSIONS } from '../messages';
-import { User } from 'src/users/entities';
+import type { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
 import type { PermissionDomain, PermissionAction } from 'src/roles/types/permission-matrix.type';
 
 export interface RequiredPermission {
@@ -18,14 +19,14 @@ export interface RequiredPermission {
 /**
  * PermissionGuard
  *
- * Reads the RequiredPermission metadata set by
- * @RequireWorkspacePermission(domain, action)
- * and checks that the authenticated user's workspace-role matrix grants that access.
+ * Reads the RequiredPermission metadata set by @RequireWorkspacePermission(domain, action)
+ * and checks that the authenticated user's workspace-role matrix (attached to
+ * req.workspaceMember by WorkspaceGuard) grants the required access.
  *
- * Must be placed AFTER JwtAuthGuard so request.user is populated.
+ * Guard order: JwtAuthGuard → WorkspaceGuard → PermissionGuard
  *
- * Usage for workspace-scoped routes:
- *   @UseGuards(JwtAuthGuard, PermissionGuard)
+ * Usage:
+ *   @UseGuards(JwtAuthGuard, WorkspaceGuard, PermissionGuard)
  *   @RequireWorkspacePermission('userManagement', 'create')
  *   createUser(...) { ... }
  */
@@ -41,10 +42,14 @@ export class PermissionGuard implements CanActivate {
 
     if (!required) return true;
 
-    const request = context.switchToHttp().getRequest<{ user?: User }>();
-    const user = request.user;
-    const matrix = user?.role?.permissions;
+    const request = context.switchToHttp().getRequest<{ workspaceMember?: WorkspaceMember }>();
+    const member = request.workspaceMember;
 
+    if (!member) {
+      throw new UnauthorizedException('Workspace context is required for this endpoint');
+    }
+
+    const matrix = member.workspaceRole?.permissions;
     if (!matrix?.[required.domain]?.[required.action]) {
       throw new ForbiddenException(INSUFFICIENT_PERMISSIONS);
     }

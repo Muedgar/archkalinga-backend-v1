@@ -1,14 +1,16 @@
 // ── Success ───────────────────────────────────────────────────────────────────
-export const INVITE_CREATED   = 'Invite sent successfully';
-export const INVITE_RESENT    = 'Invite resent successfully';
-export const INVITE_CANCELED  = 'Invite canceled';
-export const INVITE_ACCEPTED  = 'Invite accepted';
-export const INVITES_FETCHED  = 'Invites fetched successfully';
+export const INVITE_CREATED         = 'Invite sent successfully';
+export const INVITE_RESENT          = 'Invite resent successfully';
+export const INVITE_CANCELED        = 'Invite canceled';
+export const INVITE_ACCEPTED        = 'Invite accepted';
+export const INVITE_DECLINED        = 'Invite declined';
+export const INVITES_FETCHED        = 'Invites fetched successfully';
+export const RECEIVED_INVITES_FETCHED = 'Received invites fetched successfully';
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 export const INVITE_NOT_FOUND       = 'Invite not found';
 export const INVITE_NOT_PENDING     = 'Only pending invites can be resent or canceled';
-export const INVITE_DUPLICATE       = 'A pending invite already exists for this email and target';
+export const INVITE_DUPLICATE       = 'A pending invite already exists for this user in this project';
 export const INVITE_ALREADY_MEMBER  = 'This person is already an active project member';
 export const INVITE_TOKEN_INVALID   = 'Invite token is invalid or has expired';
 export const INVITE_PROJECT_NOT_FOUND = 'Project not found in your organization';
