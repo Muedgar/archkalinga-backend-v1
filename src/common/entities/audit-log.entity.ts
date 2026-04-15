@@ -7,12 +7,12 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { User } from 'src/users/entities';
-import { Organization } from 'src/organizations/entities/organization.entity';
+import { Workspace } from 'src/workspaces/entities/workspace.entity';
 
 /**
- * AuditLog — Phase 9 immutable event record.
+ * AuditLog — immutable event record.
  *
- * Captures who did what, in which school, and what the outcome was.
+ * Captures who did what, in which workspace, and what the outcome was.
  * Intentionally does NOT extend AppBaseEntity — audit logs are
  * append-only and never updated, so updatedAt and version are irrelevant.
  */
@@ -29,16 +29,16 @@ export class AuditLog {
   @JoinColumn({ name: 'actor_id' })
   actor: User | null;
 
-  /** The organization the action was performed in. NULL for cross-org actions. */
-  @ManyToOne(() => Organization, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'organization_id' })
-  organization: Organization | null;
+  /** The workspace the action was performed in. NULL for cross-workspace actions. */
+  @ManyToOne(() => Workspace, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'workspace_id' })
+  workspace: Workspace | null;
 
-  /** Action label, e.g. "create:user", "delete:student" */
+  /** Action label, e.g. "create:user", "delete:project" */
   @Column({ type: 'varchar', length: 100, nullable: false })
   action: string;
 
-  /** Resource type, e.g. "user", "student", "guardian" */
+  /** Resource type, e.g. "user", "project", "template" */
   @Column({ type: 'varchar', length: 100, nullable: false })
   resource: string;
 

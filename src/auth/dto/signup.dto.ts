@@ -1,16 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
-  IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsStrongPassword,
-  IsUrl,
-  ValidateIf,
+  MaxLength,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { UserType } from 'src/users/entities/user.entity';
 
 function trimToUndefined({ value }: { value: unknown }) {
   if (typeof value !== 'string') return value;
@@ -19,9 +16,7 @@ function trimToUndefined({ value }: { value: unknown }) {
 }
 
 export class SignupDto {
-  @ApiProperty({ enum: UserType, example: UserType.INDIVIDUAL })
-  @IsEnum(UserType)
-  userType: UserType;
+  // ── User fields ───────────────────────────────────────────────────────────────
 
   @ApiProperty({ example: 'John' })
   @IsString()
@@ -52,48 +47,18 @@ export class SignupDto {
   @Transform(trimToUndefined)
   title?: string;
 
-  // ── Profile fields (INDIVIDUAL) ──────────────────────────────────────────
-  @ApiPropertyOptional({ example: 'Architecture' })
-  @IsOptional()
-  @IsString()
-  @Transform(trimToUndefined)
-  profession?: string;
+  // ── Workspace fields ──────────────────────────────────────────────────────────
 
-  @ApiPropertyOptional({ example: 'Interior Design' })
-  @IsOptional()
-  @IsString()
-  @Transform(trimToUndefined)
-  specialty?: string;
-
-  // ── Organization fields (required when userType = ORGANIZATION) ───────────
-  @ApiPropertyOptional({ example: 'Acme Studio' })
-  @ValidateIf((o: SignupDto) => o.userType === UserType.ORGANIZATION)
+  @ApiProperty({ example: 'Acme Studio' })
   @IsString()
   @IsNotEmpty()
-  @Transform(trimToUndefined)
-  organizationName?: string;
+  @MaxLength(200)
+  workspaceName: string;
 
-  @ApiPropertyOptional({ example: 'Kigali Heights' })
+  @ApiPropertyOptional({ example: 'Architecture and design firm based in Kigali' })
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   @Transform(trimToUndefined)
-  organizationAddress?: string;
-
-  @ApiPropertyOptional({ example: 'Kigali' })
-  @IsOptional()
-  @IsString()
-  @Transform(trimToUndefined)
-  organizationCity?: string;
-
-  @ApiPropertyOptional({ example: 'Rwanda' })
-  @IsOptional()
-  @IsString()
-  @Transform(trimToUndefined)
-  organizationCountry?: string;
-
-  @ApiPropertyOptional({ example: 'https://acmestudio.com' })
-  @IsOptional()
-  @IsUrl()
-  @Transform(trimToUndefined)
-  organizationWebsite?: string;
+  workspaceDescription?: string;
 }

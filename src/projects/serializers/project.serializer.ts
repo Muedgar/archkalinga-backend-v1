@@ -1,4 +1,5 @@
 import { Expose, Transform, Type } from 'class-transformer';
+import { plainToInstance } from 'class-transformer';
 import { BaseSerializer } from 'src/common/serializers';
 
 // ── Nested ────────────────────────────────────────────────────────────────────
@@ -55,34 +56,46 @@ class MemberSnippet extends BaseSerializer {
   } | null;
 }
 
+class _InviteeSnippet {
+  @Expose() id: string;
+  @Expose() firstName: string;
+  @Expose() lastName: string;
+  @Expose() email: string;
+  @Expose() title: string | null;
+}
+
+class _InviteRoleSnippet {
+  @Expose() id: string;
+  @Expose() name: string;
+  @Expose() slug: string;
+  @Expose() status: boolean;
+  @Expose() isSystem: boolean;
+  @Expose() isProtected: boolean;
+  @Expose() permissions: Record<string, Record<string, boolean>>;
+}
+
 class InviteSnippet extends BaseSerializer {
-  @Expose() inviteeEmail: string;
-  @Expose() projectRoleId: string;
+  /** Who received the invite — safe subset of User fields only. */
+  @Expose()
+  @Transform(({ obj }) =>
+    obj?.inviteeUser
+      ? plainToInstance(_InviteeSnippet, obj.inviteeUser, { excludeExtraneousValues: true })
+      : null,
+  )
+  invitee: _InviteeSnippet | null;
+
+  /** Role that will be assigned on acceptance — no raw UUID exposed. */
   @Expose()
   @Transform(({ obj }) =>
     obj?.projectRole
-      ? {
-          id: obj.projectRole.id,
-          name: obj.projectRole.name,
-          slug: obj.projectRole.slug,
-          status: obj.projectRole.status,
-          isSystem: obj.projectRole.isSystem,
-          isProtected: obj.projectRole.isProtected,
-          permissions: obj.projectRole.permissions,
-        }
+      ? plainToInstance(_InviteRoleSnippet, obj.projectRole, { excludeExtraneousValues: true })
       : null,
   )
-  projectRole: {
-    id: string;
-    name: string;
-    slug: string;
-    status: boolean;
-    isSystem: boolean;
-    isProtected: boolean;
-    permissions: Record<string, Record<string, boolean>>;
-  } | null;
+  role: _InviteRoleSnippet | null;
+
   @Expose() status: string;
   @Expose() expiresAt: Date;
+  @Expose() message: string | null;
 }
 
 class ContributionSnippet extends BaseSerializer {
@@ -104,7 +117,7 @@ class ContributionSnippet extends BaseSerializer {
 // ── List item (paginated GET /projects) ──────────────────────────────────────
 
 export class ProjectListItemSerializer extends BaseSerializer {
-  @Expose() organizationId: string;
+  @Expose() workspaceId: string;
   @Expose() title: string;
   @Expose() description: string | null;
   @Expose() startDate: string | null;
@@ -124,7 +137,7 @@ export class ProjectListItemSerializer extends BaseSerializer {
 // ── Full detail (GET /projects/:id  +  POST/PATCH response) ──────────────────
 
 export class ProjectSerializer extends BaseSerializer {
-  @Expose() organizationId: string;
+  @Expose() workspaceId: string;
   @Expose() title: string;
   @Expose() description: string | null;
   @Expose() startDate: string | null;
@@ -224,40 +237,8 @@ export class ProjectSerializer extends BaseSerializer {
   @Transform(({ obj }) =>
     (obj?.activeInvites ?? obj?.invites ?? [])
       .filter((i: { status: string }) => i.status === 'PENDING')
-      .map(
-        (invite: {
-          id: string;
-          inviteeEmail: string;
-          projectRoleId: string;
-          projectRole?: {
-            id: string;
-            name: string;
-            slug: string;
-            status: boolean;
-            isSystem: boolean;
-            isProtected: boolean;
-            permissions: Record<string, Record<string, boolean>>;
-          } | null;
-          status: string;
-          expiresAt: Date;
-        }) => ({
-          id: invite.id,
-          inviteeEmail: invite.inviteeEmail,
-          projectRoleId: invite.projectRoleId,
-          projectRole: invite.projectRole
-            ? {
-                id: invite.projectRole.id,
-                name: invite.projectRole.name,
-                slug: invite.projectRole.slug,
-                status: invite.projectRole.status,
-                isSystem: invite.projectRole.isSystem,
-                isProtected: invite.projectRole.isProtected,
-                permissions: invite.projectRole.permissions,
-              }
-            : null,
-          status: invite.status,
-          expiresAt: invite.expiresAt,
-        }),
+      .map((invite: Record<string, unknown>) =>
+        plainToInstance(InviteSnippet, invite, { excludeExtraneousValues: true }),
       ),
   )
   @Type(() => InviteSnippet)

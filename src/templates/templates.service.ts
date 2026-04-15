@@ -10,7 +10,7 @@ import { FindManyOptions, Repository } from 'typeorm';
 import { ListFilterDTO } from 'src/common/dtos';
 import { FilterResponse } from 'src/common/interfaces';
 import { ListFilterService } from 'src/common/services';
-import { Organization } from 'src/organizations/entities/organization.entity';
+import { Workspace } from 'src/workspaces/entities/workspace.entity';
 import { Project } from 'src/projects/entities';
 import { CreateTemplateDto, UpdateTemplateDto } from './dtos';
 import {
@@ -30,8 +30,8 @@ export class TemplatesService {
     private readonly templateTaskRepo: Repository<TemplateTask>,
     @InjectRepository(Project)
     private readonly projectRepo: Repository<Project>,
-    @InjectRepository(Organization)
-    private readonly orgRepo: Repository<Organization>,
+    @InjectRepository(Workspace)
+    private readonly workspaceRepo: Repository<Workspace>,
     private readonly listFilterService: ListFilterService,
   ) {}
 
@@ -51,30 +51,21 @@ export class TemplatesService {
 
   private async ensureNameFree(
     name: string,
-    organizationId: string,
+    workspaceId: string,
     excludeId?: string,
   ): Promise<void> {
     const existing = await this.templateRepo.findOne({
-      where: { name, organizationId },
+      where: { name, workspaceId },
     });
     if (existing && existing.id !== excludeId) {
       throw new ConflictException(TEMPLATE_EXISTS);
     }
   }
 
-  private async clearDefaultForOrganization(
-    organizationId: string,
-  ): Promise<void> {
-    await this.templateRepo.update(
-      { organizationId, isDefault: true },
-      { isDefault: false },
-    );
-  }
-
   private async loadOne(where: {
     id?: string;
     name?: string;
-    organizationId: string;
+    workspaceId: string;
   }): Promise<Template> {
     const template = await this.templateRepo.findOne({
       where,
@@ -117,30 +108,22 @@ export class TemplatesService {
 
   async createTemplate(
     dto: CreateTemplateDto,
-    organizationId: string,
+    workspaceId: string,
   ): Promise<TemplateSerializer> {
     const name = this.normalizeName(dto.name);
-    await this.ensureNameFree(name, organizationId);
+    await this.ensureNameFree(name, workspaceId);
 
-    // Load the org record before the transaction so we can set the relation
-    // object alongside the scalar UUID — TypeORM resolves organization_id (int FK)
-    // from the entity relation, not from the organizationId UUID column.
-    const orgRecord = await this.orgRepo.findOneOrFail({
-      where: { id: organizationId },
-    });
+    // Load workspace record to resolve the integer FK via TypeORM relation
+    const workspaceRecord = await this.workspaceRepo.findOneOrFail({ where: { id: workspaceId } });
 
     const saved = await this.templateRepo.manager.transaction(async (tx) => {
       if (dto.isDefault) {
-        await tx.update(
-          Template,
-          { organizationId, isDefault: true },
-          { isDefault: false },
-        );
+        await tx.update(Template, { workspaceId, isDefault: true }, { isDefault: false });
       }
 
       const template = tx.create(Template, {
-        organization: orgRecord,
-        organizationId,
+        workspace: workspaceRecord,
+        workspaceId,
         name,
         description: dto.description.trim(),
         isDefault: dto.isDefault,
@@ -152,14 +135,12 @@ export class TemplatesService {
       return savedTemplate;
     });
 
-    return this.toSerializer(
-      await this.loadOne({ id: saved.id, organizationId }),
-    );
+    return this.toSerializer(await this.loadOne({ id: saved.id, workspaceId }));
   }
 
   async getTemplates(
     filters: ListFilterDTO,
-    organizationId: string,
+    workspaceId: string,
   ): Promise<FilterResponse<TemplateSerializer>> {
     return this.listFilterService.filter({
       repository: this.templateRepo,
@@ -168,35 +149,29 @@ export class TemplatesService {
       searchFields: ['name', 'description'],
       options: {
         ...this.withRelations(),
-        where: { organizationId },
+        where: { workspaceId },
       } as FindManyOptions<Template>,
     });
   }
 
   async getTemplateByIdentifier(
     identifier: string,
-    organizationId: string,
+    workspaceId: string,
   ): Promise<TemplateSerializer> {
-    const template = await this.findTemplateByIdentifier(
-      identifier,
-      organizationId,
-    );
+    const template = await this.findTemplateByIdentifier(identifier, workspaceId);
     return this.toSerializer(template);
   }
 
   async updateTemplateByIdentifier(
     identifier: string,
     dto: UpdateTemplateDto,
-    organizationId: string,
+    workspaceId: string,
   ): Promise<TemplateSerializer> {
-    const template = await this.findTemplateByIdentifier(
-      identifier,
-      organizationId,
-    );
+    const template = await this.findTemplateByIdentifier(identifier, workspaceId);
 
     if (dto.name !== undefined) {
       const name = this.normalizeName(dto.name);
-      await this.ensureNameFree(name, organizationId, template.id);
+      await this.ensureNameFree(name, workspaceId, template.id);
       template.name = name;
     }
 
@@ -206,15 +181,11 @@ export class TemplatesService {
 
     const shouldReplaceTasks = dto.tasks !== undefined;
     const shouldBecomeDefault = dto.isDefault === true;
-    const shouldUnsetDefault = dto.isDefault === false;
+    const shouldUnsetDefault  = dto.isDefault === false;
 
     const updated = await this.templateRepo.manager.transaction(async (tx) => {
       if (shouldBecomeDefault) {
-        await tx.update(
-          Template,
-          { organizationId, isDefault: true },
-          { isDefault: false },
-        );
+        await tx.update(Template, { workspaceId, isDefault: true }, { isDefault: false });
         template.isDefault = true;
       } else if (shouldUnsetDefault) {
         template.isDefault = false;
@@ -234,21 +205,16 @@ export class TemplatesService {
       return template;
     });
 
-    return this.toSerializer(
-      await this.loadOne({ id: updated.id, organizationId }),
-    );
+    return this.toSerializer(await this.loadOne({ id: updated.id, workspaceId }));
   }
 
   async deleteTemplateByIdentifier(
     identifier: string,
-    organizationId: string,
+    workspaceId: string,
   ): Promise<void> {
-    const template = await this.findTemplateByIdentifier(
-      identifier,
-      organizationId,
-    );
+    const template = await this.findTemplateByIdentifier(identifier, workspaceId);
     const projectCount = await this.projectRepo.count({
-      where: { templateId: template.id, organizationId },
+      where: { templateId: template.id, workspaceId },
     });
 
     if (projectCount > 0) {
@@ -257,13 +223,13 @@ export class TemplatesService {
 
     await this.templateRepo.manager.transaction(async (tx) => {
       await tx.delete(TemplateTask, { templateId: template.id });
-      await tx.delete(Template, { id: template.id, organizationId });
+      await tx.delete(Template, { id: template.id, workspaceId });
     });
   }
 
   private async findTemplateByIdentifier(
     identifier: string,
-    organizationId: string,
+    workspaceId: string,
   ): Promise<Template> {
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -272,7 +238,7 @@ export class TemplatesService {
 
     if (isUuid) {
       const byId = await this.templateRepo.findOne({
-        where: { id: identifier, organizationId },
+        where: { id: identifier, workspaceId },
         relations: ['tasks'],
         order: { tasks: { order: 'ASC' } },
       });
@@ -280,7 +246,7 @@ export class TemplatesService {
     }
 
     const byName = await this.templateRepo.findOne({
-      where: { name: identifier, organizationId },
+      where: { name: identifier, workspaceId },
       relations: ['tasks'],
       order: { tasks: { order: 'ASC' } },
     });

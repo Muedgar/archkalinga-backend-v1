@@ -10,8 +10,9 @@ import { JwtStrategy } from './strategies';
 import { ReauthGuard } from './guards';
 import { CommonModule } from 'src/common/common.module';
 import { UserSession } from './entities/user-session.entity';
-import { Organization } from 'src/organizations/entities/organization.entity';
-import { Role } from 'src/roles/roles.entity';
+import { Workspace } from 'src/workspaces/entities/workspace.entity';
+import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
+import { WorkspaceRole } from 'src/roles/roles.entity';
 
 @Module({
   imports: [
@@ -26,8 +27,9 @@ import { Role } from 'src/roles/roles.entity';
       User,
       UserProfile,
       UserSession,
-      Organization,
-      Role,
+      Workspace,
+      WorkspaceMember,
+      WorkspaceRole,
     ]),
     UsersModule,
     CommonModule,

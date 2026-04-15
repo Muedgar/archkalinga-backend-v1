@@ -47,7 +47,7 @@ async function bootstrap() {
       callback(new Error(`CORS: origin "${requestOrigin}" is not allowed`));
     },
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Workspace-Id'],
     credentials: true,
   });
 

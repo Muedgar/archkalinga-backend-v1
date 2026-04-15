@@ -7,9 +7,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
-import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 
-import { Organization } from 'src/organizations/entities/organization.entity';
+import { Workspace } from 'src/workspaces/entities/workspace.entity';
+import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
 import { Template, TemplateTask } from 'src/templates/entities';
 import {
   Task,
@@ -28,17 +29,14 @@ import {
   UpdateProjectMemberRoleDto,
 } from './dtos';
 import {
-  DEFAULT_PROJECT_ROLE_NOT_FOUND,
   DEFAULT_PROJECT_ROLE_SETUP_FAILED,
   INVALID_PROJECT_DATE_RANGE,
   INVALID_PROJECT_MEMBER_ROLE,
-  MEMBER_NOT_IN_ORG,
   PROJECT_ACCESS_DENIED,
   PROJECT_MEMBER_NOT_FOUND,
   PROJECT_MEMBER_ROLE_CHANGE_FORBIDDEN,
   PROJECT_NOT_FOUND,
   PROJECT_TEMPLATE_CHANGE_FORBIDDEN,
-  TEMPLATE_NOT_IN_ORG,
 } from './messages';
 import {
   Project,
@@ -51,12 +49,12 @@ import {
 import { MembershipStatus } from './entities/project-membership.entity';
 import { ProjectSerializer, ProjectListItemSerializer } from './serializers';
 import { FilterResponse } from 'src/common/interfaces';
-import { type ProjectPermissionAction } from './types/project-permission-matrix.type';
 import {
-  DEFAULT_CONTRIBUTOR_PROJECT_ROLE_SLUG,
   DEFAULT_OWNER_PROJECT_ROLE_SLUG,
   DEFAULT_PROJECT_ROLE_DEFINITIONS,
 } from './constants';
+
+const TEMPLATE_NOT_IN_WORKSPACE = 'Template not found in this workspace';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -76,24 +74,18 @@ interface TemplateTaskNode {
   subtasks: TemplateTaskNode[];
 }
 
-interface ResolvedMemberAssignment {
-  user: User;
-  userId: string;
-  projectRole: ProjectRole;
-  projectRoleId: string;
-}
-
 const DEFAULT_WORKFLOW_COLUMNS = [
-  { name: 'Todo', statusKey: TaskStatus.TODO, orderIndex: 0 },
+  { name: 'Todo',        statusKey: TaskStatus.TODO,        orderIndex: 0 },
   { name: 'In Progress', statusKey: TaskStatus.IN_PROGRESS, orderIndex: 1 },
-  { name: 'In Review', statusKey: TaskStatus.IN_REVIEW, orderIndex: 2 },
-  { name: 'Done', statusKey: TaskStatus.DONE, orderIndex: 3 },
-  { name: 'Blocked', statusKey: TaskStatus.BLOCKED, orderIndex: 4 },
+  { name: 'In Review',   statusKey: TaskStatus.IN_REVIEW,   orderIndex: 2 },
+  { name: 'Done',        statusKey: TaskStatus.DONE,        orderIndex: 3 },
+  { name: 'Blocked',     statusKey: TaskStatus.BLOCKED,     orderIndex: 4 },
 ] as const;
 
 const RANK_WIDTH = 10;
-const RANK_BASE = 36n;
-const RANK_STEP = 1024n;
+const RANK_BASE  = 36n;
+const RANK_STEP  = 1024n;
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -107,8 +99,8 @@ export class ProjectsService {
     private readonly projectRoleRepo: Repository<ProjectRole>,
     @InjectRepository(ProjectActivityLog)
     private readonly activityRepo: Repository<ProjectActivityLog>,
-    @InjectRepository(Organization)
-    private readonly orgRepo: Repository<Organization>,
+    @InjectRepository(Workspace)
+    private readonly workspaceRepo: Repository<Workspace>,
     @InjectRepository(Template)
     private readonly templateRepo: Repository<Template>,
     @InjectRepository(Task)
@@ -123,8 +115,8 @@ export class ProjectsService {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  private isAdmin(user: RequestUser): boolean {
-    return (user as unknown as User).role?.slug === 'admin';
+  private isWorkspaceAdmin(workspaceMember: WorkspaceMember | undefined): boolean {
+    return workspaceMember?.workspaceRole?.slug === 'admin';
   }
 
   private toSerializer(
@@ -144,37 +136,63 @@ export class ProjectsService {
     }
   }
 
-  private membershipHasProjectPermission(
+  /**
+   * Returns true when the membership is active AND the role carries the
+   * canManageProject flag (Owner and Manager by default).
+   */
+  private membershipCanManageProject(
     membership: ProjectMembership | null | undefined,
-    action: ProjectPermissionAction,
   ): boolean {
     return (
       membership?.status === MembershipStatus.ACTIVE &&
       membership.projectRole?.status === true &&
-      membership.projectRole.permissions?.projectManagement?.[action] === true
+      membership.projectRole.permissions?.canManageProject === true
     );
   }
 
+  /**
+   * Returns true when the membership is simply active (any role).
+   * Used to gate view-only project access.
+   */
+  private membershipIsActive(
+    membership: ProjectMembership | null | undefined,
+  ): boolean {
+    return (
+      membership?.status === MembershipStatus.ACTIVE &&
+      membership.projectRole?.status === true
+    );
+  }
+
+  /**
+   * Load a project after verifying the caller has the required access level.
+   *
+   * @param requiresManagement  false → any active member may proceed (view actions)
+   *                            true  → only members whose role has canManageProject=true
+   */
   private async loadAuthorizedProject(
     projectId: string,
+    workspaceId: string,
     requestUser: RequestUser,
-    action: ProjectPermissionAction,
+    requiresManagement: boolean,
+    workspaceMember?: WorkspaceMember,
   ): Promise<Project> {
     const project = await this.projectRepo.findOne({
-      where: { id: projectId, organizationId: requestUser.organizationId },
+      where: { id: projectId, workspaceId },
       relations: ['memberships', 'memberships.projectRole'],
     });
 
     if (!project) throw new NotFoundException(PROJECT_NOT_FOUND);
 
-    if (!this.isAdmin(requestUser)) {
+    if (!this.isWorkspaceAdmin(workspaceMember)) {
       const membership = project.memberships.find(
-        (membership) =>
-          membership.userId === requestUser.id &&
-          membership.status === MembershipStatus.ACTIVE,
+        (m) => m.userId === requestUser.id && m.status === MembershipStatus.ACTIVE,
       );
 
-      if (!this.membershipHasProjectPermission(membership, action)) {
+      const authorized = requiresManagement
+        ? this.membershipCanManageProject(membership)
+        : this.membershipIsActive(membership);
+
+      if (!authorized) {
         throw new ForbiddenException(PROJECT_ACCESS_DENIED);
       }
     }
@@ -211,22 +229,17 @@ export class ProjectsService {
     const sortNodes = (nodes: TemplateTaskNode[]): TemplateTaskNode[] =>
       nodes
         .sort((a, b) => a.order - b.order)
-        .map((node) => ({
-          ...node,
-          subtasks: sortNodes(node.subtasks),
-        }));
+        .map((node) => ({ ...node, subtasks: sortNodes(node.subtasks) }));
 
     return sortNodes(roots);
   }
 
   private parseRankValue(rank?: string | null): bigint | null {
     if (!rank || !/^[0-9a-z]+$/i.test(rank)) return null;
-
     let result = 0n;
     for (const char of rank.toLowerCase()) {
       result = result * RANK_BASE + BigInt(parseInt(char, 36));
     }
-
     return result;
   }
 
@@ -251,10 +264,7 @@ export class ProjectsService {
       order: { rank: 'DESC', createdAt: 'DESC' },
     });
 
-    if (!lastSibling) {
-      return this.formatRankValue(RANK_STEP);
-    }
-
+    if (!lastSibling) return this.formatRankValue(RANK_STEP);
     const lastRank = this.parseRankValue(lastSibling.rank) ?? 0n;
     return this.formatRankValue(lastRank + RANK_STEP);
   }
@@ -270,13 +280,13 @@ export class ProjectsService {
 
     if (!columns.length) {
       columns = await manager.save(
-        DEFAULT_WORKFLOW_COLUMNS.map((column) =>
+        DEFAULT_WORKFLOW_COLUMNS.map((col) =>
           manager.create(WorkflowColumn, {
             project,
             projectId: project.id,
-            name: column.name,
-            statusKey: column.statusKey,
-            orderIndex: column.orderIndex,
+            name: col.name,
+            statusKey: col.statusKey,
+            orderIndex: col.orderIndex,
             wipLimit: null,
             locked: true,
           }),
@@ -284,20 +294,14 @@ export class ProjectsService {
       );
     }
 
-    return (
-      columns.find((column) => column.name.trim().toLowerCase() === 'todo') ??
-      columns[0]
-    );
+    return columns.find((c) => c.name.trim().toLowerCase() === 'todo') ?? columns[0];
   }
 
   private async ensureDefaultProjectRoles(
     manager: EntityManager,
     project: Project,
   ): Promise<Map<string, ProjectRole>> {
-    const existing = await manager.find(ProjectRole, {
-      where: { projectId: project.id },
-    });
-
+    const existing = await manager.find(ProjectRole, { where: { projectId: project.id } });
     const roleMap = new Map(existing.map((role) => [role.slug, role]));
 
     for (const def of DEFAULT_PROJECT_ROLE_DEFINITIONS) {
@@ -319,79 +323,6 @@ export class ProjectsService {
     }
 
     return roleMap;
-  }
-
-  private normalizeMemberAssignments(
-    dto:
-      | Pick<CreateProjectDto, 'memberIds' | 'memberAssignments'>
-      | Pick<UpdateProjectDto, 'memberIds' | 'memberAssignments'>,
-  ): Array<{ userId: string; projectRoleId?: string }> {
-    if (dto.memberAssignments?.length) {
-      const deduped = new Map<
-        string,
-        { userId: string; projectRoleId?: string }
-      >();
-      for (const assignment of dto.memberAssignments) {
-        deduped.set(assignment.userId, {
-          userId: assignment.userId,
-          projectRoleId: assignment.projectRoleId,
-        });
-      }
-      return [...deduped.values()];
-    }
-
-    return (dto.memberIds ?? []).map((userId) => ({ userId }));
-  }
-
-  private async resolveMemberAssignments(
-    assignments: Array<{ userId: string; projectRoleId?: string }>,
-    organizationId: string,
-    projectRoles: Map<string, ProjectRole>,
-  ): Promise<ResolvedMemberAssignment[]> {
-    if (!assignments.length) return [];
-
-    const users = await this.userRepo.find({
-      where: assignments.map((assignment) => ({
-        id: assignment.userId,
-        organizationId,
-      })),
-    });
-
-    if (users.length !== assignments.length) {
-      throw new BadRequestException(MEMBER_NOT_IN_ORG);
-    }
-
-    const userMap = new Map(users.map((user) => [user.id, user]));
-    const roleById = new Map(
-      [...projectRoles.values()].map((role) => [role.id, role]),
-    );
-    const contributorRole = projectRoles.get(
-      DEFAULT_CONTRIBUTOR_PROJECT_ROLE_SLUG,
-    );
-
-    if (!contributorRole) {
-      throw new NotFoundException(DEFAULT_PROJECT_ROLE_NOT_FOUND);
-    }
-
-    return assignments.map((assignment) => {
-      const user = userMap.get(assignment.userId);
-      if (!user) throw new BadRequestException(MEMBER_NOT_IN_ORG);
-
-      const projectRole = assignment.projectRoleId
-        ? roleById.get(assignment.projectRoleId)
-        : contributorRole;
-
-      if (!projectRole || projectRole.status !== true) {
-        throw new BadRequestException(INVALID_PROJECT_MEMBER_ROLE);
-      }
-
-      return {
-        user,
-        userId: user.id,
-        projectRole,
-        projectRoleId: projectRole.id,
-      };
-    });
   }
 
   private async logSeededTaskActivity(
@@ -502,7 +433,6 @@ export class ProjectsService {
   ): Promise<number> {
     const templateTree = this.buildTemplateTaskTree(template.tasks ?? []);
     let createdCount = 0;
-
     for (const rootTask of templateTree) {
       createdCount += await this.createProjectTaskFromTemplate(
         manager,
@@ -512,17 +442,12 @@ export class ProjectsService {
         rootTask,
       );
     }
-
     return createdCount;
   }
 
-  /** Load the full project with all relations needed for detail/response views. */
-  private async loadFull(
-    projectId: string,
-    organizationId: string,
-  ): Promise<Project> {
+  private async loadFull(projectId: string, workspaceId: string): Promise<Project> {
     const project = await this.projectRepo.findOne({
-      where: { id: projectId, organizationId },
+      where: { id: projectId, workspaceId },
       relations: [
         'template',
         'projectRoles',
@@ -531,6 +456,7 @@ export class ProjectsService {
         'memberships.projectRole',
         'invites',
         'invites.projectRole',
+        'invites.inviteeUser',
         'activityLogs',
         'activityLogs.user',
       ],
@@ -548,28 +474,23 @@ export class ProjectsService {
   async createProject(
     dto: CreateProjectDto,
     requestUser: RequestUser,
+    workspaceId: string,
+    workspaceMember?: WorkspaceMember,
   ): Promise<ProjectSerializer> {
-    const { organizationId, id: userId } = requestUser;
+    const { id: userId } = requestUser;
     this.ensureDateRange(dto.startDate, dto.endDate ?? null);
 
-    // 1. Validate template belongs to same org
     const template = await this.templateRepo.findOne({
-      where: { id: dto.templateId, organizationId },
+      where: { id: dto.templateId, workspaceId },
       relations: ['tasks'],
       order: { tasks: { order: 'ASC' } },
     });
-    if (!template) throw new NotFoundException(TEMPLATE_NOT_IN_ORG);
+    if (!template) throw new NotFoundException(TEMPLATE_NOT_IN_WORKSPACE);
 
-    // 2. Load relation objects needed to resolve integer FKs inside the transaction
-    const orgRecord = await this.orgRepo.findOneOrFail({
-      where: { id: organizationId },
-    });
-    const creatorUser = await this.userRepo.findOneOrFail({
-      where: { id: userId },
-    });
+    const workspaceRecord = await this.workspaceRepo.findOneOrFail({ where: { id: workspaceId } });
+    const creatorUser     = await this.userRepo.findOneOrFail({ where: { id: userId } });
 
     const project = await this.projectRepo.manager.transaction(async (tx) => {
-      // a. Create project
       const proj = tx.create(Project, {
         title: dto.title,
         description: dto.description,
@@ -577,31 +498,23 @@ export class ProjectsService {
         endDate: dto.endDate ?? null,
         type: dto.type,
         status: ProjectStatus.ACTIVE,
-        organization: orgRecord,
-        organizationId,
+        workspace: workspaceRecord,
+        workspaceId,
         template,
         templateId: dto.templateId,
         createdByUser: creatorUser,
         createdByUserId: userId,
       });
-      const savedProj = await tx.save(proj);
-      // Reload to get DB-generated UUID
-      const projRecord = await tx.findOneOrFail(Project, {
-        where: { pkid: savedProj.pkid },
-      });
+
+      const savedProj  = await tx.save(proj);
+      const projRecord = await tx.findOneOrFail(Project, { where: { pkid: savedProj.pkid } });
+
+      // Seed all default project roles (Owner, Manager, Contributor, Reviewer, Viewer)
       const projectRoles = await this.ensureDefaultProjectRoles(tx, projRecord);
-      const ownerRole = projectRoles.get(DEFAULT_OWNER_PROJECT_ROLE_SLUG);
-      const memberAssignments = await this.resolveMemberAssignments(
-        this.normalizeMemberAssignments(dto),
-        organizationId,
-        projectRoles,
-      );
+      const ownerRole    = projectRoles.get(DEFAULT_OWNER_PROJECT_ROLE_SLUG);
+      if (!ownerRole) throw new NotFoundException(DEFAULT_PROJECT_ROLE_SETUP_FAILED);
 
-      if (!ownerRole) {
-        throw new NotFoundException(DEFAULT_PROJECT_ROLE_SETUP_FAILED);
-      }
-
-      // b. Creator membership (OWNER)
+      // Creator is always the sole initial member with the Owner project role
       await tx.save(
         tx.create(ProjectMembership, {
           project: projRecord,
@@ -615,32 +528,7 @@ export class ProjectsService {
         }),
       );
 
-      // c. Additional member memberships (skip if creator already in list)
-      const nonCreatorMembers = memberAssignments.filter(
-        (member) => member.userId !== userId,
-      );
-      for (const memberAssignment of nonCreatorMembers) {
-        const reloadedMember = await tx.findOneOrFail(User, {
-          where: { pkid: memberAssignment.user.pkid },
-        });
-        await tx.save(
-          tx.create(ProjectMembership, {
-            project: projRecord,
-            projectId: projRecord.id,
-            user: reloadedMember,
-            userId: reloadedMember.id,
-            projectRole: memberAssignment.projectRole,
-            projectRoleId: memberAssignment.projectRoleId,
-            status: MembershipStatus.ACTIVE,
-            invitedByUser: creatorUser,
-            invitedByUserId: userId,
-            joinedAt: new Date(),
-          }),
-        );
-      }
-
-      // d. Resolve or create workflow columns, then seed project tasks
-      const seedColumn = await this.resolveSeedWorkflowColumn(tx, projRecord);
+      const seedColumn      = await this.resolveSeedWorkflowColumn(tx, projRecord);
       const seededTaskCount = await this.seedProjectTasksFromTemplate(
         tx,
         projRecord,
@@ -649,7 +537,6 @@ export class ProjectsService {
         seedColumn,
       );
 
-      // e. Initial activity log
       await tx.save(
         tx.create(ProjectActivityLog, {
           project: projRecord,
@@ -660,7 +547,6 @@ export class ProjectsService {
           actionType: ProjectActionType.PROJECT_CREATED,
           actionMeta: {
             title: dto.title,
-            memberCount: nonCreatorMembers.length + 1,
             seededTaskCount,
             seedWorkflowColumnId: seedColumn.id,
             seedWorkflowColumnName: seedColumn.name,
@@ -671,7 +557,7 @@ export class ProjectsService {
       return projRecord;
     });
 
-    return this.toSerializer(await this.loadFull(project.id, organizationId));
+    return this.toSerializer(await this.loadFull(project.id, workspaceId));
   }
 
   // ---------------------------------------------------------------------------
@@ -682,20 +568,20 @@ export class ProjectsService {
     projectId: string,
     dto: UpdateProjectDto,
     requestUser: RequestUser,
+    workspaceId: string,
+    workspaceMember?: WorkspaceMember,
   ): Promise<ProjectSerializer> {
-    const { organizationId, id: userId } = requestUser;
-    const actorUser = await this.userRepo.findOneOrFail({
-      where: { id: userId },
-    });
+    const { id: userId } = requestUser;
+    const actorUser = await this.userRepo.findOneOrFail({ where: { id: userId } });
 
     const projectWithAccess = await this.loadAuthorizedProject(
       projectId,
+      workspaceId,
       requestUser,
-      'update',
+      true, // requiresManagement
+      workspaceMember,
     );
-    const project = await this.projectRepo.findOne({
-      where: { id: projectId, organizationId },
-    });
+    const project = await this.projectRepo.findOne({ where: { id: projectId, workspaceId } });
     if (!project) throw new NotFoundException(PROJECT_NOT_FOUND);
 
     this.ensureDateRange(
@@ -703,142 +589,34 @@ export class ProjectsService {
       dto.endDate ?? project.endDate,
     );
 
-    // Validate new template if provided
     if (dto.templateId && dto.templateId !== project.templateId) {
       const existingTaskCount = await this.taskRepo.count({
         where: { projectId, deletedAt: IsNull() },
       });
-      if (existingTaskCount > 0) {
-        throw new ConflictException(PROJECT_TEMPLATE_CHANGE_FORBIDDEN);
-      }
+      if (existingTaskCount > 0) throw new ConflictException(PROJECT_TEMPLATE_CHANGE_FORBIDDEN);
 
       const newTemplate = await this.templateRepo.findOne({
-        where: { id: dto.templateId, organizationId },
+        where: { id: dto.templateId, workspaceId },
       });
-      if (!newTemplate) throw new NotFoundException(TEMPLATE_NOT_IN_ORG);
-      project.template = newTemplate;
+      if (!newTemplate) throw new NotFoundException(TEMPLATE_NOT_IN_WORKSPACE);
+      project.template   = newTemplate;
       project.templateId = dto.templateId;
     }
 
-    // Apply scalar updates
-    if (dto.title !== undefined) project.title = dto.title;
-    if (dto.description !== undefined)
-      project.description = dto.description ?? null;
-    if (dto.startDate !== undefined) project.startDate = dto.startDate ?? null;
-    if (dto.endDate !== undefined) project.endDate = dto.endDate ?? null;
-    if (dto.type !== undefined) project.type = dto.type;
-    if (dto.status !== undefined) {
-      project.status = dto.status;
-      project.archivedAt =
-        dto.status === ProjectStatus.ARCHIVED
-          ? (project.archivedAt ?? new Date())
-          : null;
+    if (dto.title       !== undefined) project.title       = dto.title;
+    if (dto.description !== undefined) project.description = dto.description ?? null;
+    if (dto.startDate   !== undefined) project.startDate   = dto.startDate ?? null;
+    if (dto.endDate     !== undefined) project.endDate     = dto.endDate ?? null;
+    if (dto.type        !== undefined) project.type        = dto.type;
+    if (dto.status      !== undefined) {
+      project.status     = dto.status;
+      project.archivedAt = dto.status === ProjectStatus.ARCHIVED
+        ? project.archivedAt ?? new Date()
+        : null;
     }
 
     await this.projectRepo.manager.transaction(async (tx) => {
       await tx.save(project);
-
-      if (dto.memberIds !== undefined || dto.memberAssignments !== undefined) {
-        const projectRoles = await this.ensureDefaultProjectRoles(tx, project);
-        const ownerRole = projectRoles.get(DEFAULT_OWNER_PROJECT_ROLE_SLUG);
-        const memberAssignments = await this.resolveMemberAssignments(
-          this.normalizeMemberAssignments(dto),
-          organizationId,
-          projectRoles,
-        );
-
-        if (!ownerRole) {
-          throw new NotFoundException(DEFAULT_PROJECT_ROLE_SETUP_FAILED);
-        }
-
-        // Load current ACTIVE memberships
-        const existing = await tx.find(ProjectMembership, {
-          where: { projectId, status: MembershipStatus.ACTIVE },
-          relations: ['projectRole'],
-        });
-
-        const desiredIds = new Set(
-          memberAssignments.map((member) => member.userId),
-        );
-        const existingIds = new Set(existing.map((m) => m.userId));
-        const desiredAssignmentsByUserId = new Map(
-          memberAssignments.map((member) => [member.userId, member]),
-        );
-
-        // Soft-remove members no longer desired (never remove OWNER)
-        for (const membership of existing) {
-          if (
-            membership.projectRole?.isProtected !== true &&
-            !desiredIds.has(membership.userId)
-          ) {
-            membership.status = MembershipStatus.REMOVED;
-            membership.removedAt = new Date();
-            await tx.save(membership);
-
-            await tx.save(
-              tx.create(ProjectActivityLog, {
-                project,
-                projectId,
-                user: actorUser,
-                userId,
-                taskId: null,
-                actionType: ProjectActionType.MEMBER_REMOVED,
-                actionMeta: { removedUserId: membership.userId },
-              }),
-            );
-          }
-        }
-
-        for (const membership of existing) {
-          const desiredAssignment = desiredAssignmentsByUserId.get(
-            membership.userId,
-          );
-          if (
-            desiredAssignment &&
-            membership.projectRoleId !== desiredAssignment.projectRoleId &&
-            membership.projectRole?.isProtected !== true
-          ) {
-            membership.projectRole = desiredAssignment.projectRole;
-            membership.projectRoleId = desiredAssignment.projectRoleId;
-            await tx.save(membership);
-          }
-        }
-
-        // Add new members that don't already have an active membership
-        for (const memberAssignment of memberAssignments) {
-          if (!existingIds.has(memberAssignment.userId)) {
-            const reloadedMember = await tx.findOneOrFail(User, {
-              where: { pkid: memberAssignment.user.pkid },
-            });
-            await tx.save(
-              tx.create(ProjectMembership, {
-                project,
-                projectId,
-                user: reloadedMember,
-                userId: reloadedMember.id,
-                projectRole: memberAssignment.projectRole,
-                projectRoleId: memberAssignment.projectRoleId,
-                status: MembershipStatus.ACTIVE,
-                invitedByUser: actorUser,
-                invitedByUserId: userId,
-                joinedAt: new Date(),
-              }),
-            );
-
-            await tx.save(
-              tx.create(ProjectActivityLog, {
-                project,
-                projectId,
-                user: actorUser,
-                userId,
-                taskId: null,
-                actionType: ProjectActionType.MEMBER_ADDED,
-                actionMeta: { addedUserId: reloadedMember.id },
-              }),
-            );
-          }
-        }
-      }
 
       if (dto.status !== undefined) {
         await tx.save(
@@ -849,15 +627,11 @@ export class ProjectsService {
             userId,
             taskId: null,
             actionType: ProjectActionType.STATUS_CHANGED,
-            actionMeta: {
-              status: project.status,
-              archivedAt: project.archivedAt,
-            },
+            actionMeta: { status: project.status, archivedAt: project.archivedAt },
           }),
         );
       }
 
-      // Activity log for the update
       await tx.save(
         tx.create(ProjectActivityLog, {
           project,
@@ -867,18 +641,16 @@ export class ProjectsService {
           taskId: null,
           actionType: ProjectActionType.PROJECT_UPDATED,
           actionMeta: {
-            updatedFields: Object.keys(dto).filter(
-              (k) => !['memberIds', 'memberAssignments'].includes(k),
-            ),
+            updatedFields: Object.keys(dto),
             activeMemberCount: projectWithAccess.memberships.filter(
-              (membership) => membership.status === MembershipStatus.ACTIVE,
+              (m) => m.status === MembershipStatus.ACTIVE,
             ).length,
           },
         }),
       );
     });
 
-    return this.toSerializer(await this.loadFull(projectId, organizationId));
+    return this.toSerializer(await this.loadFull(projectId, workspaceId));
   }
 
   // ---------------------------------------------------------------------------
@@ -888,20 +660,13 @@ export class ProjectsService {
   async getProject(
     projectId: string,
     requestUser: RequestUser,
+    workspaceId: string,
+    workspaceMember?: WorkspaceMember,
   ): Promise<ProjectSerializer> {
-    const { organizationId } = requestUser;
-
-    const project = await this.loadFull(projectId, organizationId);
-
-    await this.loadAuthorizedProject(projectId, requestUser, 'view');
-
-    // Attach only the 20 most recent contribution logs
+    const project = await this.loadFull(projectId, workspaceId);
+    await this.loadAuthorizedProject(projectId, workspaceId, requestUser, false, workspaceMember); // view: any member
     const recentContributions = project.activityLogs.slice(0, 20);
-
-    return this.toSerializer({
-      ...project,
-      recentContributions,
-    } as unknown as Project);
+    return this.toSerializer({ ...project, recentContributions } as unknown as Project);
   }
 
   // ---------------------------------------------------------------------------
@@ -911,18 +676,12 @@ export class ProjectsService {
   async getProjects(
     filters: ProjectFiltersDto,
     requestUser: RequestUser,
+    workspaceId: string,
+    workspaceMember?: WorkspaceMember,
   ): Promise<FilterResponse<ProjectListItemSerializer>> {
-    const { organizationId, id: userId } = requestUser;
-    const {
-      page,
-      limit,
-      search,
-      type,
-      status,
-      templateId,
-      orderBy,
-      sortOrder,
-    } = filters;
+    const { id: userId } = requestUser;
+    const { page, limit, search, type, status, templateId, orderBy, sortOrder } = filters;
+    const isAdmin = this.isWorkspaceAdmin(workspaceMember);
 
     const qb = this.projectRepo
       .createQueryBuilder('p')
@@ -931,11 +690,10 @@ export class ProjectsService {
       .leftJoinAndSelect('p.memberships', 'mem', 'mem.status = :activeStatus', {
         activeStatus: MembershipStatus.ACTIVE,
       })
-      .where('p.organizationId = :orgId', { orgId: organizationId });
+      .where('p.workspaceId = :workspaceId', { workspaceId });
 
-    // Project-role-aware visibility: non-admins only see projects where their
-    // active membership grants projectManagement.view.
-    if (!this.isAdmin(requestUser)) {
+    if (!isAdmin) {
+      // Any active member can see the project in their list regardless of role.
       qb.innerJoin(
         'p.memberships',
         'access_mem',
@@ -944,14 +702,10 @@ export class ProjectsService {
       );
       qb.innerJoin('access_mem.projectRole', 'access_role');
       qb.andWhere('access_role.status = true');
-      qb.andWhere(
-        "COALESCE((access_role.permissions -> 'projectManagement' ->> 'view')::boolean, false) = true",
-      );
     }
 
-    // Optional filters
-    if (type) qb.andWhere('p.type = :type', { type });
-    if (status) qb.andWhere('p.status = :status', { status });
+    if (type)       qb.andWhere('p.type = :type', { type });
+    if (status)     qb.andWhere('p.status = :status', { status });
     if (templateId) qb.andWhere('p.templateId = :templateId', { templateId });
     if (search) {
       qb.andWhere('(p.title ILIKE :search OR p.description ILIKE :search)', {
@@ -959,23 +713,17 @@ export class ProjectsService {
       });
     }
 
-    // Ordering
-    const col =
-      orderBy &&
-      ['title', 'status', 'type', 'createdAt', 'updatedAt'].includes(orderBy)
-        ? `p.${orderBy}`
-        : 'p.createdAt';
+    const col = orderBy && ['title', 'status', 'type', 'createdAt', 'updatedAt'].includes(orderBy)
+      ? `p.${orderBy}`
+      : 'p.createdAt';
     qb.orderBy(col, sortOrder ?? 'DESC');
 
-    // Pagination
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, count] = await qb.getManyAndCount();
 
     return {
-      items: plainToInstance(ProjectListItemSerializer, data, {
-        excludeExtraneousValues: true,
-      }),
+      items: plainToInstance(ProjectListItemSerializer, data, { excludeExtraneousValues: true }),
       count,
       pages: Math.ceil(count / limit),
       previousPage: page > 1 ? page - 1 : null,
@@ -985,69 +733,63 @@ export class ProjectsService {
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Delete project
+  // ---------------------------------------------------------------------------
+
   async deleteProject(
     projectId: string,
     requestUser: RequestUser,
+    workspaceId: string,
+    workspaceMember?: WorkspaceMember,
   ): Promise<{ id: string; deleted: true }> {
     const project = await this.loadAuthorizedProject(
       projectId,
+      workspaceId,
       requestUser,
-      'delete',
+      true, // requiresManagement
+      workspaceMember,
     );
-
     await this.projectRepo.remove(project);
-
     return { id: projectId, deleted: true };
   }
+
+  // ---------------------------------------------------------------------------
+  // Update a member's project role
+  // ---------------------------------------------------------------------------
 
   async updateMemberRole(
     projectId: string,
     memberId: string,
     dto: UpdateProjectMemberRoleDto,
     requestUser: RequestUser,
+    workspaceId: string,
+    workspaceMember?: WorkspaceMember,
   ): Promise<ProjectSerializer> {
-    const { organizationId, id: userId } = requestUser;
-    const actorUser = await this.userRepo.findOneOrFail({
-      where: { id: userId },
-    });
+    const { id: userId } = requestUser;
+    const actorUser = await this.userRepo.findOneOrFail({ where: { id: userId } });
 
-    await this.loadAuthorizedProject(projectId, requestUser, 'update');
+    await this.loadAuthorizedProject(projectId, workspaceId, requestUser, true, workspaceMember); // requiresManagement
 
     await this.projectRepo.manager.transaction(async (tx) => {
-      const project = await tx.findOneOrFail(Project, {
-        where: { id: projectId, organizationId },
-      });
+      const project = await tx.findOneOrFail(Project, { where: { id: projectId, workspaceId } });
 
       const membership = await tx.findOne(ProjectMembership, {
-        where: {
-          projectId,
-          userId: memberId,
-          status: MembershipStatus.ACTIVE,
-        },
+        where: { projectId, userId: memberId, status: MembershipStatus.ACTIVE },
         relations: ['projectRole'],
       });
 
-      if (!membership) {
-        throw new NotFoundException(PROJECT_MEMBER_NOT_FOUND);
-      }
-
+      if (!membership) throw new NotFoundException(PROJECT_MEMBER_NOT_FOUND);
       if (membership.projectRole?.isProtected === true) {
         throw new BadRequestException(PROJECT_MEMBER_ROLE_CHANGE_FORBIDDEN);
       }
 
       const nextRole = await tx.findOne(ProjectRole, {
-        where: {
-          id: dto.projectRoleId,
-          projectId,
-          status: true,
-        },
+        where: { id: dto.projectRoleId, projectId, status: true },
       });
+      if (!nextRole) throw new BadRequestException(INVALID_PROJECT_MEMBER_ROLE);
 
-      if (!nextRole) {
-        throw new BadRequestException(INVALID_PROJECT_MEMBER_ROLE);
-      }
-
-      membership.projectRole = nextRole;
+      membership.projectRole   = nextRole;
       membership.projectRoleId = nextRole.id;
       await tx.save(membership);
 
@@ -1068,6 +810,6 @@ export class ProjectsService {
       );
     });
 
-    return this.toSerializer(await this.loadFull(projectId, organizationId));
+    return this.toSerializer(await this.loadFull(projectId, workspaceId));
   }
 }

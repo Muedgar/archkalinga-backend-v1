@@ -73,7 +73,7 @@ class TemplateTaskSerializer extends BaseSerializer {
 }
 
 export class TemplateSerializer extends BaseSerializer {
-  @Expose() organizationId: string;
+  @Expose() workspaceId: string;
   @Expose() name: string;
   @Expose() description: string;
   @Expose() isDefault: boolean;

@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonModule } from 'src/common/common.module';
 import { ProjectPermissionGuard } from 'src/auth/guards';
-import { Organization } from 'src/organizations/entities/organization.entity';
+import { WorkspacesModule } from 'src/workspaces/workspaces.module';
+import { Workspace } from 'src/workspaces/entities/workspace.entity';
+import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
 import { Template, TemplateTask } from 'src/templates/entities';
 import { User } from 'src/users/entities/user.entity';
 import { Task, TaskActivityLog } from 'src/tasks/entities';
@@ -27,7 +29,8 @@ import { ProjectsService } from './projects.service';
       ProjectInvite,
       ProjectRole,
       ProjectActivityLog,
-      Organization,
+      Workspace,
+      WorkspaceMember,
       Template,
       TemplateTask,
       User,
@@ -36,6 +39,7 @@ import { ProjectsService } from './projects.service';
       WorkflowColumn,
     ]),
     CommonModule,
+    WorkspacesModule,
   ],
   controllers: [ProjectsController, ProjectRolesController],
   providers: [ProjectsService, ProjectRolesService, ProjectPermissionGuard],

@@ -9,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from 'src/users/entities';
+import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
 import { ProjectMembership } from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
 import type {
@@ -23,17 +24,21 @@ import {
 import { REQUIRE_PROJECT_PERMISSION_KEY } from '../decorators/require-project-permission.decorator';
 
 export interface RequiredProjectPermission {
-  domain: ProjectPermissionDomain;
-  action: ProjectPermissionAction;
+  domain: ProjectPermissionDomain | 'canManageProject';
+  action?: ProjectPermissionAction;
 }
 
 /**
  * ProjectPermissionGuard
  *
- * Reads the RequiredProjectPermission metadata set by
- * @RequireProjectPermission(domain, action) and checks that the authenticated
- * user's active project membership grants that access.
+ * Reads the RequiredProjectPermission metadata set by @RequireProjectPermission
+ * and checks that the authenticated user's active project membership grants access.
  *
+ * Two check modes:
+ *   - domain === 'canManageProject'  → checks membership.projectRole.permissions.canManageProject === true
+ *   - any resource domain            → checks membership.projectRole.permissions[domain][action] === true
+ *
+ * Workspace admins bypass project-level checks entirely.
  * Must be placed AFTER JwtAuthGuard so request.user is populated.
  */
 @Injectable()
@@ -75,13 +80,15 @@ export class ProjectPermissionGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<{
       user?: User;
+      workspaceMember?: WorkspaceMember;
       params?: Record<string, unknown>;
       body?: Record<string, unknown>;
       query?: Record<string, unknown>;
     }>();
     const user = request.user;
 
-    if ((user as unknown as User | undefined)?.role?.slug === 'admin') {
+    // Workspace admins bypass all project-level permission checks
+    if (request.workspaceMember?.workspaceRole?.slug === 'admin') {
       return true;
     }
 
@@ -103,8 +110,22 @@ export class ProjectPermissionGuard implements CanActivate {
       throw new ForbiddenException(PROJECT_MEMBERSHIP_REQUIRED);
     }
 
-    const matrix = membership.projectRole?.permissions;
-    if (!matrix?.[required.domain]?.[required.action]) {
+    const permissions = membership.projectRole?.permissions;
+
+    // ── canManageProject flag ──────────────────────────────────────────────────
+    if (required.domain === 'canManageProject') {
+      if (!permissions?.canManageProject) {
+        throw new ForbiddenException(INSUFFICIENT_PROJECT_PERMISSIONS);
+      }
+      return true;
+    }
+
+    // ── Resource domain + action ───────────────────────────────────────────────
+    if (!required.action) {
+      throw new BadRequestException('Permission action is required for resource domains');
+    }
+
+    if (!permissions?.[required.domain]?.[required.action]) {
       throw new ForbiddenException(INSUFFICIENT_PROJECT_PERMISSIONS);
     }
 

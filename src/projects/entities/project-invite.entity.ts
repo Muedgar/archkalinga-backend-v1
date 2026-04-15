@@ -12,15 +12,9 @@ export enum InviteStatus {
   REVOKED = 'REVOKED',
 }
 
-/** Describes what context the invite was sent from. */
-export enum InviteTargetType {
-  PROJECT = 'project',
-  TASK = 'task',
-  SUBTASK = 'subtask',
-}
-
 @Entity('project_invites')
 export class ProjectInvite extends AppBaseEntity {
+  // ── Project ────────────────────────────────────────────────────────────────
   @ManyToOne(() => Project, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'project_id' })
   project: Project;
@@ -28,6 +22,7 @@ export class ProjectInvite extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
   projectId: string;
 
+  // ── Inviter ────────────────────────────────────────────────────────────────
   @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'inviter_user_id' })
   inviterUser: User;
@@ -35,16 +30,22 @@ export class ProjectInvite extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
   inviterUserId: string;
 
-  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  // ── Invitee ────────────────────────────────────────────────────────────────
+  /**
+   * The user being invited. Must already have an account — discovered via
+   * GET /users/search before the invite is created.
+   *
+   * A partial unique index in the DB enforces one PENDING invite per
+   * (project_id, invitee_user_id) pair — see migration.
+   */
+  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'invitee_user_id' })
-  inviteeUser: User | null;
+  inviteeUser: User;
 
-  @Column({ type: 'uuid', nullable: true })
-  inviteeUserId: string | null;
+  @Column({ type: 'uuid', nullable: false })
+  inviteeUserId: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: false })
-  inviteeEmail: string;
-
+  // ── Project role assigned on acceptance ────────────────────────────────────
   @ManyToOne(() => ProjectRole, (role) => role.invites, {
     nullable: false,
     onDelete: 'RESTRICT',
@@ -55,6 +56,7 @@ export class ProjectInvite extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
   projectRoleId: string;
 
+  // ── Token & lifecycle ──────────────────────────────────────────────────────
   @Column({ type: 'varchar', length: 128, nullable: false, unique: true })
   token: string;
 
@@ -72,50 +74,7 @@ export class ProjectInvite extends AppBaseEntity {
   @Column({ type: 'timestamptz', nullable: true })
   acceptedAt: Date | null;
 
-  // ── Task-context fields (all nullable — project-only invites omit these) ─────
-
-  /**
-   * UUID of the task this invite was sent from.
-   * Null for plain project invites.
-   */
-  @Column({ type: 'uuid', nullable: true, default: null })
-  taskId: string | null;
-
-  /**
-   * UUID of the subtask this invite was sent from.
-   * Requires taskId to be set. Null for task-level invites.
-   */
-  @Column({ type: 'uuid', nullable: true, default: null })
-  subtaskId: string | null;
-
-  /**
-   * Describes where the invite originated.
-   * Defaults to 'project' to preserve backward-compat with existing records.
-   */
-  @Column({
-    type: 'enum',
-    enum: InviteTargetType,
-    nullable: false,
-    default: InviteTargetType.PROJECT,
-  })
-  targetType: InviteTargetType;
-
-  /** Denormalized task/subtask title for display without a DB join. */
-  @Column({ type: 'varchar', length: 200, nullable: true, default: null })
-  targetName: string | null;
-
-  /** Denormalized project title for display in invite emails / UI. */
-  @Column({ type: 'varchar', length: 200, nullable: true, default: null })
-  projectName: string | null;
-
-  /** Optional personalised message from the inviter. */
+  // ── Optional message from inviter ──────────────────────────────────────────
   @Column({ type: 'text', nullable: true, default: null })
   message: string | null;
-
-  /**
-   * When true, the invitee is automatically added as a task/subtask assignee
-   * (CONTRIBUTOR role) immediately after accepting the invite.
-   */
-  @Column({ type: 'boolean', nullable: false, default: false })
-  autoAssignOnAccept: boolean;
 }

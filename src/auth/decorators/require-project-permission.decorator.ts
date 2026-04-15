@@ -11,16 +11,20 @@ export const REQUIRE_PROJECT_PERMISSION_KEY = 'require_project_permission';
  * Declares that the route requires the caller to hold a specific permission
  * in their project membership role's permission matrix.
  *
- * Usage:
+ * Two forms:
+ *
+ *   // Resource-level permission (taskManagement, documentManagement, changeRequestManagement)
  *   @RequireProjectPermission('taskManagement', 'update')
- *   @UseGuards(JwtAuthGuard, ProjectPermissionGuard)
- *   updateTask(...) { ... }
+ *
+ *   // Admin flag — gates project settings, invite, and role management actions.
+ *   // `action` is omitted; the guard checks canManageProject === true.
+ *   @RequireProjectPermission('canManageProject')
  */
 export const RequireProjectPermission = (
-  domain: ProjectPermissionDomain,
-  action: ProjectPermissionAction,
+  domain: ProjectPermissionDomain | 'canManageProject',
+  action?: ProjectPermissionAction,
 ) =>
   SetMetadata<string, RequiredProjectPermission>(
     REQUIRE_PROJECT_PERMISSION_KEY,
-    { domain, action },
+    { domain, action } as RequiredProjectPermission,
   );

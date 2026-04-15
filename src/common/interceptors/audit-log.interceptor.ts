@@ -57,7 +57,7 @@ export class AuditLogInterceptor implements NestInterceptor {
 
         await this.auditLogService.log({
           actorId: (request.user as any)?.id,
-          organizationId: (request.user as any)?.organizationId ?? null,
+          workspaceId: (request.workspaceMember as any)?.workspaceId ?? null,
           action: options.action,
           resource: options.resource,
           resourceId:

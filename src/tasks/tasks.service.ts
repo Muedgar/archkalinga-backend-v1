@@ -102,7 +102,7 @@ interface ProjectRoleContext {
     name: string;
     slug: string;
     status: boolean;
-    permissions: Record<string, Record<string, boolean>>;
+    permissions: Record<string, boolean | Record<string, boolean>>;
   } | null;
 }
 
@@ -150,7 +150,7 @@ export class TasksService {
   ) {}
 
   private isAdmin(user: RequestUser): boolean {
-    return (user as unknown as User).role?.slug === 'admin';
+    return false; // Workspace admin check is performed by WorkspaceGuard/ProjectPermissionGuard
   }
 
   private toWorkflowColumnSerializer(column: {
@@ -1023,7 +1023,7 @@ export class TasksService {
     action: ProjectPermissionAction,
   ): Promise<Project> {
     const project = await this.projectRepo.findOne({
-      where: { id: projectId, organizationId: requestUser.organizationId },
+      where: { id: projectId },
     });
 
     if (!project) {

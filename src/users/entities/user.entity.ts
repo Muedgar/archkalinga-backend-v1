@@ -1,12 +1,5 @@
 import { AppBaseEntity } from 'src/common/entities';
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
-import { Organization } from 'src/organizations/entities/organization.entity';
-import { Role } from 'src/roles/roles.entity';
-
-export enum UserType {
-  INDIVIDUAL = 'INDIVIDUAL',
-  ORGANIZATION = 'ORGANIZATION',
-}
 
 @Entity('users')
 export class User extends AppBaseEntity {
@@ -29,14 +22,6 @@ export class User extends AppBaseEntity {
   @Column({ type: 'varchar', length: 200, nullable: true })
   title: string | null;
 
-  @Column({
-    type: 'enum',
-    enum: UserType,
-    nullable: false,
-    default: UserType.INDIVIDUAL,
-  })
-  userType: UserType;
-
   @Column({ type: 'boolean', nullable: false, default: true })
   status: boolean;
 
@@ -48,6 +33,14 @@ export class User extends AppBaseEntity {
 
   @Column({ type: 'boolean', nullable: false, default: false })
   emailVerified: boolean;
+
+  /**
+   * When true this user's profile (name, title, workspace) is discoverable
+   * by other authenticated users searching for people to invite to a project.
+   * Defaults to false — users or workspace admins opt in explicitly.
+   */
+  @Column({ type: 'boolean', nullable: false, default: false })
+  isPublicProfile: boolean;
 
   @Column({ type: 'varchar', length: 250, nullable: true })
   emailVerificationKey: string;
@@ -80,23 +73,6 @@ export class User extends AppBaseEntity {
 
   @Column({ type: 'timestamptz', nullable: true })
   passwordResetTokenUsedAt: Date | null;
-
-  // ── Tenant + workspace access ────────────────────────────────────────────
-  @ManyToOne(() => Organization, { nullable: false, onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'organization_id' })
-  organization: Organization;
-
-  @Column({ type: 'uuid', nullable: false })
-  organizationId: string;
-
-  /** User-scoped workspace role. Project-scoped roles live on project memberships. */
-  @ManyToOne(() => Role, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'role_id' })
-  role: Role | null;
-
-  /** UUID of the user's workspace role. */
-  @Column({ type: 'uuid', nullable: true })
-  roleId: string | null;
 
   // ── Audit ─────────────────────────────────────────────────────────────────
   /** The admin user who created this account (null for self-signup). */
