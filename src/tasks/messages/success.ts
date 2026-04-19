@@ -49,3 +49,6 @@ export const TASK_WATCHER_REMOVED = 'Task watcher removed successfully';
 export const TASK_RELATIONS_FETCHED = 'Task relations fetched successfully';
 export const TASK_RELATION_ADDED = 'Task relation added successfully';
 export const TASK_RELATION_DELETED = 'Task relation deleted successfully';
+
+// Activity log
+export const TASK_ACTIVITY_FETCHED = 'Task activity fetched successfully';

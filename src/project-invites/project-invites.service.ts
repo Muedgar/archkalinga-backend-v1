@@ -26,6 +26,7 @@ import { Workspace } from 'src/workspaces/entities/workspace.entity';
 import { WorkspaceMember, WorkspaceMemberStatus } from 'src/workspaces/entities/workspace-member.entity';
 import { WorkspaceRole } from 'src/roles/roles.entity';
 import { EMPTY_ACCESS_MATRIX } from 'src/roles/types/permission-matrix.type';
+import { ProjectPermissionMatrix } from 'src/projects/types/project-permission-matrix.type';
 import {
   NotificationsService,
 } from 'src/notifications/notifications.service';
@@ -433,7 +434,7 @@ export class ProjectInvitesService {
         status: boolean;
         isSystem: boolean;
         isProtected: boolean;
-        permissions: Record<string, boolean | Record<string, boolean>>;
+        permissions: ProjectPermissionMatrix;
       } | null;
     };
   }> {

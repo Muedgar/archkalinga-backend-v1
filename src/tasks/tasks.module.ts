@@ -3,9 +3,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProjectPermissionGuard } from 'src/auth/guards';
 import { CommonModule } from 'src/common/common.module';
 import { OutboxModule } from 'src/outbox/outbox.module';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 import {
   Project,
   ProjectActivityLog,
+  ProjectInvite,
   ProjectMembership,
 } from 'src/projects/entities';
 import { User } from 'src/users/entities';
@@ -47,6 +49,7 @@ import { TasksService } from './tasks.service';
       TaskWatcher,
       TaskActivityLog,
       Project,
+      ProjectInvite,
       ProjectMembership,
       ProjectActivityLog,
       User,
@@ -58,6 +61,7 @@ import { TasksService } from './tasks.service';
       ProjectLabel,
     ]),
     CommonModule,
+    NotificationsModule,
     OutboxModule,
   ],
   controllers: [TasksController],
