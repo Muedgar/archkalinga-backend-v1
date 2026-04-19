@@ -18,6 +18,7 @@ import { ProjectsModule } from './projects/projects.module';
 import { ProjectInvitesModule } from './project-invites/project-invites.module';
 import { TasksModule } from './tasks/tasks.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { OutboxModule } from './outbox/outbox.module';
 
 import { ResponseInterceptor } from './common/interceptors';
 import { dataSourceOptions } from './config/db/db.config';
@@ -68,6 +69,7 @@ import { dataSourceOptions } from './config/db/db.config';
     ProjectInvitesModule,
     TasksModule,
     NotificationsModule,
+    OutboxModule,
   ],
   controllers: [AppController],
   providers: [

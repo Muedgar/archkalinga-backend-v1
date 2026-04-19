@@ -24,18 +24,25 @@ import {
   AddChecklistItemDto,
   AddCommentDto,
   AddDependencyDto,
+  AddLabelDto,
+  AddRelationDto,
+  AddWatcherDto,
   BulkUpdateTasksDto,
+  CreateChecklistGroupDto,
   CreateTaskDto,
-  CreateWorkflowColumnDto,
   MoveTaskDto,
   TaskFiltersDto,
+  UpdateChecklistGroupDto,
   UpdateChecklistItemDto,
   UpdateCommentDto,
   UpdateTaskDto,
-  UpdateWorkflowColumnDto,
 } from './dtos';
 import {
   TASK_CHECKLIST_FETCHED,
+  TASK_CHECKLIST_GROUP_CREATED,
+  TASK_CHECKLIST_GROUP_DELETED,
+  TASK_CHECKLIST_GROUP_UPDATED,
+  TASK_CHECKLIST_GROUPS_FETCHED,
   TASK_CHECKLIST_ITEM_ADDED,
   TASK_CHECKLIST_ITEM_DELETED,
   TASK_CHECKLIST_ITEM_UPDATED,
@@ -43,20 +50,25 @@ import {
   TASK_COMMENT_DELETED,
   TASK_COMMENT_UPDATED,
   TASK_COMMENTS_FETCHED,
+  TASK_CREATED,
+  TASK_DELETED,
   TASK_DEPENDENCIES_FETCHED,
   TASK_DEPENDENCY_ADDED,
   TASK_DEPENDENCY_DELETED,
-  TASK_MOVED,
-  TASKS_BULK_UPDATED,
-  TASK_CREATED,
-  TASK_DELETED,
   TASK_FETCHED,
+  TASK_LABEL_ADDED,
+  TASK_LABEL_REMOVED,
+  TASK_LABELS_FETCHED,
+  TASK_MOVED,
+  TASK_RELATION_ADDED,
+  TASK_RELATION_DELETED,
+  TASK_RELATIONS_FETCHED,
   TASK_UPDATED,
+  TASK_WATCHER_ADDED,
+  TASK_WATCHER_REMOVED,
+  TASK_WATCHERS_FETCHED,
+  TASKS_BULK_UPDATED,
   TASKS_FETCHED,
-  WORKFLOW_COLUMN_CREATED,
-  WORKFLOW_COLUMN_DELETED,
-  WORKFLOW_COLUMNS_FETCHED,
-  WORKFLOW_COLUMN_UPDATED,
 } from './messages';
 import { TasksService } from './tasks.service';
 
@@ -92,6 +104,9 @@ export class TasksController {
       "Project-scoped action. Requires taskManagement.create through the caller's active project role.",
   })
   @ApiResponse({ status: 201, description: 'Task created' })
+  @ApiResponse({ status: 400, description: 'Validation error, invalid date range, invalid parent/assignee/dependency, or WIP limit exceeded' })
+  @ApiResponse({ status: 403, description: 'Insufficient project permission' })
+  @ApiResponse({ status: 404, description: 'Project not found' })
   @ResponseMessage(TASK_CREATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'create')
@@ -111,6 +126,8 @@ export class TasksController {
       "Project-scoped action. Requires taskManagement.update through the caller's active project role. Supports Gantt-oriented bulk edits for status, progress, dates, positioning, and optional viewMeta updates.",
   })
   @ApiResponse({ status: 200, description: 'Tasks updated' })
+  @ApiResponse({ status: 400, description: 'Validation error, invalid date range, invalid parent task, or WIP limit exceeded' })
+  @ApiResponse({ status: 403, description: 'Insufficient project permission' })
   @ResponseMessage(TASKS_BULK_UPDATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
@@ -152,6 +169,9 @@ export class TasksController {
       "Project-scoped action. Requires taskManagement.update through the caller's active project role. Supports timeline edits for startDate, endDate, progress, dependencyIds, and optional viewMeta.gantt updates.",
   })
   @ApiResponse({ status: 200, description: 'Task updated' })
+  @ApiResponse({ status: 400, description: 'Validation error, invalid date range, cycle in dependencies, or WIP limit exceeded' })
+  @ApiResponse({ status: 403, description: 'Insufficient project permission' })
+  @ApiResponse({ status: 404, description: 'Task or project not found' })
   @ResponseMessage(TASK_UPDATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
@@ -192,6 +212,8 @@ export class TasksController {
       "Project-scoped action. Requires taskManagement.delete through the caller's active project role. Soft-deletes the selected task and its descendant subtasks, then returns delete summary metadata for the frontend.",
   })
   @ApiResponse({ status: 200, description: 'Task deleted' })
+  @ApiResponse({ status: 403, description: 'Insufficient project permission' })
+  @ApiResponse({ status: 404, description: 'Task or project not found' })
   @ResponseMessage(TASK_DELETED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'delete')
@@ -388,6 +410,8 @@ export class TasksController {
   @Post('tasks/:taskId/dependencies')
   @ApiOperation({ summary: 'Add a dependency to a task' })
   @ApiResponse({ status: 201, description: 'Task dependency added' })
+  @ApiResponse({ status: 400, description: 'Dependency creates a cycle, references a task outside the project, or is already registered' })
+  @ApiResponse({ status: 404, description: 'Task not found' })
   @ResponseMessage(TASK_DEPENDENCY_ADDED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
@@ -429,94 +453,278 @@ export class TasksController {
     );
   }
 
-  @Get('columns')
-  @ApiOperation({
-    summary: 'List workflow columns for a project',
-    description:
-      "Project-scoped action. Requires taskManagement.view through the caller's active project role. Returns Kanban-ready column metadata including task counts, orderIndex, and locked state.",
-  })
-  @ApiResponse({ status: 200, description: 'Workflow columns fetched' })
-  @ResponseMessage(WORKFLOW_COLUMNS_FETCHED)
+  // ── Checklist Groups ────────────────────────────────────────────────────────
+
+  @Get('tasks/:taskId/checklist-groups')
+  @ApiOperation({ summary: 'List checklist groups for a task' })
+  @ApiResponse({ status: 200, description: 'Task checklist groups fetched' })
+  @ResponseMessage(TASK_CHECKLIST_GROUPS_FETCHED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'view')
-  getWorkflowColumns(
+  getChecklistGroups(
     @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.getWorkflowColumns(projectId, user);
+    return this.tasksService.getChecklistGroups(projectId, taskId, user);
   }
 
-  @Post('columns')
-  @ApiOperation({
-    summary: 'Create a workflow column for a project',
-    description:
-      "Project-scoped action. Requires taskManagement.create through the caller's active project role. New columns are created unlocked and column ordering is normalized automatically.",
-  })
-  @ApiResponse({ status: 201, description: 'Workflow column created' })
-  @ResponseMessage(WORKFLOW_COLUMN_CREATED)
-  @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'create')
-  @LogActivity({
-    action: 'create:workflow-column',
-    resource: 'workflow-column',
-    includeBody: true,
-  })
-  createWorkflowColumn(
-    @Param('projectId', ParseUUIDPipe) projectId: string,
-    @Body() dto: CreateWorkflowColumnDto,
-    @GetUser() user: RequestUser,
-  ) {
-    return this.tasksService.createWorkflowColumn(projectId, dto, user);
-  }
-
-  @Patch('columns/:columnId')
-  @ApiOperation({
-    summary: 'Update a workflow column',
-    description:
-      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Updating orderIndex reorders sibling columns consistently.",
-  })
-  @ApiResponse({ status: 200, description: 'Workflow column updated' })
-  @ResponseMessage(WORKFLOW_COLUMN_UPDATED)
+  @Post('tasks/:taskId/checklist-groups')
+  @ApiOperation({ summary: 'Create a checklist group on a task' })
+  @ApiResponse({ status: 201, description: 'Task checklist group created' })
+  @ResponseMessage(TASK_CHECKLIST_GROUP_CREATED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
-    action: 'update:workflow-column',
-    resource: 'workflow-column',
+    action: 'create:task-checklist-group',
+    resource: 'task-checklist-group',
     includeBody: true,
   })
-  updateWorkflowColumn(
+  createChecklistGroup(
     @Param('projectId', ParseUUIDPipe) projectId: string,
-    @Param('columnId', ParseUUIDPipe) columnId: string,
-    @Body() dto: UpdateWorkflowColumnDto,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateChecklistGroupDto,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.updateWorkflowColumn(
+    return this.tasksService.createChecklistGroup(projectId, taskId, dto, user);
+  }
+
+  @Patch('tasks/:taskId/checklist-groups/:groupId')
+  @ApiOperation({ summary: 'Update a checklist group' })
+  @ApiResponse({ status: 200, description: 'Task checklist group updated' })
+  @ResponseMessage(TASK_CHECKLIST_GROUP_UPDATED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'update:task-checklist-group',
+    resource: 'task-checklist-group',
+    includeBody: true,
+  })
+  updateChecklistGroup(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('groupId', ParseUUIDPipe) groupId: string,
+    @Body() dto: UpdateChecklistGroupDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.updateChecklistGroup(
       projectId,
-      columnId,
+      taskId,
+      groupId,
       dto,
       user,
     );
   }
 
-  @Delete('columns/:columnId')
-  @ApiOperation({
-    summary: 'Delete a workflow column if it has no live tasks',
-    description:
-      "Project-scoped action. Requires taskManagement.delete through the caller's active project role. Locked default columns cannot be deleted, and deleting a custom column reindexes remaining columns.",
-  })
-  @ApiResponse({ status: 200, description: 'Workflow column deleted' })
-  @ResponseMessage(WORKFLOW_COLUMN_DELETED)
+  @Delete('tasks/:taskId/checklist-groups/:groupId')
+  @ApiOperation({ summary: 'Delete a checklist group (items become ungrouped)' })
+  @ApiResponse({ status: 200, description: 'Task checklist group deleted' })
+  @ResponseMessage(TASK_CHECKLIST_GROUP_DELETED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'delete')
+  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
-    action: 'delete:workflow-column',
-    resource: 'workflow-column',
+    action: 'delete:task-checklist-group',
+    resource: 'task-checklist-group',
   })
-  deleteWorkflowColumn(
+  deleteChecklistGroup(
     @Param('projectId', ParseUUIDPipe) projectId: string,
-    @Param('columnId', ParseUUIDPipe) columnId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('groupId', ParseUUIDPipe) groupId: string,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.deleteWorkflowColumn(projectId, columnId, user);
+    return this.tasksService.deleteChecklistGroup(
+      projectId,
+      taskId,
+      groupId,
+      user,
+    );
   }
+
+  // ── Labels ──────────────────────────────────────────────────────────────────
+
+  @Get('tasks/:taskId/labels')
+  @ApiOperation({ summary: 'List labels applied to a task' })
+  @ApiResponse({ status: 200, description: 'Task labels fetched' })
+  @ResponseMessage(TASK_LABELS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskLabels(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskLabels(projectId, taskId, user);
+  }
+
+  @Post('tasks/:taskId/labels')
+  @ApiOperation({ summary: 'Add a label to a task' })
+  @ApiResponse({ status: 201, description: 'Task label added' })
+  @ApiResponse({ status: 400, description: 'Label does not belong to this project, or is already applied' })
+  @ApiResponse({ status: 404, description: 'Task not found' })
+  @ResponseMessage(TASK_LABEL_ADDED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'add:task-label',
+    resource: 'task-label',
+    includeBody: true,
+  })
+  addTaskLabel(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: AddLabelDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.addTaskLabel(projectId, taskId, dto, user);
+  }
+
+  @Delete('tasks/:taskId/labels/:taskLabelId')
+  @ApiOperation({ summary: 'Remove a label from a task' })
+  @ApiResponse({ status: 200, description: 'Task label removed' })
+  @ResponseMessage(TASK_LABEL_REMOVED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'remove:task-label',
+    resource: 'task-label',
+  })
+  removeTaskLabel(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('taskLabelId', ParseUUIDPipe) taskLabelId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.removeTaskLabel(
+      projectId,
+      taskId,
+      taskLabelId,
+      user,
+    );
+  }
+
+  // ── Watchers ────────────────────────────────────────────────────────────────
+
+  @Get('tasks/:taskId/watchers')
+  @ApiOperation({ summary: 'List watchers of a task' })
+  @ApiResponse({ status: 200, description: 'Task watchers fetched' })
+  @ResponseMessage(TASK_WATCHERS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskWatchers(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskWatchers(projectId, taskId, user);
+  }
+
+  @Post('tasks/:taskId/watchers')
+  @ApiOperation({ summary: 'Add a watcher to a task' })
+  @ApiResponse({ status: 201, description: 'Task watcher added' })
+  @ApiResponse({ status: 400, description: 'User is not a project member, or is already watching this task' })
+  @ApiResponse({ status: 404, description: 'Task not found' })
+  @ResponseMessage(TASK_WATCHER_ADDED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'add:task-watcher',
+    resource: 'task-watcher',
+    includeBody: true,
+  })
+  addTaskWatcher(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: AddWatcherDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.addTaskWatcher(projectId, taskId, dto, user);
+  }
+
+  @Delete('tasks/:taskId/watchers/:watcherId')
+  @ApiOperation({ summary: 'Remove a watcher from a task' })
+  @ApiResponse({ status: 200, description: 'Task watcher removed' })
+  @ResponseMessage(TASK_WATCHER_REMOVED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'remove:task-watcher',
+    resource: 'task-watcher',
+  })
+  removeTaskWatcher(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('watcherId', ParseUUIDPipe) watcherId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.removeTaskWatcher(
+      projectId,
+      taskId,
+      watcherId,
+      user,
+    );
+  }
+
+  // ── Relations ───────────────────────────────────────────────────────────────
+
+  @Get('tasks/:taskId/relations')
+  @ApiOperation({ summary: 'List relations of a task (both directions)' })
+  @ApiResponse({ status: 200, description: 'Task relations fetched' })
+  @ResponseMessage(TASK_RELATIONS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskRelations(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskRelations(projectId, taskId, user);
+  }
+
+  @Post('tasks/:taskId/relations')
+  @ApiOperation({ summary: 'Add a relation between tasks' })
+  @ApiResponse({ status: 201, description: 'Task relation added' })
+  @ApiResponse({ status: 400, description: 'Self-relation, related task outside this project, or relation already exists' })
+  @ApiResponse({ status: 404, description: 'Task not found' })
+  @ResponseMessage(TASK_RELATION_ADDED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'add:task-relation',
+    resource: 'task-relation',
+    includeBody: true,
+  })
+  addTaskRelation(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: AddRelationDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.addTaskRelation(projectId, taskId, dto, user);
+  }
+
+  @Delete('tasks/:taskId/relations/:relationId')
+  @ApiOperation({ summary: 'Delete a task relation' })
+  @ApiResponse({ status: 200, description: 'Task relation deleted' })
+  @ResponseMessage(TASK_RELATION_DELETED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'delete:task-relation',
+    resource: 'task-relation',
+  })
+  deleteTaskRelation(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('relationId', ParseUUIDPipe) relationId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.deleteTaskRelation(
+      projectId,
+      taskId,
+      relationId,
+      user,
+    );
+  }
+
 }
+

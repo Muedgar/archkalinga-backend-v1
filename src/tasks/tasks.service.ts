@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { OutboxService } from 'src/outbox/outbox.service';
 import { plainToInstance } from 'class-transformer';
 import {
   EntityManager,
@@ -25,64 +26,86 @@ import { MembershipStatus } from 'src/projects/entities/project-membership.entit
 import type { ProjectPermissionAction } from 'src/projects/types/project-permission-matrix.type';
 import { User } from 'src/users/entities';
 import {
-  BulkUpdateTasksDto,
   AddChecklistItemDto,
   AddCommentDto,
   AddDependencyDto,
+  AddLabelDto,
+  AddRelationDto,
+  AddWatcherDto,
+  BulkUpdateTasksDto,
+  CreateChecklistGroupDto,
   CreateTaskDto,
-  CreateWorkflowColumnDto,
   MoveTaskDto,
   TaskFiltersDto,
+  UpdateChecklistGroupDto,
   UpdateChecklistItemDto,
   UpdateCommentDto,
   UpdateTaskDto,
-  UpdateWorkflowColumnDto,
 } from './dtos';
 import {
   DependencyType,
+  RelationType,
   Task,
   TaskActionType,
   TaskActivityLog,
   TaskAssignee,
+  TaskChecklist,
   TaskChecklistItem,
   TaskComment,
   TaskDependency,
-  TaskStatus,
+  TaskLabel,
+  TaskRelation,
   TaskViewMetadata,
+  TaskWatcher,
   ViewType,
 } from './entities';
 import {
-  TASK_NOT_FOUND,
-  TASK_PROJECT_ACCESS_DENIED,
-  TASK_PROJECT_NOT_FOUND,
-  WORKFLOW_COLUMN_HAS_TASKS,
-  WORKFLOW_COLUMN_LOCKED,
-  WORKFLOW_COLUMN_NOT_FOUND,
-  INVALID_TASK_DATE_RANGE,
-  INVALID_TASK_INCLUDE,
-  INVALID_TASK_PARENT,
+  ProjectLabel,
+  ProjectStatus,
+  ProjectTaskType,
+} from './project-config';
+import {
   INVALID_TASK_ASSIGNEES,
   INVALID_TASK_ASSIGNED_MEMBERS,
+  INVALID_TASK_DATE_RANGE,
   INVALID_TASK_DEPENDENCY,
-  INVALID_TASK_COLUMN,
-  INVALID_TASK_MOVE_TARGET,
   INVALID_TASK_HIERARCHY,
+  INVALID_TASK_INCLUDE,
+  INVALID_TASK_LABEL,
+  INVALID_TASK_MOVE_TARGET,
+  INVALID_TASK_PARENT,
+  INVALID_TASK_RELATION,
   INVALID_TASK_REPORTEE,
+  INVALID_TASK_WATCHER,
+  TASK_CHECKLIST_GROUP_MISMATCH,
+  TASK_CHECKLIST_GROUP_NOT_FOUND,
   TASK_CHECKLIST_ITEM_NOT_FOUND,
   TASK_COMMENT_ACCESS_DENIED,
   TASK_COMMENT_NOT_FOUND,
   TASK_DEPENDENCY_NOT_FOUND,
+  TASK_LABEL_ALREADY_ADDED,
+  TASK_LABEL_NOT_FOUND,
+  TASK_NOT_FOUND,
+  TASK_PROJECT_ACCESS_DENIED,
+  TASK_PROJECT_NOT_FOUND,
+  TASK_RELATION_NOT_FOUND,
+  TASK_RELATION_SELF,
+  TASK_STATUS_WIP_LIMIT_EXCEEDED,
+  TASK_WATCHER_ALREADY_WATCHING,
+  TASK_WATCHER_NOT_FOUND,
   TOO_MANY_TASK_INCLUDES,
 } from './messages';
 import {
-  TaskListItemSerializer,
-  TaskSerializer,
+  TaskChecklistGroupDetailSerializer,
   TaskChecklistItemDetailSerializer,
   TaskCommentDetailSerializer,
   TaskDependencyDetailSerializer,
-  WorkflowColumnSerializer,
+  TaskLabelDetailSerializer,
+  TaskListItemSerializer,
+  TaskRelationDetailSerializer,
+  TaskSerializer,
+  TaskWatcherDetailSerializer,
 } from './serializers';
-import { WorkflowColumn } from './workflow';
 
 interface TaskCounts {
   childCount: number;
@@ -92,7 +115,7 @@ interface TaskCounts {
 interface TaskScope {
   projectId: string;
   parentTaskId: string | null;
-  workflowColumnId: string | null;
+  statusId: string | null;
 }
 
 interface ProjectRoleContext {
@@ -125,16 +148,22 @@ export class TasksService {
   constructor(
     @InjectRepository(Task)
     private readonly taskRepo: Repository<Task>,
-    @InjectRepository(WorkflowColumn)
-    private readonly workflowColumnRepo: Repository<WorkflowColumn>,
     @InjectRepository(TaskAssignee)
     private readonly taskAssigneeRepo: Repository<TaskAssignee>,
+    @InjectRepository(TaskChecklist)
+    private readonly checklistGroupRepo: Repository<TaskChecklist>,
     @InjectRepository(TaskChecklistItem)
     private readonly checklistRepo: Repository<TaskChecklistItem>,
     @InjectRepository(TaskComment)
     private readonly commentRepo: Repository<TaskComment>,
     @InjectRepository(TaskDependency)
     private readonly dependencyRepo: Repository<TaskDependency>,
+    @InjectRepository(TaskLabel)
+    private readonly taskLabelRepo: Repository<TaskLabel>,
+    @InjectRepository(TaskWatcher)
+    private readonly taskWatcherRepo: Repository<TaskWatcher>,
+    @InjectRepository(TaskRelation)
+    private readonly taskRelationRepo: Repository<TaskRelation>,
     @InjectRepository(TaskViewMetadata)
     private readonly taskViewMetadataRepo: Repository<TaskViewMetadata>,
     @InjectRepository(TaskActivityLog)
@@ -147,33 +176,17 @@ export class TasksService {
     private readonly projectActivityLogRepo: Repository<ProjectActivityLog>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(ProjectStatus)
+    private readonly projectStatusRepo: Repository<ProjectStatus>,
+    @InjectRepository(ProjectTaskType)
+    private readonly projectTaskTypeRepo: Repository<ProjectTaskType>,
+    @InjectRepository(ProjectLabel)
+    private readonly projectLabelRepo: Repository<ProjectLabel>,
+    private readonly outboxService: OutboxService,
   ) {}
 
   private isAdmin(user: RequestUser): boolean {
     return false; // Workspace admin check is performed by WorkspaceGuard/ProjectPermissionGuard
-  }
-
-  private toWorkflowColumnSerializer(column: {
-    id: string;
-    createdAt: Date;
-    updatedAt: Date;
-    projectId: string;
-    name: string;
-    statusKey: string | null;
-    orderIndex: number;
-    wipLimit: number | null;
-    locked: boolean;
-    taskCount?: string | number;
-  }): WorkflowColumnSerializer {
-    return plainToInstance(
-      WorkflowColumnSerializer,
-      {
-        ...column,
-        taskCount:
-          column.taskCount === undefined ? undefined : Number(column.taskCount),
-      },
-      { excludeExtraneousValues: true },
-    );
   }
 
   private toTaskSerializer(
@@ -216,6 +229,38 @@ export class TasksService {
     });
   }
 
+  private toChecklistGroupSerializer(
+    group: Partial<TaskChecklist>,
+  ): TaskChecklistGroupDetailSerializer {
+    return plainToInstance(TaskChecklistGroupDetailSerializer, group, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  private toTaskLabelSerializer(
+    label: Partial<TaskLabel>,
+  ): TaskLabelDetailSerializer {
+    return plainToInstance(TaskLabelDetailSerializer, label, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  private toTaskWatcherSerializer(
+    watcher: Partial<TaskWatcher>,
+  ): TaskWatcherDetailSerializer {
+    return plainToInstance(TaskWatcherDetailSerializer, watcher, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  private toTaskRelationSerializer(
+    relation: Partial<TaskRelation>,
+  ): TaskRelationDetailSerializer {
+    return plainToInstance(TaskRelationDetailSerializer, relation, {
+      excludeExtraneousValues: true,
+    });
+  }
+
   private parseIncludes(raw?: string): Set<string> {
     if (!raw) return new Set();
 
@@ -248,18 +293,38 @@ export class TasksService {
     }
   }
 
-  private async ensureWorkflowColumn(
+  /**
+   * Enforce the WIP limit of a status column.
+   *
+   * Pass `excludeTaskId` when the task is already in this status (update path) so
+   * it is not counted twice.  On the create path omit it — the new task is not yet
+   * persisted and should not be excluded.
+   */
+  private async assertWipLimit(
+    tx: EntityManager,
+    statusId: string,
     projectId: string,
-    workflowColumnId?: string | null,
-  ): Promise<WorkflowColumn | null> {
-    if (!workflowColumnId) return null;
-
-    const column = await this.workflowColumnRepo.findOne({
-      where: { id: workflowColumnId, projectId },
+    excludeTaskId?: string,
+  ): Promise<void> {
+    const status = await tx.findOne(ProjectStatus, {
+      where: { id: statusId, projectId },
     });
+    if (!status?.wipLimit) return; // no limit configured — nothing to check
 
-    if (!column) throw new BadRequestException(INVALID_TASK_COLUMN);
-    return column;
+    const qb = tx
+      .createQueryBuilder(Task, 'task')
+      .where('task.statusId = :statusId', { statusId })
+      .andWhere('task.projectId = :projectId', { projectId })
+      .andWhere('task.deletedAt IS NULL');
+
+    if (excludeTaskId) {
+      qb.andWhere('task.id != :excludeTaskId', { excludeTaskId });
+    }
+
+    const count = await qb.getCount();
+    if (count >= status.wipLimit) {
+      throw new BadRequestException(TASK_STATUS_WIP_LIMIT_EXCEEDED);
+    }
   }
 
   private normalizeRequestedColumnOrder(
@@ -311,41 +376,6 @@ export class TasksService {
       if (item.orderIndex !== index) {
         item.orderIndex = index;
         await manager.save(item);
-      }
-    }
-  }
-
-  private async reorderWorkflowColumns(
-    manager: EntityManager,
-    projectId: string,
-    movingColumnId: string | null,
-    requestedOrderIndex?: number,
-  ): Promise<void> {
-    const columns = await manager.find(WorkflowColumn, {
-      where: { projectId },
-      order: { orderIndex: 'ASC', createdAt: 'ASC' },
-    });
-
-    const movingColumn = movingColumnId
-      ? (columns.find((column) => column.id === movingColumnId) ?? null)
-      : null;
-    const remaining = movingColumn
-      ? columns.filter((column) => column.id !== movingColumnId)
-      : [...columns];
-
-    const targetIndex = this.normalizeRequestedColumnOrder(
-      requestedOrderIndex,
-      remaining.length,
-    );
-
-    if (movingColumn) {
-      remaining.splice(targetIndex, 0, movingColumn);
-    }
-
-    for (const [index, column] of remaining.entries()) {
-      if (column.orderIndex !== index) {
-        column.orderIndex = index;
-        await manager.save(column);
       }
     }
   }
@@ -587,9 +617,9 @@ export class TasksService {
   private buildTaskScope(
     projectId: string,
     parentTaskId: string | null,
-    workflowColumnId: string | null,
+    statusId: string | null,
   ): TaskScope {
-    return { projectId, parentTaskId, workflowColumnId };
+    return { projectId, parentTaskId, statusId };
   }
 
   private scopeWhere(scope: TaskScope): FindOptionsWhere<Task> {
@@ -597,7 +627,7 @@ export class TasksService {
       projectId: scope.projectId,
       deletedAt: IsNull(),
       parentTaskId: scope.parentTaskId ?? IsNull(),
-      workflowColumnId: scope.workflowColumnId ?? IsNull(),
+      statusId: scope.statusId ?? IsNull(),
     };
   }
 
@@ -765,14 +795,14 @@ export class TasksService {
     manager: EntityManager,
     projectId: string,
     parentTaskId?: string | null,
-    workflowColumnId?: string | null,
+    statusId?: string | null,
   ): Promise<string> {
     return this.calculateRankWithinScope(
       manager,
       this.buildTaskScope(
         projectId,
         parentTaskId ?? null,
-        workflowColumnId ?? null,
+        statusId ?? null,
       ),
     );
   }
@@ -868,6 +898,10 @@ export class TasksService {
         'dependencyEdges',
         'viewMetadataEntries',
         'reporteeUser',
+        'status',
+        'priority',
+        'taskType',
+        'severity',
       ],
     });
 
@@ -895,6 +929,10 @@ export class TasksService {
         'dependencyEdges',
         'viewMetadataEntries',
         'reporteeUser',
+        'status',
+        'priority',
+        'taskType',
+        'severity',
       ],
       order: { createdAt: 'DESC' },
     });
@@ -975,6 +1013,76 @@ export class TasksService {
     return dependency;
   }
 
+  private async getChecklistGroupOrFail(
+    taskId: string,
+    groupId: string,
+  ): Promise<TaskChecklist> {
+    const group = await this.checklistGroupRepo.findOne({
+      where: { id: groupId },
+      relations: ['items'],
+    });
+    if (!group) throw new NotFoundException(TASK_CHECKLIST_GROUP_NOT_FOUND);
+    if (group.taskId !== taskId) throw new BadRequestException(TASK_CHECKLIST_GROUP_MISMATCH);
+    return group;
+  }
+
+  private async getTaskLabelOrFail(
+    taskId: string,
+    labelId: string,
+  ): Promise<TaskLabel> {
+    const tl = await this.taskLabelRepo.findOne({
+      where: { id: labelId, taskId },
+      relations: ['label'],
+    });
+    if (!tl) throw new NotFoundException(TASK_LABEL_NOT_FOUND);
+    return tl;
+  }
+
+  private async getTaskWatcherOrFail(
+    taskId: string,
+    watcherId: string,
+  ): Promise<TaskWatcher> {
+    const w = await this.taskWatcherRepo.findOne({
+      where: { id: watcherId, taskId },
+      relations: ['user'],
+    });
+    if (!w) throw new NotFoundException(TASK_WATCHER_NOT_FOUND);
+    return w;
+  }
+
+  private async getTaskRelationOrFail(
+    taskId: string,
+    relationId: string,
+  ): Promise<TaskRelation> {
+    const r = await this.taskRelationRepo.findOne({
+      where: { id: relationId, taskId },
+      relations: ['relatedTask'],
+    });
+    if (!r) throw new NotFoundException(TASK_RELATION_NOT_FOUND);
+    return r;
+  }
+
+  /**
+   * Map TaskActionType → dot-separated outbox event type string.
+   * Outbox consumers receive this as `eventType` in their job payload.
+   */
+  private static taskActionToEventType(action: TaskActionType): string {
+    const map: Record<TaskActionType, string> = {
+      [TaskActionType.TASK_CREATED]: 'task.created',
+      [TaskActionType.TASK_UPDATED]: 'task.updated',
+      [TaskActionType.TASK_MOVED]: 'task.moved',
+      [TaskActionType.TASK_DELETED]: 'task.deleted',
+      [TaskActionType.TASK_ASSIGNED]: 'task.assigned',
+      [TaskActionType.TASK_UNASSIGNED]: 'task.unassigned',
+      [TaskActionType.COMMENT_ADDED]: 'task.comment.added',
+      [TaskActionType.STATUS_CHANGED]: 'task.status.changed',
+      [TaskActionType.CHECKLIST_UPDATED]: 'task.checklist.updated',
+      [TaskActionType.DEPENDENCY_ADDED]: 'task.dependency.added',
+      [TaskActionType.DEPENDENCY_REMOVED]: 'task.dependency.removed',
+    };
+    return map[action] ?? `task.${action.toLowerCase()}`;
+  }
+
   private async logTaskActivity(
     manager: EntityManager,
     task: Pick<Task, 'id' | 'projectId' | 'project'>,
@@ -1004,6 +1112,19 @@ export class TasksService {
         actionMeta: actionMeta ?? {},
       }),
     );
+
+    // Write outbox event in the same transaction so it is never lost.
+    await this.outboxService.record(manager, {
+      aggregateType: 'task',
+      aggregateId: task.id,
+      eventType: TasksService.taskActionToEventType(actionType),
+      payload: {
+        taskId: task.id,
+        projectId: task.projectId,
+        actorUserId: actorUser.id,
+        ...(actionMeta ?? {}),
+      },
+    });
   }
 
   private membershipHasTaskPermission(
@@ -1050,161 +1171,6 @@ export class TasksService {
     return project;
   }
 
-  async getWorkflowColumns(
-    projectId: string,
-    requestUser: RequestUser,
-  ): Promise<WorkflowColumnSerializer[]> {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
-
-    const columns = await this.workflowColumnRepo
-      .createQueryBuilder('column')
-      .leftJoin(
-        Task,
-        'task',
-        'task.workflowColumnId = column.id AND task.deletedAt IS NULL',
-      )
-      .where('column.projectId = :projectId', { projectId })
-      .groupBy('column.pkid')
-      .addGroupBy('column.id')
-      .orderBy('column.orderIndex', 'ASC')
-      .addOrderBy('column.createdAt', 'ASC')
-      .select('column')
-      .addSelect('COUNT(task.id)', 'taskCount')
-      .getRawAndEntities();
-
-    return columns.entities.map((column, index) =>
-      this.toWorkflowColumnSerializer({
-        id: column.id,
-        createdAt: column.createdAt,
-        updatedAt: column.updatedAt,
-        projectId: column.projectId,
-        name: column.name,
-        statusKey: column.statusKey,
-        orderIndex: column.orderIndex,
-        wipLimit: column.wipLimit,
-        locked: column.locked,
-        taskCount: columns.raw[index]?.taskCount ?? 0,
-      }),
-    );
-  }
-
-  async createWorkflowColumn(
-    projectId: string,
-    dto: CreateWorkflowColumnDto,
-    requestUser: RequestUser,
-  ): Promise<WorkflowColumnSerializer> {
-    const project = await this.verifyProjectPermission(
-      projectId,
-      requestUser,
-      'create',
-    );
-
-    const saved = await this.workflowColumnRepo.manager.transaction(
-      async (tx) => {
-        const column = tx.create(WorkflowColumn, {
-          project,
-          projectId,
-          name: dto.name.trim(),
-          statusKey: dto.statusKey?.trim() ?? null,
-          orderIndex: 0,
-          wipLimit: dto.wipLimit ?? null,
-          locked: false,
-        });
-
-        const savedColumn = await tx.save(column);
-        await this.reorderWorkflowColumns(
-          tx,
-          projectId,
-          savedColumn.id,
-          dto.orderIndex,
-        );
-        return tx.findOneByOrFail(WorkflowColumn, {
-          id: savedColumn.id,
-          projectId,
-        });
-      },
-    );
-
-    return this.toWorkflowColumnSerializer(saved);
-  }
-
-  async updateWorkflowColumn(
-    projectId: string,
-    columnId: string,
-    dto: UpdateWorkflowColumnDto,
-    requestUser: RequestUser,
-  ): Promise<WorkflowColumnSerializer> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
-
-    const column = await this.workflowColumnRepo.findOne({
-      where: { id: columnId, projectId },
-    });
-
-    if (!column) {
-      throw new NotFoundException(WORKFLOW_COLUMN_NOT_FOUND);
-    }
-
-    const requestedOrderIndex = dto.orderIndex;
-    if (dto.name !== undefined) column.name = dto.name.trim();
-    if (dto.statusKey !== undefined)
-      column.statusKey = dto.statusKey?.trim() ?? null;
-    if (dto.wipLimit !== undefined) column.wipLimit = dto.wipLimit ?? null;
-
-    const saved = await this.workflowColumnRepo.manager.transaction(
-      async (tx) => {
-        const persisted = await tx.save(column);
-        if (requestedOrderIndex !== undefined) {
-          await this.reorderWorkflowColumns(
-            tx,
-            projectId,
-            persisted.id,
-            requestedOrderIndex,
-          );
-        }
-        return tx.findOneByOrFail(WorkflowColumn, {
-          id: persisted.id,
-          projectId,
-        });
-      },
-    );
-
-    return this.toWorkflowColumnSerializer(saved);
-  }
-
-  async deleteWorkflowColumn(
-    projectId: string,
-    columnId: string,
-    requestUser: RequestUser,
-  ): Promise<{ id: string; deleted: true }> {
-    await this.verifyProjectPermission(projectId, requestUser, 'delete');
-
-    const column = await this.workflowColumnRepo.findOne({
-      where: { id: columnId, projectId },
-    });
-
-    if (!column) {
-      throw new NotFoundException(WORKFLOW_COLUMN_NOT_FOUND);
-    }
-
-    if (column.locked) {
-      throw new BadRequestException(WORKFLOW_COLUMN_LOCKED);
-    }
-
-    const liveTaskCount = await this.taskRepo.count({
-      where: { projectId, workflowColumnId: columnId, deletedAt: IsNull() },
-    });
-
-    if (liveTaskCount > 0) {
-      throw new BadRequestException(WORKFLOW_COLUMN_HAS_TASKS);
-    }
-
-    await this.workflowColumnRepo.manager.transaction(async (tx) => {
-      await tx.remove(column);
-      await this.reorderWorkflowColumns(tx, projectId, null);
-    });
-    return { id: columnId, deleted: true };
-  }
-
   async createTask(
     projectId: string,
     dto: CreateTaskDto,
@@ -1218,14 +1184,12 @@ export class TasksService {
 
     const [
       parent,
-      workflowColumn,
       assignedMemberships,
       reporteeMembership,
       dependencyTasks,
       actorUser,
     ] = await Promise.all([
       this.ensureParentTask(projectId, dto.parentTaskId),
-      this.ensureWorkflowColumn(projectId, dto.workflowColumnId),
       dto.assignedMembers !== undefined
         ? this.ensureAssignedMembers(projectId, dto.assignedMembers)
         : Promise.resolve([]),
@@ -1238,12 +1202,34 @@ export class TasksService {
 
     this.ensureDateRange(dto.startDate, dto.endDate);
 
+    // Resolve default status and task type for the project
+    const [defaultStatus, defaultTaskType] = await Promise.all([
+      dto.statusId
+        ? this.projectStatusRepo.findOne({ where: { id: dto.statusId, projectId } })
+        : this.projectStatusRepo.findOne({ where: { projectId, isDefault: true } }),
+      dto.taskTypeId
+        ? this.projectTaskTypeRepo.findOne({ where: { id: dto.taskTypeId, projectId } })
+        : this.projectTaskTypeRepo.findOne({ where: { projectId, isDefault: true } }),
+    ]);
+
+    if (!defaultStatus) {
+      throw new BadRequestException('Project has no default status. Provide statusId.');
+    }
+    if (!defaultTaskType) {
+      throw new BadRequestException('Project has no default task type. Provide taskTypeId.');
+    }
+
+    // Auto-complete: tasks in a 'done' terminal status are marked completed
+    const isCompleted = defaultStatus.isTerminal;
+
     const savedTask = await this.taskRepo.manager.transaction(async (tx) => {
+      await this.assertWipLimit(tx, defaultStatus.id, projectId);
+
       const rank = await this.getNextRank(
         tx,
         projectId,
         parent?.id ?? null,
-        workflowColumn?.id ?? null,
+        defaultStatus.id,
       );
 
       const task = tx.create(Task, {
@@ -1251,20 +1237,20 @@ export class TasksService {
         projectId,
         parent: parent ?? null,
         parentTaskId: parent?.id ?? null,
-        workflowColumn: workflowColumn ?? null,
-        workflowColumnId: workflowColumn?.id ?? null,
+        statusId: defaultStatus.id,
+        priorityId: dto.priorityId ?? null,
+        taskTypeId: defaultTaskType.id,
+        severityId: dto.severityId ?? null,
         createdByUser: actorUser,
         createdByUserId: actorUser.id,
         reporteeUser: reporteeMembership?.user ?? null,
         reporteeUserId: reporteeMembership?.userId ?? null,
         title: dto.title.trim(),
-        description: dto.description?.trim() ?? null,
-        status: dto.status ?? TaskStatus.TODO,
-        priority: dto.priority ?? null,
+        description: dto.description ?? null,
         startDate: dto.startDate ?? null,
         endDate: dto.endDate ?? null,
         progress: dto.progress ?? null,
-        completed: (dto.status ?? TaskStatus.TODO) === TaskStatus.DONE,
+        completed: isCompleted,
         rank,
         deletedAt: null,
       });
@@ -1346,15 +1332,11 @@ export class TasksService {
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
 
     const [
-      workflowColumn,
       assignedMemberships,
       reporteeMembership,
       dependencyTasks,
       actorUser,
     ] = await Promise.all([
-      dto.workflowColumnId !== undefined
-        ? this.ensureWorkflowColumn(projectId, dto.workflowColumnId)
-        : Promise.resolve(undefined),
       dto.assignedMembers !== undefined
         ? this.ensureAssignedMembers(projectId, dto.assignedMembers)
         : Promise.resolve(undefined),
@@ -1373,6 +1355,7 @@ export class TasksService {
       dto.endDate !== undefined ? (dto.endDate ?? null) : task.endDate;
     this.ensureDateRange(nextStartDate, nextEndDate);
 
+    const originalStatusId = task.statusId;
     const changedFields: string[] = [];
 
     if (dto.title !== undefined) {
@@ -1380,17 +1363,31 @@ export class TasksService {
       changedFields.push('title');
     }
     if (dto.description !== undefined) {
-      task.description = dto.description?.trim() ?? null;
+      task.description = dto.description ?? null;
       changedFields.push('description');
     }
-    if (dto.status !== undefined) {
-      task.status = dto.status;
-      task.completed = dto.status === TaskStatus.DONE;
-      changedFields.push('status');
+    if (dto.statusId !== undefined) {
+      task.statusId = dto.statusId ?? task.statusId;
+      changedFields.push('statusId');
+      // Auto-complete: if new status is terminal, mark task completed
+      if (dto.statusId) {
+        const newStatus = await this.projectStatusRepo.findOne({
+          where: { id: dto.statusId, projectId },
+        });
+        if (newStatus) task.completed = newStatus.isTerminal;
+      }
     }
-    if (dto.priority !== undefined) {
-      task.priority = dto.priority ?? null;
-      changedFields.push('priority');
+    if (dto.priorityId !== undefined) {
+      task.priorityId = dto.priorityId ?? null;
+      changedFields.push('priorityId');
+    }
+    if (dto.taskTypeId !== undefined) {
+      task.taskTypeId = dto.taskTypeId;
+      changedFields.push('taskTypeId');
+    }
+    if (dto.severityId !== undefined) {
+      task.severityId = dto.severityId ?? null;
+      changedFields.push('severityId');
     }
     if (dto.startDate !== undefined) {
       task.startDate = dto.startDate ?? null;
@@ -1404,11 +1401,6 @@ export class TasksService {
       task.progress = dto.progress ?? null;
       changedFields.push('progress');
     }
-    if (dto.workflowColumnId !== undefined) {
-      task.workflowColumn = workflowColumn ?? null;
-      task.workflowColumnId = workflowColumn?.id ?? null;
-      changedFields.push('workflowColumnId');
-    }
     if (dto.reportee !== undefined) {
       task.reporteeUser = reporteeMembership!.user;
       task.reporteeUserId = reporteeMembership!.userId;
@@ -1416,6 +1408,11 @@ export class TasksService {
     }
 
     await this.taskRepo.manager.transaction(async (tx) => {
+      // Enforce WIP limit when moving task to a different status column
+      if (dto.statusId && task.statusId !== originalStatusId) {
+        await this.assertWipLimit(tx, task.statusId, projectId);
+      }
+
       await tx.save(task);
 
       if (dto.assignedMembers !== undefined) {
@@ -1545,30 +1542,26 @@ export class TasksService {
     const sourceScope = this.buildTaskScope(
       projectId,
       task.parentTaskId,
-      task.workflowColumnId,
+      task.statusId,
     );
 
     const nextParentTaskId =
       dto.parentTaskId !== undefined
         ? (dto.parentTaskId ?? null)
         : task.parentTaskId;
-    const nextWorkflowColumnId =
-      dto.workflowColumnId !== undefined
-        ? (dto.workflowColumnId ?? null)
-        : task.workflowColumnId;
+    // statusId is now always non-null; if dto.statusId is null or undefined, keep current
+    const nextStatusId: string =
+      dto.statusId != null ? dto.statusId : task.statusId;
 
     await this.assertNotDescendant(projectId, task.id, nextParentTaskId);
 
-    const [parent, workflowColumn] = await Promise.all([
-      this.ensureParentTask(projectId, nextParentTaskId),
-      this.ensureWorkflowColumn(projectId, nextWorkflowColumnId),
-    ]);
+    const parent = await this.ensureParentTask(projectId, nextParentTaskId);
 
     await this.taskRepo.manager.transaction(async (tx) => {
       const destinationScope = this.buildTaskScope(
         projectId,
         parent?.id ?? null,
-        workflowColumn?.id ?? null,
+        nextStatusId,
       );
 
       const nextRank = await this.calculateRankWithinScope(
@@ -1581,8 +1574,7 @@ export class TasksService {
 
       task.parent = parent ?? null;
       task.parentTaskId = parent?.id ?? null;
-      task.workflowColumn = workflowColumn ?? null;
-      task.workflowColumnId = workflowColumn?.id ?? null;
+      task.statusId = nextStatusId;
       task.rank = nextRank;
 
       await tx.save(task);
@@ -1590,7 +1582,7 @@ export class TasksService {
 
       if (
         sourceScope.parentTaskId !== destinationScope.parentTaskId ||
-        sourceScope.workflowColumnId !== destinationScope.workflowColumnId
+        sourceScope.statusId !== destinationScope.statusId
       ) {
         await this.rebalanceScopeRanks(tx, sourceScope);
       }
@@ -1609,7 +1601,7 @@ export class TasksService {
         TaskActionType.TASK_MOVED,
         {
           parentTaskId: task.parentTaskId,
-          workflowColumnId: task.workflowColumnId,
+          statusId: task.statusId,
           rank: task.rank,
         },
       );
@@ -1658,28 +1650,37 @@ export class TasksService {
           item.parentTaskId !== undefined
             ? (item.parentTaskId ?? null)
             : task.parentTaskId;
-        const nextWorkflowColumnId =
-          item.workflowColumnId !== undefined
-            ? (item.workflowColumnId ?? null)
-            : task.workflowColumnId;
+        const nextStatusId =
+          item.statusId !== undefined
+            ? (item.statusId ?? null)
+            : task.statusId;
 
         if (item.parentTaskId !== undefined) {
           await this.assertNotDescendant(projectId, task.id, nextParentTaskId);
         }
 
-        const [parent, workflowColumn] = await Promise.all([
+        const parent =
           item.parentTaskId !== undefined
-            ? this.ensureParentTask(projectId, nextParentTaskId)
-            : Promise.resolve(undefined),
-          item.workflowColumnId !== undefined
-            ? this.ensureWorkflowColumn(projectId, nextWorkflowColumnId)
-            : Promise.resolve(undefined),
-        ]);
+            ? await this.ensureParentTask(projectId, nextParentTaskId)
+            : undefined;
 
         let movedScope = false;
-        if (item.status !== undefined) {
-          task.status = item.status;
-          task.completed = item.status === TaskStatus.DONE;
+        if (item.statusId !== undefined) {
+          const prevStatusId = task.statusId;
+          task.statusId = nextStatusId ?? task.statusId;
+          // Enforce WIP limit when the status column actually changes
+          if (item.statusId && task.statusId !== prevStatusId) {
+            await this.assertWipLimit(tx, task.statusId, projectId);
+          }
+        }
+        if (item.priorityId !== undefined) {
+          task.priorityId = item.priorityId ?? null;
+        }
+        if (item.taskTypeId !== undefined) {
+          task.taskTypeId = item.taskTypeId;
+        }
+        if (item.severityId !== undefined) {
+          task.severityId = item.severityId ?? null;
         }
         if (item.progress !== undefined) {
           task.progress = item.progress;
@@ -1695,9 +1696,7 @@ export class TasksService {
           task.parentTaskId = parent?.id ?? null;
           movedScope = true;
         }
-        if (item.workflowColumnId !== undefined) {
-          task.workflowColumn = workflowColumn ?? null;
-          task.workflowColumnId = workflowColumn?.id ?? null;
+        if (item.statusId !== undefined) {
           movedScope = true;
         }
         if (movedScope) {
@@ -1706,7 +1705,7 @@ export class TasksService {
             this.buildTaskScope(
               projectId,
               task.parentTaskId,
-              task.workflowColumnId,
+              task.statusId,
             ),
             undefined,
             undefined,
@@ -1724,12 +1723,11 @@ export class TasksService {
           actorUser,
           movedScope ? TaskActionType.TASK_MOVED : TaskActionType.TASK_UPDATED,
           {
-            status: item.status,
+            statusId: task.statusId,
             progress: item.progress,
             startDate: item.startDate,
             endDate: item.endDate,
             parentTaskId: task.parentTaskId,
-            workflowColumnId: task.workflowColumnId,
             viewMetaUpdated: item.viewMeta !== undefined,
           },
         );
@@ -1920,6 +1918,7 @@ export class TasksService {
           completed: false,
           completedByUserId: null,
           completedAt: null,
+          checklistGroupId: dto.checklistGroupId ?? null,
         }),
       );
 
@@ -1968,6 +1967,9 @@ export class TasksService {
       item.completed = dto.completed;
       item.completedByUserId = dto.completed ? requestUser.id : null;
       item.completedAt = dto.completed ? new Date() : null;
+    }
+    if (dto.checklistGroupId !== undefined) {
+      item.checklistGroupId = dto.checklistGroupId ?? null;
     }
 
     return this.checklistRepo.manager.transaction(async (tx) => {
@@ -2117,11 +2119,10 @@ export class TasksService {
         tx,
         task,
         actorUser,
-        TaskActionType.TASK_UPDATED,
+        TaskActionType.DEPENDENCY_REMOVED,
         {
           dependencyId: depId,
           dependsOnTaskId: dependency.dependsOnTaskId,
-          operation: 'dependency_deleted',
         },
       );
     });
@@ -2153,7 +2154,7 @@ export class TasksService {
     const sourceScope = this.buildTaskScope(
       projectId,
       task.parentTaskId,
-      task.workflowColumnId,
+      task.statusId,
     );
 
     const toDelete = new Set<string>([task.id]);
@@ -2231,16 +2232,20 @@ export class TasksService {
   > {
     await this.verifyProjectPermission(projectId, requestUser, 'view');
 
-    this.parseIncludes(filters.include);
+    // Parse and validate include param. Returns a Set of relation names to eager-load.
+    const includes = this.parseIncludes(filters.include);
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 10;
     const includeDeleted =
       filters.includeDeleted === true && this.isAdmin(requestUser);
 
+    // Bug 3 fix: do NOT use .distinct(true). Instead, only join the relations that
+    // are actually requested. Unconditional leftJoinAndSelect on one-to-many relations
+    // produces duplicate rows in the result set, which forces DISTINCT, which in turn
+    // breaks pagination counts and can cause TypeORM hydration issues (Bug 2).
     const qb = this.taskRepo
       .createQueryBuilder('task')
-      .where('task.projectId = :projectId', { projectId })
-      .distinct(true);
+      .where('task.projectId = :projectId', { projectId });
 
     if (!includeDeleted) {
       qb.andWhere('task.deletedAt IS NULL');
@@ -2256,18 +2261,20 @@ export class TasksService {
       qb.andWhere('task.parentTaskId IS NULL');
     }
 
-    if (filters.status) {
-      qb.andWhere('task.status = :status', { status: filters.status });
+    if (filters.statusId) {
+      qb.andWhere('task.statusId = :statusId', { statusId: filters.statusId });
     }
 
-    if (filters.priority) {
-      qb.andWhere('task.priority = :priority', { priority: filters.priority });
+    if (filters.priorityId) {
+      qb.andWhere('task.priorityId = :priorityId', { priorityId: filters.priorityId });
     }
 
-    if (filters.workflowColumnId) {
-      qb.andWhere('task.workflowColumnId = :workflowColumnId', {
-        workflowColumnId: filters.workflowColumnId,
-      });
+    if (filters.taskTypeId) {
+      qb.andWhere('task.taskTypeId = :taskTypeId', { taskTypeId: filters.taskTypeId });
+    }
+
+    if (filters.severityId) {
+      qb.andWhere('task.severityId = :severityId', { severityId: filters.severityId });
     }
 
     const assignedUserId = filters.assignedUserId;
@@ -2321,12 +2328,8 @@ export class TasksService {
     }
 
     if (filters.search) {
-      qb.andWhere(
-        ['task.title ILIKE :search', 'task.description ILIKE :search'].join(
-          ' OR ',
-        ),
-        { search: `%${filters.search}%` },
-      );
+      // description is now JSONB so we search only the title text column
+      qb.andWhere('task.title ILIKE :search', { search: `%${filters.search}%` });
     }
 
     if (filters.startDateFrom) {
@@ -2371,29 +2374,42 @@ export class TasksService {
       );
     }
 
+    // Bug 2 fix: always join assignees + user so that assignee names are always populated.
+    // Bug 3 fix: only join optional one-to-many relations when explicitly requested via `include`.
+    // This eliminates the duplicate-row problem that previously required DISTINCT and caused
+    // incorrect pagination counts and broken TypeORM hydration.
     qb.leftJoinAndSelect('task.assignees', 'assignees')
       .leftJoinAndSelect('assignees.user', 'assigneeUser')
-      .leftJoinAndSelect('task.checklistItems', 'checklistItems')
-      .leftJoinAndSelect('task.dependencyEdges', 'dependencyEdges')
-      .leftJoinAndSelect(
-        'task.comments',
-        'comments',
-        'comments.deletedAt IS NULL',
-      )
-      .leftJoinAndSelect('task.viewMetadataEntries', 'viewMetadataEntries')
-      .leftJoinAndSelect('task.reporteeUser', 'reporteeUser');
+      .leftJoinAndSelect('task.reporteeUser', 'reporteeUser')
+      // Always join config FK relations so snippets are available on all list responses
+      .leftJoinAndSelect('task.status', 'status')
+      .leftJoinAndSelect('task.priority', 'priority')
+      .leftJoinAndSelect('task.taskType', 'taskType')
+      .leftJoinAndSelect('task.severity', 'severity');
 
-    // childCount: safe to use loadRelationCountAndMap — task.children is not joined anywhere else.
+    if (includes.has('checklist')) {
+      qb.leftJoinAndSelect('task.checklistItems', 'checklistItems');
+    }
+    if (includes.has('dependencies')) {
+      qb.leftJoinAndSelect('task.dependencyEdges', 'dependencyEdges');
+    }
+    if (includes.has('comments')) {
+      qb.leftJoinAndSelect('task.comments', 'comments', 'comments.deletedAt IS NULL');
+    }
+    if (includes.has('viewMeta')) {
+      qb.leftJoinAndSelect('task.viewMetadataEntries', 'viewMetadataEntries');
+    }
+
+    // childCount: safe to use loadRelationCountAndMap — task.children is never joined above.
     qb.loadRelationCountAndMap(
       'task.childCount',
       'task.children',
       'children',
       (subQb) => subQb.andWhere('children.deletedAt IS NULL'),
     );
-    // commentCount is intentionally NOT handled via loadRelationCountAndMap here.
-    // When include=comments is active, task.comments is already joined via leftJoinAndSelect,
-    // and a second join on the same relation with a different alias causes a TypeORM error.
-    // Instead, commentCounts are fetched in a single batch query after getManyAndCount().
+    // commentCount is fetched via a batch query below (not loadRelationCountAndMap) because
+    // when include=comments the comments relation is already joined and a second join on the
+    // same relation with a different alias would cause a TypeORM duplicate-alias error.
 
     const orderByAllowed = new Set([
       'title',
@@ -2470,5 +2486,326 @@ export class TasksService {
     }
 
     return task;
+  }
+
+  // ── Checklist Groups ────────────────────────────────────────────────────────
+
+  async getChecklistGroups(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ): Promise<TaskChecklistGroupDetailSerializer[]> {
+    await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId);
+
+    const groups = await this.checklistGroupRepo.find({
+      where: { taskId },
+      relations: ['items'],
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+    });
+
+    return groups.map((g) => this.toChecklistGroupSerializer(g));
+  }
+
+  async createChecklistGroup(
+    projectId: string,
+    taskId: string,
+    dto: CreateChecklistGroupDto,
+    requestUser: RequestUser,
+  ): Promise<TaskChecklistGroupDetailSerializer> {
+    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const task = await this.ensureTaskForSubresource(projectId, taskId);
+
+    const count = await this.checklistGroupRepo.count({ where: { taskId } });
+    const orderIndex = dto.orderIndex ?? count;
+
+    const group = await this.checklistGroupRepo.save(
+      this.checklistGroupRepo.create({
+        task,
+        taskId: task.id,
+        title: dto.title.trim(),
+        orderIndex,
+      }),
+    );
+
+    const withItems = await this.checklistGroupRepo.findOne({
+      where: { id: group.id },
+      relations: ['items'],
+    });
+
+    return this.toChecklistGroupSerializer(withItems ?? group);
+  }
+
+  async updateChecklistGroup(
+    projectId: string,
+    taskId: string,
+    groupId: string,
+    dto: UpdateChecklistGroupDto,
+    requestUser: RequestUser,
+  ): Promise<TaskChecklistGroupDetailSerializer> {
+    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId);
+    const group = await this.getChecklistGroupOrFail(taskId, groupId);
+
+    if (dto.title !== undefined) group.title = dto.title.trim();
+    if (dto.orderIndex !== undefined) group.orderIndex = dto.orderIndex;
+
+    await this.checklistGroupRepo.save(group);
+
+    const refreshed = await this.checklistGroupRepo.findOne({
+      where: { id: group.id },
+      relations: ['items'],
+    });
+
+    return this.toChecklistGroupSerializer(refreshed ?? group);
+  }
+
+  async deleteChecklistGroup(
+    projectId: string,
+    taskId: string,
+    groupId: string,
+    requestUser: RequestUser,
+  ): Promise<{ id: string; success: true }> {
+    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId);
+    const group = await this.getChecklistGroupOrFail(taskId, groupId);
+
+    // Ungroup items (SET NULL via FK) before removing the group
+    await this.checklistGroupRepo.remove(group);
+
+    return { id: groupId, success: true };
+  }
+
+  // ── Labels ──────────────────────────────────────────────────────────────────
+
+  async getTaskLabels(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ): Promise<TaskLabelDetailSerializer[]> {
+    await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId);
+
+    const labels = await this.taskLabelRepo.find({
+      where: { taskId },
+      relations: ['label'],
+      order: { createdAt: 'ASC' },
+    });
+
+    return labels.map((l) => this.toTaskLabelSerializer(l));
+  }
+
+  async addTaskLabel(
+    projectId: string,
+    taskId: string,
+    dto: AddLabelDto,
+    requestUser: RequestUser,
+  ): Promise<TaskLabelDetailSerializer> {
+    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const task = await this.ensureTaskForSubresource(projectId, taskId);
+
+    // Ensure the label belongs to the same project
+    const projectLabel = await this.projectLabelRepo.findOne({
+      where: { id: dto.labelId, projectId },
+    });
+    if (!projectLabel) throw new BadRequestException(INVALID_TASK_LABEL);
+
+    // Idempotency: return existing if already added
+    const existing = await this.taskLabelRepo.findOne({
+      where: { taskId, labelId: dto.labelId },
+      relations: ['label'],
+    });
+    if (existing) throw new BadRequestException(TASK_LABEL_ALREADY_ADDED);
+
+    const tl = await this.taskLabelRepo.save(
+      this.taskLabelRepo.create({
+        task,
+        taskId: task.id,
+        label: projectLabel,
+        labelId: projectLabel.id,
+      }),
+    );
+
+    return this.toTaskLabelSerializer({ ...tl, label: projectLabel });
+  }
+
+  async removeTaskLabel(
+    projectId: string,
+    taskId: string,
+    taskLabelId: string,
+    requestUser: RequestUser,
+  ): Promise<{ id: string; success: true }> {
+    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId);
+    const tl = await this.getTaskLabelOrFail(taskId, taskLabelId);
+
+    await this.taskLabelRepo.remove(tl);
+    return { id: taskLabelId, success: true };
+  }
+
+  // ── Watchers ────────────────────────────────────────────────────────────────
+
+  async getTaskWatchers(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ): Promise<TaskWatcherDetailSerializer[]> {
+    await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId);
+
+    const watchers = await this.taskWatcherRepo.find({
+      where: { taskId },
+      relations: ['user'],
+      order: { createdAt: 'ASC' },
+    });
+
+    return watchers.map((w) => this.toTaskWatcherSerializer(w));
+  }
+
+  async addTaskWatcher(
+    projectId: string,
+    taskId: string,
+    dto: AddWatcherDto,
+    requestUser: RequestUser,
+  ): Promise<TaskWatcherDetailSerializer> {
+    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const task = await this.ensureTaskForSubresource(projectId, taskId);
+
+    // Ensure watcher is an active project member
+    const membership = await this.membershipRepo.findOne({
+      where: { projectId, userId: dto.userId, status: MembershipStatus.ACTIVE },
+      relations: ['user'],
+    });
+    if (!membership) throw new BadRequestException(INVALID_TASK_WATCHER);
+
+    const existing = await this.taskWatcherRepo.findOne({
+      where: { taskId, userId: dto.userId },
+    });
+    if (existing) throw new BadRequestException(TASK_WATCHER_ALREADY_WATCHING);
+
+    const watcher = await this.taskWatcherRepo.save(
+      this.taskWatcherRepo.create({
+        task,
+        taskId: task.id,
+        user: membership.user,
+        userId: dto.userId,
+      }),
+    );
+
+    return this.toTaskWatcherSerializer({ ...watcher, user: membership.user });
+  }
+
+  async removeTaskWatcher(
+    projectId: string,
+    taskId: string,
+    watcherId: string,
+    requestUser: RequestUser,
+  ): Promise<{ id: string; success: true }> {
+    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId);
+    const watcher = await this.getTaskWatcherOrFail(taskId, watcherId);
+
+    await this.taskWatcherRepo.remove(watcher);
+    return { id: watcherId, success: true };
+  }
+
+  // ── Relations ───────────────────────────────────────────────────────────────
+
+  async getTaskRelations(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ): Promise<TaskRelationDetailSerializer[]> {
+    await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId);
+
+    // Return both outgoing (taskId = taskId) and incoming (relatedTaskId = taskId) as a unified list.
+    // Each entry includes a `direction` field: 'outgoing' or 'incoming'.
+    // For incoming edges the relatedTask is the *source* task; we normalize so
+    // relatedTaskId always points to the *other* task from the viewer's perspective.
+    const [outgoing, incoming] = await Promise.all([
+      this.taskRelationRepo.find({
+        where: { taskId },
+        relations: ['relatedTask'],
+        order: { createdAt: 'ASC' },
+      }),
+      this.taskRelationRepo.find({
+        where: { relatedTaskId: taskId },
+        relations: ['task'],
+        order: { createdAt: 'ASC' },
+      }),
+    ]);
+
+    const outgoingView = outgoing.map((r) => ({
+      ...r,
+      direction: 'outgoing' as const,
+    }));
+
+    const incomingView = incoming.map((r) => ({
+      ...r,
+      // Normalize: viewer's perspective — swap so relatedTask is the other task
+      taskId: r.relatedTaskId,
+      relatedTaskId: r.taskId,
+      relatedTask: r.task,
+      direction: 'incoming' as const,
+    }));
+
+    return [...outgoingView, ...incomingView].map((r) =>
+      this.toTaskRelationSerializer(r),
+    );
+  }
+
+  async addTaskRelation(
+    projectId: string,
+    taskId: string,
+    dto: AddRelationDto,
+    requestUser: RequestUser,
+  ): Promise<TaskRelationDetailSerializer> {
+    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const task = await this.ensureTaskForSubresource(projectId, taskId);
+
+    if (dto.relatedTaskId === taskId) {
+      throw new BadRequestException(TASK_RELATION_SELF);
+    }
+
+    const relatedTask = await this.taskRepo.findOne({
+      where: { id: dto.relatedTaskId, projectId, deletedAt: IsNull() },
+    });
+    if (!relatedTask) throw new BadRequestException(INVALID_TASK_RELATION);
+
+    // Check both directions for an existing link
+    const existing = await this.taskRelationRepo.findOne({
+      where: [
+        { taskId, relatedTaskId: dto.relatedTaskId },
+        { taskId: dto.relatedTaskId, relatedTaskId: taskId },
+      ],
+    });
+    if (existing) throw new BadRequestException(INVALID_TASK_RELATION);
+
+    const relation = await this.taskRelationRepo.save(
+      this.taskRelationRepo.create({
+        task,
+        taskId: task.id,
+        relatedTask,
+        relatedTaskId: relatedTask.id,
+        relationType: dto.relationType ?? RelationType.RELATES_TO,
+      }),
+    );
+
+    return this.toTaskRelationSerializer({ ...relation, relatedTask });
+  }
+
+  async deleteTaskRelation(
+    projectId: string,
+    taskId: string,
+    relationId: string,
+    requestUser: RequestUser,
+  ): Promise<{ id: string; success: true }> {
+    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId);
+    const relation = await this.getTaskRelationOrFail(taskId, relationId);
+
+    await this.taskRelationRepo.remove(relation);
+    return { id: relationId, success: true };
   }
 }

@@ -4,7 +4,6 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
-  IsEnum,
   IsInt,
   IsObject,
   IsOptional,
@@ -15,7 +14,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { TaskPriority, TaskStatus } from '../entities/task.entity';
+// IsString and Length are still used for `title` below
 import {
   CreateTaskChecklistItemDto,
   TaskAssignedMemberDto,
@@ -31,27 +30,34 @@ export class UpdateTaskDto {
   @Type(() => String)
   title?: string;
 
-  @ApiPropertyOptional({ example: 'Updated task description' })
+  @ApiPropertyOptional({
+    example: { type: 'doc', content: [] },
+    description: 'Rich-text content as a ProseMirror/TipTap JSON document.',
+    nullable: true,
+  })
   @IsOptional()
-  @IsString()
-  @Length(1, 5000)
-  @Type(() => String)
-  description?: string | null;
-
-  @ApiPropertyOptional({ enum: TaskStatus, example: TaskStatus.IN_PROGRESS })
-  @IsOptional()
-  @IsEnum(TaskStatus)
-  status?: TaskStatus;
+  @IsObject()
+  description?: Record<string, unknown> | null;
 
   @ApiPropertyOptional({ example: 'a7c9ecdb-2d62-4c99-88dd-80f086b47e1e' })
   @IsOptional()
   @IsUUID()
-  workflowColumnId?: string | null;
+  statusId?: string | null;
 
-  @ApiPropertyOptional({ enum: TaskPriority, example: TaskPriority.URGENT })
+  @ApiPropertyOptional({ example: 'e1c2a3b4-d5e6-7f89-a0b1-c2d3e4f50001', nullable: true })
   @IsOptional()
-  @IsEnum(TaskPriority)
-  priority?: TaskPriority | null;
+  @IsUUID()
+  priorityId?: string | null;
+
+  @ApiPropertyOptional({ example: 'f1a2b3c4-d5e6-7f89-a0b1-c2d3e4f50002' })
+  @IsOptional()
+  @IsUUID()
+  taskTypeId?: string;
+
+  @ApiPropertyOptional({ example: 'a0b1c2d3-e4f5-6789-a0b1-c2d3e4f50003', nullable: true })
+  @IsOptional()
+  @IsUUID()
+  severityId?: string | null;
 
   @ApiPropertyOptional({ example: '2026-03-25' })
   @IsOptional()

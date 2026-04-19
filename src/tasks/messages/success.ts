@@ -24,3 +24,28 @@ export const TASK_DEPENDENCIES_FETCHED =
   'Task dependencies fetched successfully';
 export const TASK_DEPENDENCY_ADDED = 'Task dependency added successfully';
 export const TASK_DEPENDENCY_DELETED = 'Task dependency deleted successfully';
+
+// Checklist groups
+export const TASK_CHECKLIST_GROUPS_FETCHED =
+  'Task checklist groups fetched successfully';
+export const TASK_CHECKLIST_GROUP_CREATED =
+  'Task checklist group created successfully';
+export const TASK_CHECKLIST_GROUP_UPDATED =
+  'Task checklist group updated successfully';
+export const TASK_CHECKLIST_GROUP_DELETED =
+  'Task checklist group deleted successfully';
+
+// Labels
+export const TASK_LABELS_FETCHED = 'Task labels fetched successfully';
+export const TASK_LABEL_ADDED = 'Task label added successfully';
+export const TASK_LABEL_REMOVED = 'Task label removed successfully';
+
+// Watchers
+export const TASK_WATCHERS_FETCHED = 'Task watchers fetched successfully';
+export const TASK_WATCHER_ADDED = 'Task watcher added successfully';
+export const TASK_WATCHER_REMOVED = 'Task watcher removed successfully';
+
+// Relations
+export const TASK_RELATIONS_FETCHED = 'Task relations fetched successfully';
+export const TASK_RELATION_ADDED = 'Task relation added successfully';
+export const TASK_RELATION_DELETED = 'Task relation deleted successfully';

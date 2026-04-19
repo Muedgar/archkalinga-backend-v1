@@ -1,6 +1,7 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { Task } from './task.entity';
+import { TaskChecklist } from './task-checklist.entity';
 
 @Entity('task_checklist_items')
 export class TaskChecklistItem extends AppBaseEntity {
@@ -13,6 +14,17 @@ export class TaskChecklistItem extends AppBaseEntity {
 
   @Column({ type: 'uuid', nullable: false })
   taskId: string;
+
+  /** Optional checklist group this item belongs to. */
+  @ManyToOne(() => TaskChecklist, (group) => group.items, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'checklist_group_id' })
+  checklistGroup: TaskChecklist | null;
+
+  @Column({ type: 'uuid', nullable: true, name: 'checklist_group_id' })
+  checklistGroupId: string | null;
 
   @Column({ type: 'varchar', length: 500, nullable: false })
   text: string;

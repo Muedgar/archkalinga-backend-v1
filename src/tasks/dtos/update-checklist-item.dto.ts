@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Length,
   Min,
 } from 'class-validator';
@@ -27,4 +28,12 @@ export class UpdateChecklistItemDto {
   @IsInt()
   @Min(0)
   orderIndex?: number;
+
+  @ApiPropertyOptional({
+    example: 'a1b2c3d4-...',
+    description: 'Move item to a different checklist group, or null to ungroupit',
+  })
+  @IsOptional()
+  @IsUUID()
+  checklistGroupId?: string | null;
 }
