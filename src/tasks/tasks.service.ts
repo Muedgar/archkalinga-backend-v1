@@ -20,10 +20,16 @@ import { FilterResponse } from 'src/common/interfaces';
 import {
   Project,
   ProjectActivityLog,
+  ProjectInvite,
   ProjectMembership,
+  ProjectRole,
 } from 'src/projects/entities';
+import { InviteStatus } from 'src/projects/entities/project-invite.entity';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
-import type { ProjectPermissionAction } from 'src/projects/types/project-permission-matrix.type';
+import type {
+  ProjectPermissionAction,
+  ProjectPermissionMatrix,
+} from 'src/projects/types/project-permission-matrix.type';
 import { User } from 'src/users/entities';
 import {
   AddChecklistItemDto,
@@ -106,6 +112,9 @@ import {
   TaskSerializer,
   TaskWatcherDetailSerializer,
 } from './serializers';
+import { randomBytes } from 'crypto';
+import { NotificationsService } from 'src/notifications/notifications.service';
+import { NotificationType } from 'src/notifications/entities/notification.entity';
 
 interface TaskCounts {
   childCount: number;
@@ -125,7 +134,7 @@ interface ProjectRoleContext {
     name: string;
     slug: string;
     status: boolean;
-    permissions: Record<string, boolean | Record<string, boolean>>;
+    permissions: ProjectPermissionMatrix;
   } | null;
 }
 
@@ -182,8 +191,20 @@ export class TasksService {
     private readonly projectTaskTypeRepo: Repository<ProjectTaskType>,
     @InjectRepository(ProjectLabel)
     private readonly projectLabelRepo: Repository<ProjectLabel>,
+    @InjectRepository(ProjectInvite)
+    private readonly projectInviteRepo: Repository<ProjectInvite>,
     private readonly outboxService: OutboxService,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  private generateInviteToken(): string {
+    return randomBytes(48).toString('hex');
+  }
+
+  private inviteExpiresAt(): Date {
+    // 7 days TTL, matching ProjectInvitesService
+    return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  }
 
   private isAdmin(user: RequestUser): boolean {
     return false; // Workspace admin check is performed by WorkspaceGuard/ProjectPermissionGuard
@@ -421,46 +442,132 @@ export class TasksService {
     return userIds.map((id) => uniqueUsers.get(id)!);
   }
 
+  /**
+   * Resolve assignedMembers to `{ user, userId }` pairs suitable for creating
+   * TaskAssignee records.
+   *
+   * For users who are already active project members their membership role is
+   * validated and they are returned immediately.
+   *
+   * For users who are NOT yet active project members a PENDING ProjectInvite is
+   * auto-created inside `tx` (skipped if one already exists).  The task
+   * assignment is still written — TaskAssignee only requires a User FK, not a
+   * ProjectMembership.  Once the invitee accepts the invite the existing
+   * acceptInviteEntity flow creates their ProjectMembership and
+   * WorkspaceMembership correctly, giving them full access.
+   *
+   * This preserves consent: the assignee must explicitly accept before they gain
+   * project / workspace access.  It also avoids the previous bug where a direct
+   * membership write bypassed ensureWorkspaceMembership and left the user
+   * without workspace visibility.
+   */
   private async ensureAssignedMembers(
     projectId: string,
     assignedMembers: Array<{ userId: string; projectRoleId: string }>,
-  ): Promise<ProjectMembership[]> {
+    tx: EntityManager,
+    actorUser: User,
+  ): Promise<{ user: User; userId: string }[]> {
     if (!assignedMembers.length) {
       throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
     }
 
-    const uniqueUserIds = [
-      ...new Set(assignedMembers.map((member) => member.userId)),
-    ];
+    const uniqueUserIds = [...new Set(assignedMembers.map((m) => m.userId))];
     if (uniqueUserIds.length !== assignedMembers.length) {
       throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
     }
 
-    const memberships = await this.membershipRepo.find({
-      where: {
-        projectId,
-        status: MembershipStatus.ACTIVE,
-        userId: In(uniqueUserIds),
-      },
-      relations: ['user', 'projectRole'],
+    // Validate all requested roles belong to this project
+    const uniqueRoleIds = [...new Set(assignedMembers.map((m) => m.projectRoleId))];
+    const roles = await tx.find(ProjectRole, {
+      where: { id: In(uniqueRoleIds), projectId },
     });
-
-    if (memberships.length !== uniqueUserIds.length) {
-      throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
-    }
-
-    const membershipMap = new Map(
-      memberships.map((membership) => [membership.userId, membership]),
-    );
-
+    const roleMap = new Map(roles.map((r) => [r.id, r]));
     for (const member of assignedMembers) {
-      const membership = membershipMap.get(member.userId);
-      if (!membership || membership.projectRoleId !== member.projectRoleId) {
+      if (!roleMap.has(member.projectRoleId)) {
         throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
       }
     }
 
-    return assignedMembers.map((member) => membershipMap.get(member.userId)!);
+    // Load existing memberships and users in bulk
+    const [memberships, users] = await Promise.all([
+      tx.find(ProjectMembership, {
+        where: { projectId, userId: In(uniqueUserIds) },
+        relations: ['user'],
+      }),
+      tx.find(User, { where: { id: In(uniqueUserIds) } }),
+    ]);
+
+    const membershipMap = new Map(memberships.map((m) => [m.userId, m]));
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    // Load project once (needed for invite creation)
+    const project = await tx.findOneOrFail(Project, { where: { id: projectId } });
+
+    const result: { user: User; userId: string }[] = [];
+
+    for (const member of assignedMembers) {
+      const user = userMap.get(member.userId);
+      if (!user) throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
+
+      const membership = membershipMap.get(member.userId);
+
+      if (membership && membership.status === MembershipStatus.ACTIVE) {
+        // Already an active member — validate the role matches their current role
+        if (membership.projectRoleId !== member.projectRoleId) {
+          throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
+        }
+        result.push({ user, userId: user.id });
+        continue;
+      }
+
+      // User is not yet an active member — auto-create a PENDING invite so they
+      // go through the proper invite → accept flow (which creates both
+      // ProjectMembership and WorkspaceMembership correctly).
+      const existingPendingInvite = await tx.findOne(ProjectInvite, {
+        where: {
+          projectId,
+          inviteeUserId: user.id,
+          status: InviteStatus.PENDING,
+        },
+      });
+
+      if (!existingPendingInvite) {
+        const role = roleMap.get(member.projectRoleId)!;
+        await tx.save(
+          tx.create(ProjectInvite, {
+            project,
+            projectId,
+            inviterUser: actorUser,
+            inviterUserId: actorUser.id,
+            inviteeUser: user,
+            inviteeUserId: user.id,
+            projectRole: role,
+            projectRoleId: role.id,
+            token: this.generateInviteToken(),
+            status: InviteStatus.PENDING,
+            expiresAt: this.inviteExpiresAt(),
+            acceptedAt: null,
+            message: null,
+          }),
+        );
+
+        // Fire-and-forget notification — do not block the task save
+        void this.notificationsService
+          .createNotification({
+            userId: user.id,
+            type: NotificationType.INVITE_RECEIVED,
+            title: `You've been invited to join a project`,
+            body: `${actorUser.firstName} ${actorUser.lastName} assigned you to a task and invited you to join the project.`,
+            meta: { projectId, projectRoleId: member.projectRoleId },
+          })
+          .catch(() => void 0);
+      }
+
+      // Add as task assignee regardless — they will see the task once they accept
+      result.push({ user, userId: user.id });
+    }
+
+    return result;
   }
 
   private async ensureReporteeMember(
@@ -967,13 +1074,30 @@ export class TasksService {
   private async ensureTaskForSubresource(
     projectId: string,
     taskId: string,
+    opts?: { requestUser?: RequestUser; membership?: ProjectMembership | null },
   ): Promise<Task> {
     const task = await this.taskRepo.findOne({
       where: { id: taskId, projectId, deletedAt: IsNull() },
-      relations: ['project'],
+      relations: ['project', 'assignees'],
     });
 
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
+
+    // Enforce viewScope for members who can only see their own tasks
+    if (opts?.requestUser && opts?.membership !== undefined) {
+      const viewScope =
+        (opts.membership?.projectRole?.permissions?.taskManagement as any)?.viewScope ?? 'all';
+      if (viewScope === 'assigned') {
+        const isAssignee = (task.assignees ?? []).some(
+          (a) => a.userId === opts.requestUser!.id,
+        );
+        const isReportee = task.reporteeUserId === opts.requestUser!.id;
+        if (!isAssignee && !isReportee) {
+          throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
+        }
+      }
+    }
+
     return task;
   }
 
@@ -1142,7 +1266,7 @@ export class TasksService {
     projectId: string,
     requestUser: RequestUser,
     action: ProjectPermissionAction,
-  ): Promise<Project> {
+  ): Promise<{ project: Project; membership: ProjectMembership | null }> {
     const project = await this.projectRepo.findOne({
       where: { id: projectId },
     });
@@ -1152,7 +1276,7 @@ export class TasksService {
     }
 
     if (this.isAdmin(requestUser)) {
-      return project;
+      return { project, membership: null };
     }
 
     const membership = await this.membershipRepo.findOne({
@@ -1168,7 +1292,7 @@ export class TasksService {
       throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
     }
 
-    return project;
+    return { project, membership: membership ?? null };
   }
 
   async createTask(
@@ -1176,7 +1300,7 @@ export class TasksService {
     dto: CreateTaskDto,
     requestUser: RequestUser,
   ): Promise<TaskSerializer> {
-    const project = await this.verifyProjectPermission(
+    const { project } = await this.verifyProjectPermission(
       projectId,
       requestUser,
       'create',
@@ -1184,15 +1308,11 @@ export class TasksService {
 
     const [
       parent,
-      assignedMemberships,
       reporteeMembership,
       dependencyTasks,
       actorUser,
     ] = await Promise.all([
       this.ensureParentTask(projectId, dto.parentTaskId),
-      dto.assignedMembers !== undefined
-        ? this.ensureAssignedMembers(projectId, dto.assignedMembers)
-        : Promise.resolve([]),
       dto.reportee !== undefined
         ? this.ensureReporteeMember(projectId, dto.reportee)
         : Promise.resolve(null),
@@ -1224,6 +1344,12 @@ export class TasksService {
 
     const savedTask = await this.taskRepo.manager.transaction(async (tx) => {
       await this.assertWipLimit(tx, defaultStatus.id, projectId);
+
+      // Resolve assignees inside the transaction so that auto-provisioned
+      // project memberships are created atomically with the task itself.
+      const assignedUsers = dto.assignedMembers !== undefined
+        ? await this.ensureAssignedMembers(projectId, dto.assignedMembers, tx, actorUser)
+        : [];
 
       const rank = await this.getNextRank(
         tx,
@@ -1257,14 +1383,14 @@ export class TasksService {
 
       const saved = await tx.save(task);
 
-      if (assignedMemberships.length) {
+      if (assignedUsers.length) {
         await tx.save(
-          assignedMemberships.map((membership) =>
+          assignedUsers.map(({ user }) =>
             tx.create(TaskAssignee, {
               task: saved,
               taskId: saved.id,
-              user: membership.user,
-              userId: membership.userId,
+              user,
+              userId: user.id,
             }),
           ),
         );
@@ -1332,14 +1458,10 @@ export class TasksService {
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
 
     const [
-      assignedMemberships,
       reporteeMembership,
       dependencyTasks,
       actorUser,
     ] = await Promise.all([
-      dto.assignedMembers !== undefined
-        ? this.ensureAssignedMembers(projectId, dto.assignedMembers)
-        : Promise.resolve(undefined),
       dto.reportee !== undefined
         ? this.ensureReporteeMember(projectId, dto.reportee)
         : Promise.resolve(undefined),
@@ -1416,34 +1538,35 @@ export class TasksService {
       await tx.save(task);
 
       if (dto.assignedMembers !== undefined) {
+        const assignedUsers = await this.ensureAssignedMembers(
+          projectId,
+          dto.assignedMembers,
+          tx,
+          actorUser,
+        );
+
         const currentAssignees = await tx.find(TaskAssignee, {
           where: { taskId: task.id },
         });
-        const currentIds = new Set(
-          currentAssignees.map((assignee) => assignee.userId),
-        );
-        const desiredIds = new Set(
-          dto.assignedMembers.map((member) => member.userId),
-        );
+        const currentIds = new Set(currentAssignees.map((a) => a.userId));
+        const desiredIds = new Set(dto.assignedMembers.map((m) => m.userId));
 
         const toRemove = currentAssignees
-          .filter((assignee) => !desiredIds.has(assignee.userId))
-          .map((assignee) => assignee.id);
-        const toAdd = (assignedMemberships ?? []).filter(
-          (membership) => !currentIds.has(membership.userId),
-        );
+          .filter((a) => !desiredIds.has(a.userId))
+          .map((a) => a.id);
+        const toAdd = assignedUsers.filter(({ userId }) => !currentIds.has(userId));
 
         if (toRemove.length) {
           await tx.delete(TaskAssignee, { id: In(toRemove) });
         }
         if (toAdd.length) {
           await tx.save(
-            toAdd.map((membership) =>
+            toAdd.map(({ user }) =>
               tx.create(TaskAssignee, {
                 task,
                 taskId: task.id,
-                user: membership.user,
-                userId: membership.userId,
+                user,
+                userId: user.id,
               }),
             ),
           );
@@ -1527,7 +1650,7 @@ export class TasksService {
     dto: MoveTaskDto,
     requestUser: RequestUser,
   ): Promise<TaskSerializer> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
 
     const [task, actorUser] = await Promise.all([
       this.taskRepo.findOne({
@@ -1743,8 +1866,8 @@ export class TasksService {
     taskId: string,
     requestUser: RequestUser,
   ): Promise<TaskCommentDetailSerializer[]> {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
 
     const comments = await this.commentRepo.find({
       where: { taskId, deletedAt: IsNull() },
@@ -1761,10 +1884,10 @@ export class TasksService {
     dto: AddCommentDto,
     requestUser: RequestUser,
   ): Promise<TaskCommentDetailSerializer> {
-    await this.verifyProjectPermission(projectId, requestUser, 'create');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'create');
 
     const [task, actorUser] = await Promise.all([
-      this.ensureTaskForSubresource(projectId, taskId),
+      this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
 
@@ -1808,10 +1931,10 @@ export class TasksService {
     dto: UpdateCommentDto,
     requestUser: RequestUser,
   ): Promise<TaskCommentDetailSerializer> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
 
     const [task, comment, actorUser] = await Promise.all([
-      this.ensureTaskForSubresource(projectId, taskId),
+      this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
       this.getCommentOrFail(taskId, commentId),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
@@ -1849,10 +1972,10 @@ export class TasksService {
     commentId: string,
     requestUser: RequestUser,
   ): Promise<{ id: string; success: true }> {
-    await this.verifyProjectPermission(projectId, requestUser, 'delete');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'delete');
 
     const [task, comment, actorUser] = await Promise.all([
-      this.ensureTaskForSubresource(projectId, taskId),
+      this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
       this.getCommentOrFail(taskId, commentId),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
@@ -1884,8 +2007,8 @@ export class TasksService {
     taskId: string,
     requestUser: RequestUser,
   ): Promise<TaskChecklistItemDetailSerializer[]> {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
 
     const items = await this.checklistRepo.find({
       where: { taskId },
@@ -1901,10 +2024,10 @@ export class TasksService {
     dto: AddChecklistItemDto,
     requestUser: RequestUser,
   ): Promise<TaskChecklistItemDetailSerializer> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
 
     const [task, actorUser] = await Promise.all([
-      this.ensureTaskForSubresource(projectId, taskId),
+      this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
 
@@ -1949,10 +2072,10 @@ export class TasksService {
     dto: UpdateChecklistItemDto,
     requestUser: RequestUser,
   ): Promise<TaskChecklistItemDetailSerializer> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
 
     const [task, item, actorUser] = await Promise.all([
-      this.ensureTaskForSubresource(projectId, taskId),
+      this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
       this.getChecklistItemOrFail(taskId, itemId),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
@@ -2001,10 +2124,10 @@ export class TasksService {
     itemId: string,
     requestUser: RequestUser,
   ): Promise<{ id: string; success: true }> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
 
     const [task, item, actorUser] = await Promise.all([
-      this.ensureTaskForSubresource(projectId, taskId),
+      this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
       this.getChecklistItemOrFail(taskId, itemId),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
@@ -2032,8 +2155,8 @@ export class TasksService {
     taskId: string,
     requestUser: RequestUser,
   ): Promise<TaskDependencyDetailSerializer[]> {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
 
     const dependencies = await this.dependencyRepo.find({
       where: { taskId },
@@ -2052,10 +2175,10 @@ export class TasksService {
     dto: AddDependencyDto,
     requestUser: RequestUser,
   ): Promise<TaskDependencyDetailSerializer> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
 
     const [task, actorUser, dependencyTask] = await Promise.all([
-      this.ensureTaskForSubresource(projectId, taskId),
+      this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
       this.findOneOrFail(dto.dependsOnTaskId, projectId),
     ]);
@@ -2105,10 +2228,10 @@ export class TasksService {
     depId: string,
     requestUser: RequestUser,
   ): Promise<{ id: string; success: true }> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
 
     const [task, dependency, actorUser] = await Promise.all([
-      this.ensureTaskForSubresource(projectId, taskId),
+      this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
       this.getDependencyOrFail(taskId, depId),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
@@ -2135,7 +2258,7 @@ export class TasksService {
     taskId: string,
     requestUser: RequestUser,
   ): Promise<{ id: string; success: true; deletedTaskCount: number }> {
-    await this.verifyProjectPermission(projectId, requestUser, 'delete');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'delete');
 
     const [task, actorUser, allLiveTasks] = await Promise.all([
       this.taskRepo.findOne({
@@ -2199,9 +2322,20 @@ export class TasksService {
     taskId: string,
     requestUser: RequestUser,
   ): Promise<TaskSerializer> {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
 
     const task = await this.loadTaskOrFail(taskId, projectId);
+
+    // Enforce viewScope: members with 'assigned' scope may only view tasks
+    // they are directly assigned to or are the reportee of.
+    const viewScope = (membership?.projectRole?.permissions?.taskManagement as any)?.viewScope ?? 'all';
+    if (viewScope === 'assigned') {
+      const isAssignee = (task.assignees ?? []).some((a) => a.userId === requestUser.id);
+      const isReportee = task.reporteeUserId === requestUser.id;
+      if (!isAssignee && !isReportee) {
+        throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
+      }
+    }
     const counts = await this.computeCounts(task.id);
     const membershipRoleContext = await this.loadProjectRoleContextMap(
       projectId,
@@ -2230,7 +2364,15 @@ export class TasksService {
       meta: { projectId: string; flat: boolean };
     }
   > {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
+
+    // Enforce viewScope: if the member's role restricts visibility to their
+    // own tasks, override (or inject) the assignedUserId filter so they cannot
+    // enumerate tasks they are not involved in.
+    const viewScope = (membership?.projectRole?.permissions?.taskManagement as any)?.viewScope ?? 'all';
+    if (viewScope === 'assigned') {
+      filters = { ...filters, assignedUserId: requestUser.id };
+    }
 
     // Parse and validate include param. Returns a Set of relation names to eager-load.
     const includes = this.parseIncludes(filters.include);
@@ -2495,8 +2637,8 @@ export class TasksService {
     taskId: string,
     requestUser: RequestUser,
   ): Promise<TaskChecklistGroupDetailSerializer[]> {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
 
     const groups = await this.checklistGroupRepo.find({
       where: { taskId },
@@ -2543,8 +2685,8 @@ export class TasksService {
     dto: UpdateChecklistGroupDto,
     requestUser: RequestUser,
   ): Promise<TaskChecklistGroupDetailSerializer> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
     const group = await this.getChecklistGroupOrFail(taskId, groupId);
 
     if (dto.title !== undefined) group.title = dto.title.trim();
@@ -2566,8 +2708,8 @@ export class TasksService {
     groupId: string,
     requestUser: RequestUser,
   ): Promise<{ id: string; success: true }> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
     const group = await this.getChecklistGroupOrFail(taskId, groupId);
 
     // Ungroup items (SET NULL via FK) before removing the group
@@ -2583,8 +2725,8 @@ export class TasksService {
     taskId: string,
     requestUser: RequestUser,
   ): Promise<TaskLabelDetailSerializer[]> {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
 
     const labels = await this.taskLabelRepo.find({
       where: { taskId },
@@ -2635,8 +2777,8 @@ export class TasksService {
     taskLabelId: string,
     requestUser: RequestUser,
   ): Promise<{ id: string; success: true }> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
     const tl = await this.getTaskLabelOrFail(taskId, taskLabelId);
 
     await this.taskLabelRepo.remove(tl);
@@ -2650,8 +2792,8 @@ export class TasksService {
     taskId: string,
     requestUser: RequestUser,
   ): Promise<TaskWatcherDetailSerializer[]> {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
 
     const watchers = await this.taskWatcherRepo.find({
       where: { taskId },
@@ -2701,8 +2843,8 @@ export class TasksService {
     watcherId: string,
     requestUser: RequestUser,
   ): Promise<{ id: string; success: true }> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
     const watcher = await this.getTaskWatcherOrFail(taskId, watcherId);
 
     await this.taskWatcherRepo.remove(watcher);
@@ -2716,8 +2858,8 @@ export class TasksService {
     taskId: string,
     requestUser: RequestUser,
   ): Promise<TaskRelationDetailSerializer[]> {
-    await this.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
 
     // Return both outgoing (taskId = taskId) and incoming (relatedTaskId = taskId) as a unified list.
     // Each entry includes a `direction` field: 'outgoing' or 'incoming'.
@@ -2801,11 +2943,71 @@ export class TasksService {
     relationId: string,
     requestUser: RequestUser,
   ): Promise<{ id: string; success: true }> {
-    await this.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.ensureTaskForSubresource(projectId, taskId);
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'update');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
     const relation = await this.getTaskRelationOrFail(taskId, relationId);
 
     await this.taskRelationRepo.remove(relation);
     return { id: relationId, success: true };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Task activity log
+  // ---------------------------------------------------------------------------
+
+  async getTaskActivity(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+    page = 1,
+    limit = 20,
+  ): Promise<{
+    items: {
+      id: string;
+      taskId: string;
+      projectId: string;
+      actionType: TaskActionType;
+      actionMeta: Record<string, unknown> | null;
+      actorUser: { id: string; firstName: string; lastName: string; email: string } | null;
+      createdAt: Date;
+    }[];
+    count: number;
+    page: number;
+    limit: number;
+  }> {
+    const { membership } = await this.verifyProjectPermission(projectId, requestUser, 'view');
+    await this.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+
+    const [logs, count] = await this.taskActivityLogRepo
+      .createQueryBuilder('log')
+      .leftJoinAndSelect('log.actorUser', 'actorUser')
+      .where('log.taskId = :taskId', { taskId })
+      .andWhere('log.projectId = :projectId', { projectId })
+      .orderBy('log.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      items: logs.map((log) => ({
+        id: log.id,
+        taskId: log.taskId,
+        projectId: log.projectId,
+        actionType: log.actionType,
+        actionMeta: log.actionMeta,
+        actorUser: log.actorUser
+          ? {
+              id: log.actorUser.id,
+              firstName: log.actorUser.firstName,
+              lastName: log.actorUser.lastName,
+              email: log.actorUser.email,
+            }
+          : null,
+        createdAt: log.createdAt,
+      })),
+      count,
+      page,
+      limit,
+    };
   }
 }

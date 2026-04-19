@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -59,6 +60,7 @@ import {
   TASK_LABEL_ADDED,
   TASK_LABEL_REMOVED,
   TASK_LABELS_FETCHED,
+  TASK_ACTIVITY_FETCHED,
   TASK_MOVED,
   TASK_RELATION_ADDED,
   TASK_RELATION_DELETED,
@@ -185,7 +187,7 @@ export class TasksController {
     return this.tasksService.updateTask(projectId, taskId, dto, user);
   }
 
-  @Patch('tasks/:taskId/position')
+  @Patch('tasks/:taskId/move')
   @ApiOperation({
     summary: 'Move or reorder a task',
     description:
@@ -724,6 +726,25 @@ export class TasksController {
       relationId,
       user,
     );
+  }
+
+  // ── Activity log ────────────────────────────────────────────────────────────
+
+  @Get('tasks/:taskId/activity')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  @ResponseMessage(TASK_ACTIVITY_FETCHED)
+  @ApiOperation({ summary: 'Get activity log for a task (newest first)' })
+  @ApiResponse({ status: 200, description: 'Paginated list of task activity events' })
+  @ApiResponse({ status: 404, description: 'Task not found' })
+  getTaskActivity(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query('page', new ParseIntPipe({ optional: true })) page = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskActivity(projectId, taskId, user, page, limit);
   }
 
 }
