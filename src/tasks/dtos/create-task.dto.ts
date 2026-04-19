@@ -4,7 +4,6 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
-  IsEnum,
   IsInt,
   IsObject,
   IsOptional,
@@ -16,7 +15,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { DependencyType } from '../entities';
-import { TaskPriority, TaskStatus } from '../entities/task.entity';
 
 class CreateTaskChecklistItemDto {
   @ApiProperty({ example: 'Collect reference images' })
@@ -101,27 +99,46 @@ export class CreateTaskDto {
   @Type(() => String)
   title: string;
 
-  @ApiPropertyOptional({ example: 'Prepare the first working draft.' })
+  @ApiPropertyOptional({
+    example: { type: 'doc', content: [] },
+    description: 'Rich-text content as a ProseMirror/TipTap JSON document.',
+  })
   @IsOptional()
-  @IsString()
-  @Length(1, 5000)
-  @Type(() => String)
-  description?: string;
+  @IsObject()
+  description?: Record<string, unknown>;
 
-  @ApiPropertyOptional({ enum: TaskStatus, example: TaskStatus.TODO })
-  @IsOptional()
-  @IsEnum(TaskStatus)
-  status?: TaskStatus;
-
-  @ApiPropertyOptional({ example: '3a42068b-6f82-40b1-926b-6c2244d07d29' })
+  @ApiPropertyOptional({
+    example: '3a42068b-6f82-40b1-926b-6c2244d07d29',
+    description: 'UUID of the project status to assign. Defaults to the project default status.',
+  })
   @IsOptional()
   @IsUUID()
-  workflowColumnId?: string;
+  statusId?: string;
 
-  @ApiPropertyOptional({ enum: TaskPriority, example: TaskPriority.HIGH })
+  @ApiPropertyOptional({
+    example: 'e1c2a3b4-d5e6-7f89-a0b1-c2d3e4f50001',
+    description: 'UUID of the project priority to assign.',
+  })
   @IsOptional()
-  @IsEnum(TaskPriority)
-  priority?: TaskPriority;
+  @IsUUID()
+  priorityId?: string;
+
+  @ApiPropertyOptional({
+    example: 'f1a2b3c4-d5e6-7f89-a0b1-c2d3e4f50002',
+    description: 'UUID of the project task type. Defaults to the project default task type.',
+  })
+  @IsOptional()
+  @IsUUID()
+  taskTypeId?: string;
+
+  @ApiPropertyOptional({
+    example: 'a0b1c2d3-e4f5-6789-a0b1-c2d3e4f50003',
+    description: 'UUID of the project severity (optional).',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsUUID()
+  severityId?: string | null;
 
   @ApiPropertyOptional({ example: '2026-03-25' })
   @IsOptional()

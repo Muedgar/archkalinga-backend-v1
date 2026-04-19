@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { EntityManager, IsNull, Repository } from 'typeorm';
+import { OutboxService } from 'src/outbox/outbox.service';
 
 import { Workspace } from 'src/workspaces/entities/workspace.entity';
 import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
@@ -16,9 +17,11 @@ import {
   Task,
   TaskActionType,
   TaskActivityLog,
-  TaskStatus,
 } from 'src/tasks/entities';
-import { WorkflowColumn } from 'src/tasks/workflow';
+import {
+  ProjectStatus as ProjectStatusConfig,
+  ProjectTaskType as ProjectTaskTypeConfig,
+} from 'src/tasks/project-config';
 import { User } from 'src/users/entities/user.entity';
 import { RequestUser } from 'src/auth/types';
 
@@ -53,6 +56,7 @@ import {
   DEFAULT_OWNER_PROJECT_ROLE_SLUG,
   DEFAULT_PROJECT_ROLE_DEFINITIONS,
 } from './constants';
+import { ProjectConfigService } from './project-config.service';
 
 const TEMPLATE_NOT_IN_WORKSPACE = 'Template not found in this workspace';
 
@@ -73,14 +77,6 @@ interface TemplateTaskNode {
   parentTaskId: string | null;
   subtasks: TemplateTaskNode[];
 }
-
-const DEFAULT_WORKFLOW_COLUMNS = [
-  { name: 'Todo',        statusKey: TaskStatus.TODO,        orderIndex: 0 },
-  { name: 'In Progress', statusKey: TaskStatus.IN_PROGRESS, orderIndex: 1 },
-  { name: 'In Review',   statusKey: TaskStatus.IN_REVIEW,   orderIndex: 2 },
-  { name: 'Done',        statusKey: TaskStatus.DONE,        orderIndex: 3 },
-  { name: 'Blocked',     statusKey: TaskStatus.BLOCKED,     orderIndex: 4 },
-] as const;
 
 const RANK_WIDTH = 10;
 const RANK_BASE  = 36n;
@@ -105,10 +101,14 @@ export class ProjectsService {
     private readonly templateRepo: Repository<Template>,
     @InjectRepository(Task)
     private readonly taskRepo: Repository<Task>,
-    @InjectRepository(WorkflowColumn)
-    private readonly workflowColumnRepo: Repository<WorkflowColumn>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(ProjectStatusConfig)
+    private readonly projectStatusRepo: Repository<ProjectStatusConfig>,
+    @InjectRepository(ProjectTaskTypeConfig)
+    private readonly projectTaskTypeRepo: Repository<ProjectTaskTypeConfig>,
+    private readonly projectConfigService: ProjectConfigService,
+    private readonly outboxService: OutboxService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -252,14 +252,13 @@ export class ProjectsService {
     manager: EntityManager,
     projectId: string,
     parentTaskId: string | null,
-    workflowColumnId: string | null,
   ): Promise<string> {
     const lastSibling = await manager.findOne(Task, {
       where: {
         projectId,
         deletedAt: IsNull(),
         parentTaskId: parentTaskId ?? IsNull(),
-        workflowColumnId: workflowColumnId ?? IsNull(),
+        statusId: IsNull(),
       },
       order: { rank: 'DESC', createdAt: 'DESC' },
     });
@@ -267,34 +266,6 @@ export class ProjectsService {
     if (!lastSibling) return this.formatRankValue(RANK_STEP);
     const lastRank = this.parseRankValue(lastSibling.rank) ?? 0n;
     return this.formatRankValue(lastRank + RANK_STEP);
-  }
-
-  private async resolveSeedWorkflowColumn(
-    manager: EntityManager,
-    project: Project,
-  ): Promise<WorkflowColumn> {
-    let columns = await manager.find(WorkflowColumn, {
-      where: { projectId: project.id },
-      order: { orderIndex: 'ASC', createdAt: 'ASC' },
-    });
-
-    if (!columns.length) {
-      columns = await manager.save(
-        DEFAULT_WORKFLOW_COLUMNS.map((col) =>
-          manager.create(WorkflowColumn, {
-            project,
-            projectId: project.id,
-            name: col.name,
-            statusKey: col.statusKey,
-            orderIndex: col.orderIndex,
-            wipLimit: null,
-            locked: true,
-          }),
-        ),
-      );
-    }
-
-    return columns.find((c) => c.name.trim().toLowerCase() === 'todo') ?? columns[0];
   }
 
   private async ensureDefaultProjectRoles(
@@ -335,7 +306,6 @@ export class ProjectsService {
     const actionMeta = {
       seededFromTemplate: true,
       templateTaskId,
-      workflowColumnId: task.workflowColumnId,
       parentTaskId: task.parentTaskId,
     };
 
@@ -367,15 +337,15 @@ export class ProjectsService {
     manager: EntityManager,
     project: Project,
     actorUser: User,
-    workflowColumn: WorkflowColumn,
     templateTask: TemplateTaskNode,
+    defaultStatusId: string,
+    defaultTaskTypeId: string,
     parentTask: Task | null = null,
   ): Promise<number> {
     const rank = await this.getNextSeedRank(
       manager,
       project.id,
       parentTask?.id ?? null,
-      workflowColumn.id,
     );
 
     const savedTask = await manager.save(
@@ -384,14 +354,14 @@ export class ProjectsService {
         projectId: project.id,
         parent: parentTask,
         parentTaskId: parentTask?.id ?? null,
-        workflowColumn,
-        workflowColumnId: workflowColumn.id,
+        statusId: defaultStatusId,
+        taskTypeId: defaultTaskTypeId,
+        priorityId: null,
+        severityId: null,
         createdByUser: actorUser,
         createdByUserId: actorUser.id,
         title: templateTask.name.trim(),
-        description: templateTask.description?.trim() ?? null,
-        status: TaskStatus.TODO,
-        priority: null,
+        description: null,   // template tasks have text descriptions — not yet JSONB
         startDate: null,
         endDate: null,
         progress: null,
@@ -415,8 +385,9 @@ export class ProjectsService {
         manager,
         project,
         actorUser,
-        workflowColumn,
         child,
+        defaultStatusId,
+        defaultTaskTypeId,
         savedTask,
       );
     }
@@ -429,8 +400,22 @@ export class ProjectsService {
     project: Project,
     actorUser: User,
     template: Template,
-    workflowColumn: WorkflowColumn,
   ): Promise<number> {
+    // Fetch default status and task type seeded by ProjectConfigService.seedDefaults
+    const [defaultStatus, defaultTaskType] = await Promise.all([
+      this.projectStatusRepo.findOne({
+        where: { projectId: project.id, isDefault: true },
+      }),
+      this.projectTaskTypeRepo.findOne({
+        where: { projectId: project.id, isDefault: true },
+      }),
+    ]);
+
+    if (!defaultStatus || !defaultTaskType) {
+      // Config not seeded yet — skip template task creation gracefully
+      return 0;
+    }
+
     const templateTree = this.buildTemplateTaskTree(template.tasks ?? []);
     let createdCount = 0;
     for (const rootTask of templateTree) {
@@ -438,8 +423,9 @@ export class ProjectsService {
         manager,
         project,
         actorUser,
-        workflowColumn,
         rootTask,
+        defaultStatus.id,
+        defaultTaskType.id,
       );
     }
     return createdCount;
@@ -528,34 +514,55 @@ export class ProjectsService {
         }),
       );
 
-      const seedColumn      = await this.resolveSeedWorkflowColumn(tx, projRecord);
-      const seededTaskCount = await this.seedProjectTasksFromTemplate(
+      return projRecord;
+    });
+
+    // Seed all 5 config tables (statuses, priorities, severities, task types, labels).
+    // Must run BEFORE template task seeding so tasks can reference a valid default status.
+    await this.projectConfigService.seedDefaults(project);
+
+    // Seed template tasks now that config defaults exist for the project.
+    const seededTaskCount = await this.projectRepo.manager.transaction(async (tx) => {
+      const count = await this.seedProjectTasksFromTemplate(
         tx,
-        projRecord,
+        project,
         creatorUser,
         template,
-        seedColumn,
       );
 
       await tx.save(
         tx.create(ProjectActivityLog, {
-          project: projRecord,
-          projectId: projRecord.id,
+          project,
+          projectId: project.id,
           user: creatorUser,
           userId,
           taskId: null,
           actionType: ProjectActionType.PROJECT_CREATED,
           actionMeta: {
             title: dto.title,
-            seededTaskCount,
-            seedWorkflowColumnId: seedColumn.id,
-            seedWorkflowColumnName: seedColumn.name,
+            seededTaskCount: count,
           },
         }),
       );
 
-      return projRecord;
+      await this.outboxService.record(tx, {
+        aggregateType: 'project',
+        aggregateId: project.id,
+        eventType: 'project.created',
+        payload: {
+          projectId: project.id,
+          workspaceId,
+          actorUserId: userId,
+          title: dto.title,
+          type: dto.type,
+          templateId: dto.templateId,
+          seededTaskCount: count,
+        },
+      });
+
+      return count;
     });
+    void seededTaskCount; // used for activity log above
 
     return this.toSerializer(await this.loadFull(project.id, workspaceId));
   }
@@ -632,6 +639,7 @@ export class ProjectsService {
         );
       }
 
+      const updatedFields = Object.keys(dto);
       await tx.save(
         tx.create(ProjectActivityLog, {
           project,
@@ -641,13 +649,26 @@ export class ProjectsService {
           taskId: null,
           actionType: ProjectActionType.PROJECT_UPDATED,
           actionMeta: {
-            updatedFields: Object.keys(dto),
+            updatedFields,
             activeMemberCount: projectWithAccess.memberships.filter(
               (m) => m.status === MembershipStatus.ACTIVE,
             ).length,
           },
         }),
       );
+
+      await this.outboxService.record(tx, {
+        aggregateType: 'project',
+        aggregateId: projectId,
+        eventType: 'project.updated',
+        payload: {
+          projectId,
+          workspaceId,
+          actorUserId: userId,
+          updatedFields,
+          status: project.status,
+        },
+      });
     });
 
     return this.toSerializer(await this.loadFull(projectId, workspaceId));
@@ -750,7 +771,18 @@ export class ProjectsService {
       true, // requiresManagement
       workspaceMember,
     );
-    await this.projectRepo.remove(project);
+    const { id: actorId } = requestUser;
+    // Wrap remove + outbox write in a single transaction so the event is
+    // never lost even if hard-delete succeeds but the process crashes.
+    await this.projectRepo.manager.transaction(async (tx) => {
+      await tx.remove(project);
+      await this.outboxService.record(tx, {
+        aggregateType: 'project',
+        aggregateId: projectId,
+        eventType: 'project.deleted',
+        payload: { projectId, workspaceId, actorUserId: actorId },
+      });
+    });
     return { id: projectId, deleted: true };
   }
 
@@ -808,6 +840,20 @@ export class ProjectsService {
           },
         }),
       );
+
+      await this.outboxService.record(tx, {
+        aggregateType: 'project-member',
+        aggregateId: memberId,
+        eventType: 'project.member.role.updated',
+        payload: {
+          projectId,
+          workspaceId,
+          actorUserId: userId,
+          memberId,
+          projectRoleId: nextRole.id,
+          projectRoleSlug: nextRole.slug,
+        },
+      });
     });
 
     return this.toSerializer(await this.loadFull(projectId, workspaceId));

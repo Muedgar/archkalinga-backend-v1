@@ -42,3 +42,47 @@ export const PROJECT_ROLE_IN_USE =
   'This project role cannot be changed because active memberships or pending invites still use it';
 export const INVALID_PROJECT_ROLE_NAME =
   'Project role name must contain letters or numbers';
+
+// ── Project Config (statuses, priorities, severities, task types, labels) ─────
+export const CONFIG_STATUS_CREATED   = 'Status created successfully';
+export const CONFIG_STATUS_UPDATED   = 'Status updated successfully';
+export const CONFIG_STATUS_DELETED   = 'Status deleted successfully';
+export const CONFIG_STATUS_FETCHED   = 'Status fetched successfully';
+export const CONFIG_STATUSES_FETCHED = 'Statuses fetched successfully';
+export const CONFIG_STATUS_NOT_FOUND = 'Status not found';
+export const CONFIG_STATUS_KEY_TAKEN = 'A status with this key already exists in the project';
+export const CONFIG_STATUS_HAS_TASKS = 'Cannot delete a status that still has tasks assigned to it';
+
+export const CONFIG_PRIORITY_CREATED   = 'Priority created successfully';
+export const CONFIG_PRIORITY_UPDATED   = 'Priority updated successfully';
+export const CONFIG_PRIORITY_DELETED   = 'Priority deleted successfully';
+export const CONFIG_PRIORITY_FETCHED   = 'Priority fetched successfully';
+export const CONFIG_PRIORITIES_FETCHED = 'Priorities fetched successfully';
+export const CONFIG_PRIORITY_NOT_FOUND = 'Priority not found';
+export const CONFIG_PRIORITY_KEY_TAKEN = 'A priority with this key already exists in the project';
+export const CONFIG_PRIORITY_HAS_TASKS = 'Cannot delete a priority that still has tasks assigned to it';
+
+export const CONFIG_SEVERITY_CREATED   = 'Severity created successfully';
+export const CONFIG_SEVERITY_UPDATED   = 'Severity updated successfully';
+export const CONFIG_SEVERITY_DELETED   = 'Severity deleted successfully';
+export const CONFIG_SEVERITY_FETCHED   = 'Severity fetched successfully';
+export const CONFIG_SEVERITIES_FETCHED = 'Severities fetched successfully';
+export const CONFIG_SEVERITY_NOT_FOUND = 'Severity not found';
+export const CONFIG_SEVERITY_KEY_TAKEN = 'A severity with this key already exists in the project';
+
+export const CONFIG_TASK_TYPE_CREATED   = 'Task type created successfully';
+export const CONFIG_TASK_TYPE_UPDATED   = 'Task type updated successfully';
+export const CONFIG_TASK_TYPE_DELETED   = 'Task type deleted successfully';
+export const CONFIG_TASK_TYPE_FETCHED   = 'Task type fetched successfully';
+export const CONFIG_TASK_TYPES_FETCHED  = 'Task types fetched successfully';
+export const CONFIG_TASK_TYPE_NOT_FOUND = 'Task type not found';
+export const CONFIG_TASK_TYPE_KEY_TAKEN = 'A task type with this key already exists in the project';
+export const CONFIG_TASK_TYPE_HAS_TASKS = 'Cannot delete a task type that still has tasks assigned to it';
+
+export const CONFIG_LABEL_CREATED   = 'Label created successfully';
+export const CONFIG_LABEL_UPDATED   = 'Label updated successfully';
+export const CONFIG_LABEL_DELETED   = 'Label deleted successfully';
+export const CONFIG_LABEL_FETCHED   = 'Label fetched successfully';
+export const CONFIG_LABELS_FETCHED  = 'Labels fetched successfully';
+export const CONFIG_LABEL_NOT_FOUND = 'Label not found';
+export const CONFIG_LABEL_KEY_TAKEN = 'A label with this key already exists in the project';

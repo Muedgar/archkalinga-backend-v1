@@ -62,14 +62,51 @@ class TaskDependencySerializer extends BaseSerializer {
   @Expose() lagDays: number | null;
 }
 
+class ConfigSnippet extends BaseSerializer {
+  @Expose() name: string;
+  @Expose() key: string;
+  @Expose() color: string;
+}
+
+class StatusSnippet extends ConfigSnippet {
+  @Expose() category: string;
+  @Expose() isTerminal: boolean;
+}
+
 export class TaskSerializer extends BaseSerializer {
   @Expose() projectId: string;
   @Expose() parentTaskId: string | null;
-  @Expose() workflowColumnId: string | null;
+
+  // Status
+  @Expose() statusId: string;
+  @Expose()
+  @Transform(({ obj }) => obj?.status ?? null)
+  @Type(() => StatusSnippet)
+  status: StatusSnippet | null;
+
+  // Priority
+  @Expose() priorityId: string | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.priority ?? null)
+  @Type(() => ConfigSnippet)
+  priority: ConfigSnippet | null;
+
+  // Task Type
+  @Expose() taskTypeId: string;
+  @Expose()
+  @Transform(({ obj }) => obj?.taskType ?? null)
+  @Type(() => ConfigSnippet)
+  taskType: ConfigSnippet | null;
+
+  // Severity
+  @Expose() severityId: string | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.severity ?? null)
+  @Type(() => ConfigSnippet)
+  severity: ConfigSnippet | null;
+
   @Expose() title: string;
-  @Expose() description: string | null;
-  @Expose() status: string;
-  @Expose() priority: string | null;
+  @Expose() description: Record<string, unknown> | null;
   @Expose() startDate: string | null;
   @Expose() endDate: string | null;
   @Expose() progress: number | null;

@@ -7,10 +7,11 @@ export class MoveTaskDto {
   @IsUUID()
   parentTaskId?: string | null;
 
+  // Phase 1: replaces workflowColumnId — references project_statuses.id
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsUUID()
-  workflowColumnId?: string | null;
+  statusId?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()

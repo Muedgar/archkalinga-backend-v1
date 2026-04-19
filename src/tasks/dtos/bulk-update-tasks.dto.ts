@@ -4,7 +4,6 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
-  IsEnum,
   IsInt,
   IsObject,
   IsOptional,
@@ -13,7 +12,6 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { TaskStatus } from '../entities/task.entity';
 import { TaskViewMetaDto } from './create-task.dto';
 
 class BulkTaskUpdateItemDto {
@@ -21,10 +19,25 @@ class BulkTaskUpdateItemDto {
   @IsUUID()
   taskId: string;
 
-  @ApiProperty({ required: false, enum: TaskStatus })
+  @ApiProperty({ required: false, nullable: true })
   @IsOptional()
-  @IsEnum(TaskStatus)
-  status?: TaskStatus;
+  @IsUUID()
+  statusId?: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional()
+  @IsUUID()
+  priorityId?: string | null;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsUUID()
+  taskTypeId?: string;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional()
+  @IsUUID()
+  severityId?: string | null;
 
   @ApiProperty({ required: false, example: 80 })
   @IsOptional()
@@ -47,11 +60,6 @@ class BulkTaskUpdateItemDto {
   @IsOptional()
   @IsUUID()
   parentTaskId?: string | null;
-
-  @ApiProperty({ required: false, nullable: true })
-  @IsOptional()
-  @IsUUID()
-  workflowColumnId?: string | null;
 
   @ApiProperty({ required: false, type: () => TaskViewMetaDto })
   @IsOptional()
