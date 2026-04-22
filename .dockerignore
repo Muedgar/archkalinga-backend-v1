@@ -1,0 +1,28 @@
+# Dependencies (reinstalled inside Docker)
+node_modules
+
+# Compiled output (rebuilt inside Docker)
+dist
+
+# Environment files (injected by Railway at runtime)
+.env
+.env.*
+
+# Git
+.git
+.gitignore
+
+# Docs & local tooling
+*.md
+docs/
+*.docx
+
+# Tests
+test/
+**/*.spec.ts
+**/*.e2e-spec.ts
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.log

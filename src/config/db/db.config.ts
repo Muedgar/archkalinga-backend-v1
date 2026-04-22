@@ -11,9 +11,13 @@ const migrationsPath = isTsRuntime
   ? ['src/migrations/*.ts']
   : ['dist/migrations/*.js'];
 
-// Prefer DATABASE_PUBLIC_URL (Railway public proxy) when running locally,
-// fall back to individual POSTGRES_* vars for Railway internal / other envs.
-const dbUrl = process.env.DATABASE_PUBLIC_URL;
+// In production (on Railway), use DATABASE_URL — the private internal network
+// URL (postgres.railway.internal) which is fast and needs no SSL.
+// Locally, use DATABASE_PUBLIC_URL — the public Railway proxy which needs SSL.
+const isProduction = process.env.NODE_ENV === 'production';
+const dbUrl = isProduction
+  ? process.env.DATABASE_URL         // internal Railway network (fast, no SSL)
+  : process.env.DATABASE_PUBLIC_URL; // public proxy for local dev (needs SSL)
 
 export const dataSourceOptions: DataSourceOptions = dbUrl
   ? {
@@ -23,7 +27,7 @@ export const dataSourceOptions: DataSourceOptions = dbUrl
       migrations: migrationsPath,
       synchronize: false,
       logging: false,
-      ssl: { rejectUnauthorized: false },
+      ssl: isProduction ? false : { rejectUnauthorized: false },
     }
   : {
       type: 'postgres',
@@ -36,7 +40,7 @@ export const dataSourceOptions: DataSourceOptions = dbUrl
       migrations: migrationsPath,
       synchronize: false,
       logging: false,
-      ssl: process.env.NODE_ENV !== 'local' ? { rejectUnauthorized: false } : false,
+      ssl: false,
       // poolSize: Number(process.env.POSTGRES_POOL_SIZE),
     };
 
