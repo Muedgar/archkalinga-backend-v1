@@ -22,6 +22,9 @@ test/
 **/*.spec.ts
 **/*.e2e-spec.ts
 
+# npm local config should not leak host-specific install settings into Docker
+.npmrc
+
 # Editor / OS
 .DS_Store
 .vscode/
