@@ -4,12 +4,11 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy manifests first so this layer is cached unless deps change
+# Copy manifests only — package-lock.json was generated on macOS (darwin/arm64)
+# so we use `npm install` (not `npm ci`) to let npm resolve the correct
+# linux/x64 native binaries fresh rather than being bound by the lockfile.
 COPY package*.json ./
-# --ignore-platform: package-lock.json was generated on macOS (darwin/arm64)
-# and locks some native binaries for that platform. This flag tells npm to
-# skip the platform check and let the correct linux/x64 binary be resolved.
-RUN npm ci --ignore-platform
+RUN npm install
 
 # Copy source and compile
 COPY . .
@@ -22,9 +21,9 @@ FROM node:22-alpine AS production
 
 WORKDIR /app
 
-# Install production dependencies only
+# Production deps only — same reason as builder: fresh install for linux/x64
 COPY package*.json ./
-RUN npm ci --omit=dev --ignore-platform && npm cache clean --force
+RUN npm install --omit=dev && npm cache clean --force
 
 # Compiled app from builder stage
 COPY --from=builder /app/dist ./dist
