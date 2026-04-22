@@ -37,7 +37,10 @@ import { dataSourceOptions } from './config/db/db.config';
       useFactory: (): TypeOrmModuleOptions => ({
         ...dataSourceOptions,
         autoLoadEntities: true,
-        synchronize: process.env.NODE_ENV !== 'production',
+        // Only synchronize in true local dev (local postgres). For remote DBs
+        // (Railway, staging, prod) always use migrations to avoid concurrent
+        // query warnings and accidental schema drift.
+        synchronize: process.env.NODE_ENV === 'development',
       }),
     }),
 
