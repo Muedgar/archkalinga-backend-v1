@@ -49,9 +49,11 @@ import { dataSourceOptions } from './config/db/db.config';
       inject: [ConfigService],
       useFactory: (cfg: ConfigService) => ({
         redis: {
-          host: cfg.get<string>('REDIS_HOST', 'localhost'),
-          port: cfg.get<number>('REDIS_PORT', 6379),
-          password: cfg.get<string>('REDIS_PASSWORD'),
+          // Railway Redis addon injects REDISHOST/REDISPORT (no underscore).
+          // Fall back to REDIS_HOST/REDIS_PORT for other providers / local.
+          host: cfg.get<string>('REDIS_HOST') || cfg.get<string>('REDISHOST') || 'localhost',
+          port: Number(cfg.get<string>('REDIS_PORT') || cfg.get<string>('REDISPORT') || 6379),
+          password: cfg.get<string>('REDIS_PASSWORD') || cfg.get<string>('REDISPASSWORD') || undefined,
         },
       }),
     }),
