@@ -1,30 +1,30 @@
 # ── Stage 1: Builder ─────────────────────────────────────────────────────────
-# Installs all deps (including devDeps) and compiles TypeScript → dist/
 FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
+# Install dependencies first for better layer caching.
+COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy source and compile
+# Copy everything else (node_modules and dist are excluded via .dockerignore)
 COPY . .
 RUN npm run build
 
+# Prune to production deps only
+RUN npm prune --omit=dev
+
 
 # ── Stage 2: Production ───────────────────────────────────────────────────────
-# Lean image: only production node_modules + compiled dist/
+# Copy pre-built artifacts — no npm install needed in this stage
 FROM node:22-alpine AS production
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist         ./dist
+COPY --from=builder /app/package.json ./package.json
 
-# Compiled app from builder stage
-COPY --from=builder /app/dist ./dist
-
-# Entrypoint script (runs migrations then starts the app)
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 

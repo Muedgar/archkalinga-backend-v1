@@ -32,7 +32,6 @@
     "db:fresh": "npm run db:reset && npm run migration:run && npm run seed:all"
   },
   "dependencies": {
-    "@css-inline/css-inline-darwin-arm64": "^0.20.0",
     "@nestjs-modules/mailer": "^2.0.2",
     "@nestjs/bull": "^11.0.4",
     "@nestjs/common": "^11.0.1",
