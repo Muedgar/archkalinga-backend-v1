@@ -6,7 +6,10 @@ WORKDIR /app
 
 # Copy manifests first so this layer is cached unless deps change
 COPY package*.json ./
-RUN npm ci
+# --ignore-platform: package-lock.json was generated on macOS (darwin/arm64)
+# and locks some native binaries for that platform. This flag tells npm to
+# skip the platform check and let the correct linux/x64 binary be resolved.
+RUN npm ci --ignore-platform
 
 # Copy source and compile
 COPY . .
@@ -21,7 +24,7 @@ WORKDIR /app
 
 # Install production dependencies only
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --ignore-platform && npm cache clean --force
 
 # Compiled app from builder stage
 COPY --from=builder /app/dist ./dist
