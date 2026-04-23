@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { LegacyUuidEntity } from 'src/common/entities';
+import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities';
 import { Task } from './task.entity';
 
@@ -10,7 +10,7 @@ export enum AssignmentRole {
 
 @Entity('task_assignees')
 @Unique(['taskId', 'userId'])
-export class TaskAssignee extends LegacyUuidEntity {
+export class TaskAssignee extends AppBaseEntity {
   @ManyToOne(() => Task, (task) => task.assignees, {
     nullable: false,
     onDelete: 'CASCADE',

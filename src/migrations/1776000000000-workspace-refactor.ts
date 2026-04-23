@@ -457,9 +457,12 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
     // ── Task view metadata ────────────────────────────────────────────────────
     await queryRunner.query(`
       CREATE TABLE "task_view_metadata" (
-        "pkid"     SERIAL    NOT NULL,
-        "id"       uuid      NOT NULL DEFAULT uuid_generate_v4(),
-        "taskId"   uuid      NOT NULL,
+        "pkid"      SERIAL    NOT NULL,
+        "id"        uuid      NOT NULL DEFAULT uuid_generate_v4(),
+        "version"   integer   NOT NULL DEFAULT 1,
+        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "taskId"    uuid      NOT NULL,
         "viewType" varchar(50) NOT NULL,
         "meta"     jsonb     NOT NULL DEFAULT '{}',
         "task_id"  integer   NOT NULL,
@@ -479,6 +482,9 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_assignees" (
         "pkid"              SERIAL        NOT NULL,
         "id"                uuid          NOT NULL DEFAULT uuid_generate_v4(),
+        "version"           integer       NOT NULL DEFAULT 1,
+        "createdAt"         TIMESTAMP     NOT NULL DEFAULT now(),
+        "updatedAt"         TIMESTAMP     NOT NULL DEFAULT now(),
         "taskId"            uuid          NOT NULL,
         "userId"            uuid          NOT NULL,
         "projectRoleId"     uuid,
@@ -497,6 +503,9 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_checklist_items" (
         "pkid"               SERIAL       NOT NULL,
         "id"                 uuid         NOT NULL DEFAULT uuid_generate_v4(),
+        "version"            integer      NOT NULL DEFAULT 1,
+        "createdAt"          TIMESTAMP    NOT NULL DEFAULT now(),
+        "updatedAt"          TIMESTAMP    NOT NULL DEFAULT now(),
         "taskId"             uuid         NOT NULL,
         "text"               varchar(500) NOT NULL,
         "completed"          boolean      NOT NULL DEFAULT false,
@@ -515,6 +524,7 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_comments" (
         "pkid"            SERIAL    NOT NULL,
         "id"              uuid      NOT NULL DEFAULT uuid_generate_v4(),
+        "version"         integer   NOT NULL DEFAULT 1,
         "taskId"          uuid      NOT NULL,
         "authorUserId"    uuid      NOT NULL,
         "body"            text      NOT NULL,
@@ -539,6 +549,9 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_dependencies" (
         "pkid"             SERIAL    NOT NULL,
         "id"               uuid      NOT NULL DEFAULT uuid_generate_v4(),
+        "version"          integer   NOT NULL DEFAULT 1,
+        "createdAt"        TIMESTAMP NOT NULL DEFAULT now(),
+        "updatedAt"        TIMESTAMP NOT NULL DEFAULT now(),
         "taskId"           uuid      NOT NULL,
         "dependsOnTaskId"  uuid      NOT NULL,
         "dependencyType"   "public"."task_dependencies_dependencytype_enum" NOT NULL DEFAULT 'FS',
@@ -565,12 +578,14 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_activity_logs" (
         "pkid"       SERIAL    NOT NULL,
         "id"         uuid      NOT NULL DEFAULT uuid_generate_v4(),
+        "version"    integer   NOT NULL DEFAULT 1,
         "taskId"     uuid      NOT NULL,
         "userId"     uuid,
         "actionType" "public"."task_activity_logs_actiontype_enum" NOT NULL,
         "actorName"  varchar(200),
         "metadata"   jsonb,
         "createdAt"  TIMESTAMP NOT NULL DEFAULT now(),
+        "updatedAt"  TIMESTAMP NOT NULL DEFAULT now(),
         "task_id"    integer   NOT NULL,
         "user_id"    integer,
         CONSTRAINT "UQ_task_activity_logs_id" UNIQUE ("id"),

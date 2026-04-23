@@ -18,8 +18,8 @@ export class OutboxEvents1781000000000 implements MigrationInterface {
         "pkid"            SERIAL                         NOT NULL,
         "id"              UUID                           NOT NULL DEFAULT uuid_generate_v4(),
         "version"         INTEGER                        NOT NULL DEFAULT 1,
-        "created_at"      TIMESTAMPTZ                    NOT NULL DEFAULT now(),
-        "updated_at"      TIMESTAMPTZ                    NOT NULL DEFAULT now(),
+        "createdAt"       TIMESTAMPTZ                    NOT NULL DEFAULT now(),
+        "updatedAt"       TIMESTAMPTZ                    NOT NULL DEFAULT now(),
 
         -- What domain object changed
         "aggregate_type"  VARCHAR(100)                   NOT NULL,
@@ -45,7 +45,7 @@ export class OutboxEvents1781000000000 implements MigrationInterface {
     // Fast pending-events poll
     await queryRunner.query(`
       CREATE INDEX "IDX_outbox_events_status_created"
-        ON "outbox_events" ("status", "created_at")
+        ON "outbox_events" ("status", "createdAt")
         WHERE "status" = 'PENDING'
     `);
 

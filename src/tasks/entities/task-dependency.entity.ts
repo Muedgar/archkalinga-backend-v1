@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { LegacyUuidEntity } from 'src/common/entities';
+import { AppBaseEntity } from 'src/common/entities';
 import { Task } from './task.entity';
 
 export enum DependencyType {
@@ -11,7 +11,7 @@ export enum DependencyType {
 
 @Entity('task_dependencies')
 @Unique(['taskId', 'dependsOnTaskId'])
-export class TaskDependency extends LegacyUuidEntity {
+export class TaskDependency extends AppBaseEntity {
   @ManyToOne(() => Task, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'task_id' })
   task: Task;

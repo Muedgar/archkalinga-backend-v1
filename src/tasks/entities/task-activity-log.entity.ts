@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
-import { LegacyUuidCreatedAtEntity } from 'src/common/entities';
+import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities';
 
 export enum TaskActionType {
@@ -17,7 +17,7 @@ export enum TaskActionType {
 }
 
 @Entity('task_activity_logs')
-export class TaskActivityLog extends LegacyUuidCreatedAtEntity {
+export class TaskActivityLog extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
   taskId: string;
 

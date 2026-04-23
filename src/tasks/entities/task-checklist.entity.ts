@@ -1,10 +1,10 @@
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
-import { SnakeCaseAppBaseEntity } from 'src/common/entities';
+import { AppBaseEntity } from 'src/common/entities';
 import { Task } from './task.entity';
 import { TaskChecklistItem } from './task-checklist-item.entity';
 
 @Entity('task_checklists')
-export class TaskChecklist extends SnakeCaseAppBaseEntity {
+export class TaskChecklist extends AppBaseEntity {
   @ManyToOne(() => Task, (task) => task.checklistGroups, {
     nullable: false,
     onDelete: 'CASCADE',

@@ -1,5 +1,5 @@
 import { Column, Entity } from 'typeorm';
-import { SnakeCaseAppBaseEntity } from 'src/common/entities';
+import { AppBaseEntity } from 'src/common/entities';
 
 export enum OutboxEventStatus {
   PENDING = 'PENDING',
@@ -16,7 +16,7 @@ export enum OutboxEventStatus {
  * the domain-events Bull queue.
  */
 @Entity('outbox_events')
-export class OutboxEvent extends SnakeCaseAppBaseEntity {
+export class OutboxEvent extends AppBaseEntity {
   /** Domain entity type — e.g. 'task' | 'project' | 'project-config' | 'project-member' */
   @Column({ name: 'aggregate_type', type: 'varchar', length: 100, nullable: false })
   aggregateType: string;

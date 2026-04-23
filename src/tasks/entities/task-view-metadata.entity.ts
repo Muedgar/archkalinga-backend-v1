@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { LegacyUuidEntity } from 'src/common/entities';
+import { AppBaseEntity } from 'src/common/entities';
 import { Task } from './task.entity';
 
 export enum ViewType {
@@ -9,7 +9,7 @@ export enum ViewType {
 
 @Entity('task_view_metadata')
 @Unique(['taskId', 'viewType'])
-export class TaskViewMetadata extends LegacyUuidEntity {
+export class TaskViewMetadata extends AppBaseEntity {
   @ManyToOne(() => Task, (task) => task.viewMetadataEntries, {
     nullable: false,
     onDelete: 'CASCADE',

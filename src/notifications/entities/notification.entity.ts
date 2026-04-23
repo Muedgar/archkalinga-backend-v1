@@ -1,10 +1,8 @@
 import {
   Column,
-  CreateDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
-  UpdateDateColumn,
 } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities/user.entity';
@@ -27,12 +25,6 @@ export class Notification extends AppBaseEntity {
 
   @Column({ name: 'user_id', type: 'uuid', nullable: false })
   userId: string;
-
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
-  declare createdAt: Date;
-
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  declare updatedAt: Date;
 
   // ── Content ────────────────────────────────────────────────────────────────
   @Column({
