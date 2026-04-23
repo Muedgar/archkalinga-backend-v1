@@ -11,13 +11,18 @@ const migrationsPath = isTsRuntime
   ? ['src/migrations/*.ts']
   : ['dist/migrations/*.js'];
 
-// In production (on Railway), use DATABASE_URL — the private internal network
-// URL (postgres.railway.internal) which is fast and needs no SSL.
-// Locally, use DATABASE_PUBLIC_URL — the public Railway proxy which needs SSL.
-const isProduction = process.env.NODE_ENV === 'production';
-const dbUrl = isProduction
-  ? process.env.DATABASE_URL         // internal Railway network (fast, no SSL)
-  : process.env.DATABASE_PUBLIC_URL; // public proxy for local dev (needs SSL)
+const nodeEnv = process.env.NODE_ENV ?? 'development';
+const isProduction = nodeEnv === 'production';
+
+// Prefer full URLs when available. This makes Railway work even if NODE_ENV
+// is not set exactly as expected at runtime.
+const dbUrl = process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL;
+
+const host = process.env.POSTGRES_HOST || process.env.PGHOST;
+const port = Number(process.env.POSTGRES_PORT || process.env.PGPORT || 5432);
+const username = process.env.POSTGRES_USER || process.env.PGUSER;
+const password = process.env.POSTGRES_PASSWORD || process.env.PGPASSWORD;
+const database = process.env.POSTGRES_DB || process.env.PGDATABASE;
 
 export const dataSourceOptions: DataSourceOptions = dbUrl
   ? {
@@ -31,11 +36,11 @@ export const dataSourceOptions: DataSourceOptions = dbUrl
     }
   : {
       type: 'postgres',
-      host: process.env.POSTGRES_HOST,
-      port: Number(process.env.POSTGRES_PORT),
-      username: process.env.POSTGRES_USER,
-      password: process.env.POSTGRES_PASSWORD,
-      database: process.env.POSTGRES_DB,
+      host,
+      port,
+      username,
+      password,
+      database,
       entities: entitiesPath,
       migrations: migrationsPath,
       synchronize: false,

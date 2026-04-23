@@ -73,9 +73,9 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
-  const port = process.env.SERVER_PORT ?? process.env.PORT ?? 3000;
-  await app.listen(port);
-  console.log(`\n🚀  ArchKalinga API running on http://localhost:${port}`);
+  const port = Number(process.env.PORT ?? process.env.SERVER_PORT ?? 3000);
+  await app.listen(port, '0.0.0.0');
+  console.log(`\n🚀  ArchKalinga API running on http://0.0.0.0:${port}`);
   if (process.env.NODE_ENV !== 'production') {
     console.log(`📖  Swagger docs at  http://localhost:${port}/api/docs\n`);
   }
