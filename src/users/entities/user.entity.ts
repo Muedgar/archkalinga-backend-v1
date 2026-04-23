@@ -39,7 +39,12 @@ export class User extends AppBaseEntity {
    * by other authenticated users searching for people to invite to a project.
    * Defaults to false — users or workspace admins opt in explicitly.
    */
-  @Column({ type: 'boolean', nullable: false, default: false })
+  @Column({
+    name: 'is_public_profile',
+    type: 'boolean',
+    nullable: false,
+    default: false,
+  })
   isPublicProfile: boolean;
 
   @Column({ type: 'varchar', length: 250, nullable: true })

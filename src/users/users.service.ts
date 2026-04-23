@@ -256,7 +256,9 @@ export class UserService {
       )
       .innerJoin(Workspace, 'ws', 'ws.id = wm."workspaceId"')
       // Discoverability rule: own flag OR workspace flag
-      .where('(u."isPublicProfile" = true OR ws."allowPublicProfiles" = true)')
+      .where(
+        '(u."is_public_profile" = true OR ws."allow_public_profiles" = true)',
+      )
       // Only active users
       .andWhere('u.status = true')
       // Search across name, username, email, workspace
