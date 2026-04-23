@@ -1,5 +1,5 @@
 import { Column, Entity } from 'typeorm';
-import { AppBaseEntity } from 'src/common/entities';
+import { SnakeCaseAppBaseEntity } from 'src/common/entities';
 
 export enum OutboxEventStatus {
   PENDING = 'PENDING',
@@ -16,20 +16,20 @@ export enum OutboxEventStatus {
  * the domain-events Bull queue.
  */
 @Entity('outbox_events')
-export class OutboxEvent extends AppBaseEntity {
+export class OutboxEvent extends SnakeCaseAppBaseEntity {
   /** Domain entity type — e.g. 'task' | 'project' | 'project-config' | 'project-member' */
-  @Column({ type: 'varchar', length: 100, nullable: false })
+  @Column({ name: 'aggregate_type', type: 'varchar', length: 100, nullable: false })
   aggregateType: string;
 
   /** UUID of the root aggregate (taskId, projectId, …) */
-  @Column({ type: 'uuid', nullable: false })
+  @Column({ name: 'aggregate_id', type: 'uuid', nullable: false })
   aggregateId: string;
 
   /**
    * Dot-separated event type string.
    * Examples: 'task.created', 'task.status.changed', 'project.member.updated'
    */
-  @Column({ type: 'varchar', length: 150, nullable: false })
+  @Column({ name: 'event_type', type: 'varchar', length: 150, nullable: false })
   eventType: string;
 
   /**
@@ -47,12 +47,12 @@ export class OutboxEvent extends AppBaseEntity {
   })
   status: OutboxEventStatus;
 
-  @Column({ type: 'smallint', default: 0 })
+  @Column({ name: 'retry_count', type: 'smallint', default: 0 })
   retryCount: number;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt: Date | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage: string | null;
 }

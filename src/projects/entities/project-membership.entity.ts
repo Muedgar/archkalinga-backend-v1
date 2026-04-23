@@ -58,7 +58,7 @@ export class ProjectMembership extends AppBaseEntity {
   @JoinColumn({ name: 'invite_id' })
   invite: ProjectInvite | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ name: 'invite_id', type: 'uuid', nullable: true })
   inviteId: string | null;
 
   @Column({ type: 'timestamptz', nullable: true })

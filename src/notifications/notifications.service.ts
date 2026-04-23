@@ -68,13 +68,13 @@ export class NotificationsService {
 
     const qb = this.notificationRepo
       .createQueryBuilder('n')
-      .where('n.userId = :userId', { userId })
-      .orderBy('n.createdAt', 'DESC')
+      .where('n.user_id = :userId', { userId })
+      .orderBy('n.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 
     if (isRead !== undefined) {
-      qb.andWhere('n.isRead = :isRead', { isRead });
+      qb.andWhere('n.is_read = :isRead', { isRead });
     }
 
     const [notifications, count] = await qb.getManyAndCount();
@@ -142,7 +142,7 @@ export class NotificationsService {
       .createQueryBuilder()
       .update(Notification)
       .set({ isRead: true, readAt: () => 'NOW()' })
-      .where('userId = :userId AND isRead = false', { userId })
+      .where('user_id = :userId AND is_read = false', { userId })
       .execute();
 
     const updated = result.affected ?? 0;

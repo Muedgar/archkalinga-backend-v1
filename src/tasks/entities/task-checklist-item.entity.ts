@@ -1,10 +1,10 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
-import { AppBaseEntity } from 'src/common/entities';
+import { LegacyUuidEntity } from 'src/common/entities';
 import { Task } from './task.entity';
 import { TaskChecklist } from './task-checklist.entity';
 
 @Entity('task_checklist_items')
-export class TaskChecklistItem extends AppBaseEntity {
+export class TaskChecklistItem extends LegacyUuidEntity {
   @ManyToOne(() => Task, (task) => task.checklistItems, {
     nullable: false,
     onDelete: 'CASCADE',
