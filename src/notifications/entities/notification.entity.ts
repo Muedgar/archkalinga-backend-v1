@@ -1,4 +1,11 @@
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  UpdateDateColumn,
+} from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities/user.entity';
 
@@ -18,8 +25,14 @@ export class Notification extends AppBaseEntity {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column({ type: 'uuid', nullable: false })
+  @Column({ name: 'user_id', type: 'uuid', nullable: false })
   userId: string;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  declare createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  declare updatedAt: Date;
 
   // ── Content ────────────────────────────────────────────────────────────────
   @Column({
@@ -37,10 +50,10 @@ export class Notification extends AppBaseEntity {
   body: string;
 
   // ── State ──────────────────────────────────────────────────────────────────
-  @Column({ type: 'boolean', nullable: false, default: false })
+  @Column({ name: 'is_read', type: 'boolean', nullable: false, default: false })
   isRead: boolean;
 
-  @Column({ type: 'timestamptz', nullable: true, default: null })
+  @Column({ name: 'read_at', type: 'timestamptz', nullable: true, default: null })
   readAt: Date | null;
 
   // ── Optional metadata ──────────────────────────────────────────────────────
