@@ -14,11 +14,18 @@ const migrationsPath = isTsRuntime
 const nodeEnv = process.env.NODE_ENV ?? 'development';
 const isProduction = nodeEnv === 'production';
 
-// Prefer full URLs when available. This makes Railway work even if NODE_ENV
-// is not set exactly as expected at runtime.
-const dbUrl = process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL;
+const hostCandidate = process.env.POSTGRES_HOST || process.env.PGHOST;
+const hostLooksLikeUrl =
+  typeof hostCandidate === 'string' && /^[a-z][a-z0-9+.-]*:\/\//i.test(hostCandidate);
 
-const host = process.env.POSTGRES_HOST || process.env.PGHOST;
+// Prefer full URLs when available. Also recover from misconfigured host vars
+// that accidentally contain a full postgres connection string.
+const dbUrl =
+  process.env.DATABASE_URL ||
+  process.env.DATABASE_PUBLIC_URL ||
+  (hostLooksLikeUrl ? hostCandidate : undefined);
+
+const host = hostLooksLikeUrl ? undefined : hostCandidate;
 const port = Number(process.env.POSTGRES_PORT || process.env.PGPORT || 5432);
 const username = process.env.POSTGRES_USER || process.env.PGUSER;
 const password = process.env.POSTGRES_PASSWORD || process.env.PGPASSWORD;

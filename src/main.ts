@@ -4,6 +4,17 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
+function normalizeOrigin(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed.replace(/\/+$/, '');
+  }
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
@@ -26,7 +37,7 @@ async function bootstrap() {
 
   const allowedOrigins: string[] = rawOrigins
     .split(',')
-    .map((o) => o.trim())
+    .map((o) => normalizeOrigin(o))
     .filter(Boolean);
 
   app.enableCors({
@@ -36,15 +47,22 @@ async function bootstrap() {
     ) => {
       if (!requestOrigin) return callback(null, true);
 
+      const normalizedRequestOrigin = normalizeOrigin(requestOrigin);
+
       if (
         process.env.NODE_ENV !== 'production' &&
-        /^https?:\/\/localhost(:\d+)?$/.test(requestOrigin)
+        /^https?:\/\/localhost(:\d+)?$/.test(normalizedRequestOrigin)
       ) {
         return callback(null, true);
       }
 
-      if (allowedOrigins.includes(requestOrigin)) return callback(null, true);
-      callback(new Error(`CORS: origin "${requestOrigin}" is not allowed`));
+      if (allowedOrigins.includes(normalizedRequestOrigin)) {
+        return callback(null, true);
+      }
+
+      callback(
+        new Error(`CORS: origin "${normalizedRequestOrigin}" is not allowed`),
+      );
     },
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Workspace-Id'],
