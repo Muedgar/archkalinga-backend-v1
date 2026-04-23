@@ -69,7 +69,7 @@ export class NotificationsService {
     const qb = this.notificationRepo
       .createQueryBuilder('n')
       .where('n.user_id = :userId', { userId })
-      .orderBy('n.created_at', 'DESC')
+      .orderBy('n.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 

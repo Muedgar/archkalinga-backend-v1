@@ -1,10 +1,10 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
-import { LegacyUuidTimestampEntity } from 'src/common/entities';
+import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities';
 import { Task } from './task.entity';
 
 @Entity('task_comments')
-export class TaskComment extends LegacyUuidTimestampEntity {
+export class TaskComment extends AppBaseEntity {
   @ManyToOne(() => Task, (task) => task.comments, {
     nullable: false,
     onDelete: 'CASCADE',

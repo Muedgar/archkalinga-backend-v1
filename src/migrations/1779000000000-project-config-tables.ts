@@ -351,6 +351,9 @@ export class ProjectConfigTables1779000000000 implements MigrationInterface {
       CREATE TABLE "task_labels" (
         "pkid"        SERIAL    NOT NULL,
         "id"          uuid      NOT NULL DEFAULT uuid_generate_v4(),
+        "version"     integer   NOT NULL DEFAULT 1,
+        "createdAt"   TIMESTAMP NOT NULL DEFAULT now(),
+        "updatedAt"   TIMESTAMP NOT NULL DEFAULT now(),
         "taskId"      uuid      NOT NULL,
         "labelId"     uuid      NOT NULL,
         "task_id"     integer   NOT NULL,

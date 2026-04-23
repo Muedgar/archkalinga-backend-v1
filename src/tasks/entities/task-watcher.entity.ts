@@ -1,11 +1,11 @@
 import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { SnakeCaseAppBaseEntity } from 'src/common/entities';
+import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities';
 import { Task } from './task.entity';
 
 @Entity('task_watchers')
 @Unique(['taskId', 'userId'])
-export class TaskWatcher extends SnakeCaseAppBaseEntity {
+export class TaskWatcher extends AppBaseEntity {
   @ManyToOne(() => Task, (task) => task.watchers, {
     nullable: false,
     onDelete: 'CASCADE',

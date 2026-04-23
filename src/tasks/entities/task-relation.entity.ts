@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { SnakeCaseAppBaseEntity } from 'src/common/entities';
+import { AppBaseEntity } from 'src/common/entities';
 import { Task } from './task.entity';
 
 export enum RelationType {
@@ -11,7 +11,7 @@ export enum RelationType {
 
 @Entity('task_relations')
 @Unique(['taskId', 'relatedTaskId'])
-export class TaskRelation extends SnakeCaseAppBaseEntity {
+export class TaskRelation extends AppBaseEntity {
   @ManyToOne(() => Task, (task) => task.outgoingRelations, {
     nullable: false,
     onDelete: 'CASCADE',
