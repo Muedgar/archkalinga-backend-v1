@@ -1,11 +1,11 @@
 import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { AppBaseEntity } from 'src/common/entities';
+import { LegacyUuidEntity } from 'src/common/entities';
 import { ProjectLabel } from '../project-config';
 import { Task } from './task.entity';
 
 @Entity('task_labels')
 @Unique(['taskId', 'labelId'])
-export class TaskLabel extends AppBaseEntity {
+export class TaskLabel extends LegacyUuidEntity {
   @ManyToOne(() => Task, (task) => task.labels, {
     nullable: false,
     onDelete: 'CASCADE',

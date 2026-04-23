@@ -1,39 +1,39 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
-import { AppBaseEntity } from 'src/common/entities';
+import { LegacyUuidCreatedAtEntity } from 'src/common/entities';
 import { User } from 'src/users/entities';
 
 export enum TaskActionType {
-  TASK_CREATED = 'TASK_CREATED',
-  TASK_UPDATED = 'TASK_UPDATED',
-  TASK_MOVED = 'TASK_MOVED',
-  TASK_DELETED = 'TASK_DELETED',
-  TASK_ASSIGNED = 'TASK_ASSIGNED',
-  TASK_UNASSIGNED = 'TASK_UNASSIGNED',
-  COMMENT_ADDED = 'COMMENT_ADDED',
-  STATUS_CHANGED = 'STATUS_CHANGED',
-  CHECKLIST_UPDATED = 'CHECKLIST_UPDATED',
-  DEPENDENCY_ADDED = 'DEPENDENCY_ADDED',
-  DEPENDENCY_REMOVED = 'DEPENDENCY_REMOVED',
+  TASK_CREATED = 'task:created',
+  TASK_UPDATED = 'task:updated',
+  TASK_MOVED = 'task:moved',
+  TASK_DELETED = 'task:deleted',
+  TASK_ASSIGNED = 'task:assigned',
+  TASK_UNASSIGNED = 'task:unassigned',
+  COMMENT_ADDED = 'comment:added',
+  STATUS_CHANGED = 'task:status_changed',
+  CHECKLIST_UPDATED = 'checklist:toggled',
+  DEPENDENCY_ADDED = 'task:updated',
+  DEPENDENCY_REMOVED = 'task:updated',
 }
 
 @Entity('task_activity_logs')
-export class TaskActivityLog extends AppBaseEntity {
+export class TaskActivityLog extends LegacyUuidCreatedAtEntity {
   @Column({ type: 'uuid', nullable: false })
   taskId: string;
 
-  @Column({ type: 'uuid', nullable: false })
-  projectId: string;
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'user_id' })
+  actorUser: User | null;
 
-  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'actor_user_id' })
-  actorUser: User;
+  @Column({ name: 'userId', type: 'uuid', nullable: true })
+  actorUserId: string | null;
 
-  @Column({ type: 'uuid', nullable: false })
-  actorUserId: string;
+  @Column({ name: 'actorName', type: 'varchar', length: 200, nullable: true })
+  actorName: string | null;
 
   @Column({ type: 'enum', enum: TaskActionType, nullable: false })
   actionType: TaskActionType;
 
-  @Column({ type: 'jsonb', nullable: true, default: {} })
+  @Column({ name: 'metadata', type: 'jsonb', nullable: true, default: {} })
   actionMeta: Record<string, unknown> | null;
 }

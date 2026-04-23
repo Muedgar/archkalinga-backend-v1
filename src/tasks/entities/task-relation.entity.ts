@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { AppBaseEntity } from 'src/common/entities';
+import { SnakeCaseAppBaseEntity } from 'src/common/entities';
 import { Task } from './task.entity';
 
 export enum RelationType {
@@ -11,7 +11,7 @@ export enum RelationType {
 
 @Entity('task_relations')
 @Unique(['taskId', 'relatedTaskId'])
-export class TaskRelation extends AppBaseEntity {
+export class TaskRelation extends SnakeCaseAppBaseEntity {
   @ManyToOne(() => Task, (task) => task.outgoingRelations, {
     nullable: false,
     onDelete: 'CASCADE',
@@ -19,7 +19,7 @@ export class TaskRelation extends AppBaseEntity {
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
-  @Column({ type: 'uuid', nullable: false })
+  @Column({ name: 'task_id', type: 'uuid', nullable: false })
   taskId: string;
 
   @ManyToOne(() => Task, (task) => task.incomingRelations, {
@@ -29,10 +29,11 @@ export class TaskRelation extends AppBaseEntity {
   @JoinColumn({ name: 'related_task_id' })
   relatedTask: Task;
 
-  @Column({ type: 'uuid', nullable: false })
+  @Column({ name: 'related_task_id', type: 'uuid', nullable: false })
   relatedTaskId: string;
 
   @Column({
+    name: 'relation_type',
     type: 'enum',
     enum: RelationType,
     default: RelationType.RELATES_TO,
