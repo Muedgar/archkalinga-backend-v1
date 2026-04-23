@@ -19,7 +19,12 @@ export class Workspace extends AppBaseEntity {
    * search by other authenticated users — regardless of their individual
    * isPublicProfile setting. Workspace admins control this setting.
    */
-  @Column({ type: 'boolean', nullable: false, default: false })
+  @Column({
+    name: 'allow_public_profiles',
+    type: 'boolean',
+    nullable: false,
+    default: false,
+  })
   allowPublicProfiles: boolean;
 
   @OneToMany(() => WorkspaceMember, (m) => m.workspace)
