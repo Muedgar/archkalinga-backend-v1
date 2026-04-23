@@ -20,7 +20,7 @@ export class TaskDependency extends AppBaseEntity {
   taskId: string;
 
   @ManyToOne(() => Task, { nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'depends_on_task_id' })
+  @JoinColumn({ name: 'depends_on_id' })
   dependsOnTask: Task;
 
   @Column({ type: 'uuid', nullable: false })

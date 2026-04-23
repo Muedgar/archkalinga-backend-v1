@@ -444,11 +444,13 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
         "completed"         boolean       NOT NULL DEFAULT false,
         "rank"              varchar(50),
         "deletedAt"         TIMESTAMP WITH TIME ZONE,
-        "createdByUserId"   uuid          NOT NULL,
-        "project_id"        integer       NOT NULL,
-        "parent_task_id"    integer,
-        "workflow_column_id" integer,
-        "created_by_id"     integer       NOT NULL,
+        "createdByUserId"      uuid          NOT NULL,
+        "reporteeUserId"       uuid,
+        "project_id"           integer       NOT NULL,
+        "parent_task_id"       integer,
+        "workflow_column_id"   integer,
+        "created_by_user_id"   integer       NOT NULL,
+        "reportee_user_id"     integer,
         CONSTRAINT "UQ_tasks_id" UNIQUE ("id"),
         CONSTRAINT "PK_tasks"    PRIMARY KEY ("pkid")
       )
@@ -457,9 +459,12 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
     // ── Task view metadata ────────────────────────────────────────────────────
     await queryRunner.query(`
       CREATE TABLE "task_view_metadata" (
-        "pkid"     SERIAL    NOT NULL,
-        "id"       uuid      NOT NULL DEFAULT uuid_generate_v4(),
-        "taskId"   uuid      NOT NULL,
+        "pkid"      SERIAL    NOT NULL,
+        "id"        uuid      NOT NULL DEFAULT uuid_generate_v4(),
+        "version"   integer   NOT NULL DEFAULT 1,
+        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "taskId"    uuid      NOT NULL,
         "viewType" varchar(50) NOT NULL,
         "meta"     jsonb     NOT NULL DEFAULT '{}',
         "task_id"  integer   NOT NULL,
@@ -479,6 +484,9 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_assignees" (
         "pkid"              SERIAL        NOT NULL,
         "id"                uuid          NOT NULL DEFAULT uuid_generate_v4(),
+        "version"           integer       NOT NULL DEFAULT 1,
+        "createdAt"         TIMESTAMP     NOT NULL DEFAULT now(),
+        "updatedAt"         TIMESTAMP     NOT NULL DEFAULT now(),
         "taskId"            uuid          NOT NULL,
         "userId"            uuid          NOT NULL,
         "projectRoleId"     uuid,
@@ -497,6 +505,9 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_checklist_items" (
         "pkid"               SERIAL       NOT NULL,
         "id"                 uuid         NOT NULL DEFAULT uuid_generate_v4(),
+        "version"            integer      NOT NULL DEFAULT 1,
+        "createdAt"          TIMESTAMP    NOT NULL DEFAULT now(),
+        "updatedAt"          TIMESTAMP    NOT NULL DEFAULT now(),
         "taskId"             uuid         NOT NULL,
         "text"               varchar(500) NOT NULL,
         "completed"          boolean      NOT NULL DEFAULT false,
@@ -515,6 +526,7 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_comments" (
         "pkid"            SERIAL    NOT NULL,
         "id"              uuid      NOT NULL DEFAULT uuid_generate_v4(),
+        "version"         integer   NOT NULL DEFAULT 1,
         "taskId"          uuid      NOT NULL,
         "authorUserId"    uuid      NOT NULL,
         "body"            text      NOT NULL,
@@ -539,6 +551,9 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_dependencies" (
         "pkid"             SERIAL    NOT NULL,
         "id"               uuid      NOT NULL DEFAULT uuid_generate_v4(),
+        "version"          integer   NOT NULL DEFAULT 1,
+        "createdAt"        TIMESTAMP NOT NULL DEFAULT now(),
+        "updatedAt"        TIMESTAMP NOT NULL DEFAULT now(),
         "taskId"           uuid      NOT NULL,
         "dependsOnTaskId"  uuid      NOT NULL,
         "dependencyType"   "public"."task_dependencies_dependencytype_enum" NOT NULL DEFAULT 'FS',
@@ -565,12 +580,14 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
       CREATE TABLE "task_activity_logs" (
         "pkid"       SERIAL    NOT NULL,
         "id"         uuid      NOT NULL DEFAULT uuid_generate_v4(),
+        "version"    integer   NOT NULL DEFAULT 1,
         "taskId"     uuid      NOT NULL,
         "userId"     uuid,
         "actionType" "public"."task_activity_logs_actiontype_enum" NOT NULL,
         "actorName"  varchar(200),
         "metadata"   jsonb,
         "createdAt"  TIMESTAMP NOT NULL DEFAULT now(),
+        "updatedAt"  TIMESTAMP NOT NULL DEFAULT now(),
         "task_id"    integer   NOT NULL,
         "user_id"    integer,
         CONSTRAINT "UQ_task_activity_logs_id" UNIQUE ("id"),
@@ -625,7 +642,8 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
     await queryRunner.query(`ALTER TABLE "tasks" ADD CONSTRAINT "FK_tasks_project"         FOREIGN KEY ("project_id")        REFERENCES "projects"("pkid")          ON DELETE CASCADE`);
     await queryRunner.query(`ALTER TABLE "tasks" ADD CONSTRAINT "FK_tasks_parent"           FOREIGN KEY ("parent_task_id")    REFERENCES "tasks"("pkid")             ON DELETE CASCADE`);
     await queryRunner.query(`ALTER TABLE "tasks" ADD CONSTRAINT "FK_tasks_workflow_column"  FOREIGN KEY ("workflow_column_id") REFERENCES "workflow_columns"("pkid") ON DELETE SET NULL`);
-    await queryRunner.query(`ALTER TABLE "tasks" ADD CONSTRAINT "FK_tasks_created_by"       FOREIGN KEY ("created_by_id")     REFERENCES "users"("pkid")             ON DELETE RESTRICT`);
+    await queryRunner.query(`ALTER TABLE "tasks" ADD CONSTRAINT "FK_tasks_created_by"       FOREIGN KEY ("created_by_user_id") REFERENCES "users"("pkid")             ON DELETE RESTRICT`);
+    await queryRunner.query(`ALTER TABLE "tasks" ADD CONSTRAINT "FK_tasks_reportee_user"   FOREIGN KEY ("reportee_user_id")   REFERENCES "users"("pkid")             ON DELETE SET NULL`);
     // task_view_metadata
     await queryRunner.query(`ALTER TABLE "task_view_metadata" ADD CONSTRAINT "FK_task_view_metadata_task" FOREIGN KEY ("task_id") REFERENCES "tasks"("pkid") ON DELETE CASCADE`);
     // task_assignees

@@ -4,9 +4,8 @@ import { User } from 'src/users/entities';
 import { Task } from './task.entity';
 
 export enum AssignmentRole {
-  OWNER = 'OWNER',
-  CONTRIBUTOR = 'CONTRIBUTOR',
-  REVIEWER = 'REVIEWER',
+  ASSIGNEE = 'ASSIGNEE',
+  REPORTER = 'REPORTER',
 }
 
 @Entity('task_assignees')
@@ -29,10 +28,13 @@ export class TaskAssignee extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
   userId: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  projectRoleId: string | null;
+
   @Column({
     type: 'enum',
     enum: AssignmentRole,
-    default: AssignmentRole.CONTRIBUTOR,
+    default: AssignmentRole.ASSIGNEE,
   })
   assignmentRole: AssignmentRole;
 }

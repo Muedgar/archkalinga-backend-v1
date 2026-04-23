@@ -371,7 +371,7 @@ export class TasksService {
   ): Promise<void> {
     const items = await manager.find(TaskChecklistItem, {
       where: { taskId },
-      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+      order: { orderIndex: 'ASC', id: 'ASC' },
     });
 
     const movingItem = movingItemId
@@ -1191,20 +1191,32 @@ export class TasksService {
    * Outbox consumers receive this as `eventType` in their job payload.
    */
   private static taskActionToEventType(action: TaskActionType): string {
-    const map: Record<TaskActionType, string> = {
-      [TaskActionType.TASK_CREATED]: 'task.created',
-      [TaskActionType.TASK_UPDATED]: 'task.updated',
-      [TaskActionType.TASK_MOVED]: 'task.moved',
-      [TaskActionType.TASK_DELETED]: 'task.deleted',
-      [TaskActionType.TASK_ASSIGNED]: 'task.assigned',
-      [TaskActionType.TASK_UNASSIGNED]: 'task.unassigned',
-      [TaskActionType.COMMENT_ADDED]: 'task.comment.added',
-      [TaskActionType.STATUS_CHANGED]: 'task.status.changed',
-      [TaskActionType.CHECKLIST_UPDATED]: 'task.checklist.updated',
-      [TaskActionType.DEPENDENCY_ADDED]: 'task.dependency.added',
-      [TaskActionType.DEPENDENCY_REMOVED]: 'task.dependency.removed',
-    };
-    return map[action] ?? `task.${action.toLowerCase()}`;
+    switch (action) {
+      case TaskActionType.TASK_CREATED:
+        return 'task.created';
+      case TaskActionType.TASK_UPDATED:
+        return 'task.updated';
+      case TaskActionType.TASK_MOVED:
+        return 'task.moved';
+      case TaskActionType.TASK_DELETED:
+        return 'task.deleted';
+      case TaskActionType.TASK_ASSIGNED:
+        return 'task.assigned';
+      case TaskActionType.TASK_UNASSIGNED:
+        return 'task.unassigned';
+      case TaskActionType.COMMENT_ADDED:
+        return 'task.comment.added';
+      case TaskActionType.STATUS_CHANGED:
+        return 'task.status.changed';
+      case TaskActionType.CHECKLIST_UPDATED:
+        return 'task.checklist.updated';
+      case TaskActionType.DEPENDENCY_ADDED:
+        return 'task.dependency.added';
+      case TaskActionType.DEPENDENCY_REMOVED:
+        return 'task.dependency.removed';
+      default:
+        return `task.${String(action).toLowerCase()}`;
+    }
   }
 
   private async logTaskActivity(
@@ -1217,9 +1229,11 @@ export class TasksService {
     await manager.save(
       manager.create(TaskActivityLog, {
         taskId: task.id,
-        projectId: task.projectId,
         actorUser,
         actorUserId: actorUser.id,
+        actorName:
+          [actorUser.firstName, actorUser.lastName].filter(Boolean).join(' ') ||
+          actorUser.email,
         actionType,
         actionMeta: actionMeta ?? {},
       }),
@@ -2012,7 +2026,7 @@ export class TasksService {
 
     const items = await this.checklistRepo.find({
       where: { taskId },
-      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+      order: { orderIndex: 'ASC', id: 'ASC' },
     });
 
     return items.map((item) => this.toTaskChecklistItemSerializer(item));
@@ -2161,7 +2175,7 @@ export class TasksService {
     const dependencies = await this.dependencyRepo.find({
       where: { taskId },
       relations: ['dependsOnTask'],
-      order: { createdAt: 'ASC' },
+      order: { id: 'ASC' },
     });
 
     return dependencies.map((dependency) =>
@@ -2731,7 +2745,7 @@ export class TasksService {
     const labels = await this.taskLabelRepo.find({
       where: { taskId },
       relations: ['label'],
-      order: { createdAt: 'ASC' },
+      order: { id: 'ASC' },
     });
 
     return labels.map((l) => this.toTaskLabelSerializer(l));
@@ -2965,7 +2979,6 @@ export class TasksService {
     items: {
       id: string;
       taskId: string;
-      projectId: string;
       actionType: TaskActionType;
       actionMeta: Record<string, unknown> | null;
       actorUser: { id: string; firstName: string; lastName: string; email: string } | null;
@@ -2982,7 +2995,6 @@ export class TasksService {
       .createQueryBuilder('log')
       .leftJoinAndSelect('log.actorUser', 'actorUser')
       .where('log.taskId = :taskId', { taskId })
-      .andWhere('log.projectId = :projectId', { projectId })
       .orderBy('log.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
@@ -2992,7 +3004,6 @@ export class TasksService {
       items: logs.map((log) => ({
         id: log.id,
         taskId: log.taskId,
-        projectId: log.projectId,
         actionType: log.actionType,
         actionMeta: log.actionMeta,
         actorUser: log.actorUser

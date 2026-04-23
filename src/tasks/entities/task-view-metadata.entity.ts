@@ -23,6 +23,6 @@ export class TaskViewMetadata extends AppBaseEntity {
   @Column({ type: 'enum', enum: ViewType, nullable: false })
   viewType: ViewType;
 
-  @Column({ type: 'jsonb', default: {} })
+  @Column({ name: 'meta', type: 'jsonb', default: {} })
   metaJson: Record<string, unknown>;
 }

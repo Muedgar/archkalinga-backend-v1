@@ -28,8 +28,8 @@ export class CreateNotifications1778000000000 implements MigrationInterface {
         "pkid"       SERIAL         NOT NULL,
         "id"         uuid           NOT NULL DEFAULT uuid_generate_v4(),
         "version"    integer        NOT NULL DEFAULT 1,
-        "created_at" TIMESTAMPTZ    NOT NULL DEFAULT now(),
-        "updated_at" TIMESTAMPTZ    NOT NULL DEFAULT now(),
+        "createdAt"  TIMESTAMPTZ    NOT NULL DEFAULT now(),
+        "updatedAt"  TIMESTAMPTZ    NOT NULL DEFAULT now(),
 
         "user_id"    uuid           NOT NULL,
         "type"       "notifications_type_enum" NOT NULL DEFAULT 'GENERAL',
@@ -52,7 +52,7 @@ export class CreateNotifications1778000000000 implements MigrationInterface {
     /** Fast lookup for a user's notification feed ordered by recency. */
     await queryRunner.query(`
       CREATE INDEX "idx_notifications_user_created"
-        ON "notifications" ("user_id", "created_at" DESC)
+        ON "notifications" ("user_id", "createdAt" DESC)
     `);
 
     /** Efficiently count / filter unread notifications per user. */
