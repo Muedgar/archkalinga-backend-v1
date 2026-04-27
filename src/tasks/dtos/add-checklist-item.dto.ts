@@ -9,10 +9,12 @@ export class AddChecklistItemDto {
   @Type(() => String)
   text: string;
 
-  @ApiProperty({ example: 0 })
+  @ApiPropertyOptional({ example: 0, default: 0 })
+  @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
-  orderIndex: number;
+  orderIndex?: number;
 
   @ApiPropertyOptional({
     example: 'a1b2c3d4-...',

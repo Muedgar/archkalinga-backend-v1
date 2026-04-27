@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsHexColor,
@@ -54,6 +55,7 @@ export class CreateProjectStatusDto {
 
   @ApiPropertyOptional({ enum: StatusCategory, default: StatusCategory.IN_PROGRESS })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase() : value))
   @IsIn(Object.values(StatusCategory))
   category?: StatusCategory;
 
@@ -95,6 +97,7 @@ export class UpdateProjectStatusDto {
 
   @ApiPropertyOptional({ enum: StatusCategory })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase() : value))
   @IsIn(Object.values(StatusCategory))
   category?: StatusCategory;
 

@@ -787,6 +787,33 @@ export class ProjectsService {
   }
 
   // ---------------------------------------------------------------------------
+  // List active project members
+  // ---------------------------------------------------------------------------
+
+  async listMembers(projectId: string, requestUser: RequestUser, workspaceId: string, workspaceMember?: WorkspaceMember) {
+    await this.loadAuthorizedProject(projectId, workspaceId, requestUser, false, workspaceMember);
+
+    const memberships = await this.membershipRepo.find({
+      where: { projectId, status: MembershipStatus.ACTIVE },
+      relations: ['user', 'projectRole'],
+      order: { joinedAt: 'ASC' },
+    });
+
+    return memberships.map((m) => ({
+      userId: m.userId,
+      projectRoleId: m.projectRoleId,
+      joinedAt: m.joinedAt,
+      firstName: m.user?.firstName ?? null,
+      lastName: m.user?.lastName ?? null,
+      email: m.user?.email ?? null,
+      title: m.user?.title ?? null,
+      projectRole: m.projectRole
+        ? { id: m.projectRole.id, name: m.projectRole.name, slug: m.projectRole.slug }
+        : null,
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
   // Update a member's project role
   // ---------------------------------------------------------------------------
 

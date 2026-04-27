@@ -70,13 +70,13 @@ export class Task extends AppBaseEntity {
   endDate: string | null;
 
   @Column({ type: 'smallint', nullable: true })
-  progress: number | null;
+  progress: number | null; // Self reported: is a gradual estimate — useful for long-running tasks where you want to communicate partial progress before it's fully done
 
   @Column({ type: 'boolean', default: false })
   completed: boolean;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
-  rank: string | null;
+  rank: string | null; // fractional indexing for reordering tasks in columns.
 
   // ── Hierarchy ─────────────────────────────────────────────────────────────
   @ManyToOne(() => Task, (task) => task.children, {

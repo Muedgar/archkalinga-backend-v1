@@ -42,6 +42,7 @@ import {
   PROJECT_DELETED,
   PROJECT_FETCHED,
   PROJECT_MEMBER_ROLE_UPDATED,
+  PROJECT_MEMBERS_FETCHED,
   PROJECT_UPDATED,
   PROJECTS_FETCHED,
 } from './messages';
@@ -114,6 +115,20 @@ export class ProjectsController {
     @GetWorkspaceMember() member: WorkspaceMember,
   ) {
     return this.projectsService.updateProject(id, dto, user, member.workspaceId, member);
+  }
+
+  @Get(':projectId/members')
+  @ApiOperation({ summary: 'List active members of a project' })
+  @ApiResponse({ status: 200, description: 'List of active project members with their roles' })
+  @ResponseMessage(PROJECT_MEMBERS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  listProjectMembers(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @GetUser() user: RequestUser,
+    @GetWorkspaceMember() member: WorkspaceMember,
+  ) {
+    return this.projectsService.listMembers(projectId, user, member.workspaceId, member);
   }
 
   @Patch(':projectId/members/:memberId/role')

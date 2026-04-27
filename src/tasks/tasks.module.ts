@@ -9,6 +9,7 @@ import {
   ProjectActivityLog,
   ProjectInvite,
   ProjectMembership,
+  ProjectRole,
 } from 'src/projects/entities';
 import { User } from 'src/users/entities';
 import {
@@ -33,6 +34,29 @@ import {
 } from './entities';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
+import {
+  TaskActivityService,
+  TaskAuthService,
+  TaskChecklistService,
+  TaskCommentsService,
+  TaskCrudService,
+  TaskMembersService,
+  TaskQueryService,
+  TaskRankingService,
+  TaskRelationsService,
+} from './services';
+
+const SUB_SERVICES = [
+  TaskAuthService,
+  TaskActivityService,
+  TaskRankingService,
+  TaskCommentsService,
+  TaskChecklistService,
+  TaskRelationsService,
+  TaskMembersService,
+  TaskCrudService,
+  TaskQueryService,
+];
 
 @Module({
   imports: [
@@ -51,9 +75,9 @@ import { TasksService } from './tasks.service';
       Project,
       ProjectInvite,
       ProjectMembership,
+      ProjectRole,
       ProjectActivityLog,
       User,
-      // Project config entities (needed for status/priority/type validation in tasks)
       ProjectStatus,
       ProjectPriority,
       ProjectSeverity,
@@ -65,7 +89,7 @@ import { TasksService } from './tasks.service';
     OutboxModule,
   ],
   controllers: [TasksController],
-  providers: [TasksService, ProjectPermissionGuard],
+  providers: [TasksService, ProjectPermissionGuard, ...SUB_SERVICES],
   exports: [TasksService],
 })
 export class TasksModule {}
