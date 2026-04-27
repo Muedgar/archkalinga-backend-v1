@@ -145,6 +145,24 @@ export class TaskSerializer extends BaseSerializer {
   dependencies: TaskDependencySerializer[];
 
   @Expose()
+  @Transform(({ obj }) =>
+    (obj?.labels ?? []).map((tl: any) => ({
+      id: tl.id,
+      labelId: tl.labelId,
+      name: tl.label?.name ?? null,
+      key: tl.label?.key ?? null,
+      color: tl.label?.color ?? null,
+    })),
+  )
+  labels: Array<{
+    id: string;
+    labelId: string;
+    name: string | null;
+    key: string | null;
+    color: string | null;
+  }>;
+
+  @Expose()
   @Transform(({ obj }) => {
     const entries = obj?.viewMetadataEntries ?? [];
     return entries.reduce((acc, entry) => {

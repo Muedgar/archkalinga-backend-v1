@@ -358,7 +358,7 @@ export class TasksController {
   updateChecklistItem(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
-    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Param('itemId') itemId: string,
     @Body() dto: UpdateChecklistItemDto,
     @GetUser() user: RequestUser,
   ) {
@@ -384,7 +384,7 @@ export class TasksController {
   deleteChecklistItem(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
-    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Param('itemId') itemId: string,
     @GetUser() user: RequestUser,
   ) {
     return this.tasksService.deleteChecklistItem(

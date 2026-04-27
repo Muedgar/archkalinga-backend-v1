@@ -110,6 +110,16 @@ export class UpdateTaskDto {
   @IsUUID('all', { each: true })
   dependencyIds?: string[];
 
+  @ApiPropertyOptional({
+    type: [String],
+    nullable: true,
+    description: 'ProjectLabel UUIDs to assign to this task. Pass an empty array [] to clear all labels.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  labelIds?: string[] | null;
+
   @ApiPropertyOptional({ type: () => TaskViewMetaDto })
   @IsOptional()
   @IsObject()
