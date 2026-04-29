@@ -138,8 +138,11 @@ export class OutboxService {
           );
         }
       }
+    }
 
-      await this.outboxRepo.save(event);
+    // Batch-save all updated event rows at once instead of one UPDATE per event
+    if (events.length > 0) {
+      await this.outboxRepo.save(events);
     }
 
     if (published > 0) {

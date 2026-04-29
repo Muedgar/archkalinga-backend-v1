@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
+import { ProjectMembership } from 'src/projects/entities';
 import { User } from 'src/users/entities';
 import {
   BulkUpdateTasksDto,
@@ -58,9 +59,9 @@ export class TaskCrudService {
     projectId: string,
     dto: CreateTaskDto,
     requestUser: RequestUser,
-    getTask: (projectId: string, taskId: string, requestUser: RequestUser) => Promise<TaskSerializer>,
+    getTask: (projectId: string, taskId: string, requestUser: RequestUser, membership?: ProjectMembership | null) => Promise<TaskSerializer>,
   ): Promise<TaskSerializer> {
-    const { project } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'create');
+    const { project, membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'create');
 
     const [parent, reporteeMembership, dependencyTasks, actorUser] = await Promise.all([
       this.authSvc.ensureParentTask(projectId, dto.parentTaskId),
@@ -145,7 +146,7 @@ export class TaskCrudService {
       return saved;
     });
 
-    return getTask(projectId, savedTask.id, requestUser);
+    return getTask(projectId, savedTask.id, requestUser, membership);
   }
 
   async updateTask(
@@ -153,21 +154,33 @@ export class TaskCrudService {
     taskId: string,
     dto: UpdateTaskDto,
     requestUser: RequestUser,
-    getTask: (projectId: string, taskId: string, requestUser: RequestUser) => Promise<TaskSerializer>,
+    getTask: (projectId: string, taskId: string, requestUser: RequestUser, membership?: ProjectMembership | null) => Promise<TaskSerializer>,
   ): Promise<TaskSerializer> {
-    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
-
-    const task = await this.taskRepo.findOne({
-      where: { id: taskId, projectId, deletedAt: IsNull() },
-      relations: ['project', 'assignees', 'dependencyEdges', 'viewMetadataEntries', 'reporteeUser'],
-    });
-    if (!task) throw new NotFoundException(TASK_NOT_FOUND);
-
-    const [reporteeMembership, dependencyTasks, actorUser] = await Promise.all([
-      dto.reportee !== undefined ? this.membersSvc.ensureReporteeMember(projectId, dto.reportee) : Promise.resolve(undefined),
+    // Wave 1: fire all independent queries simultaneously.
+    //
+    // - verifyProjectPermission: 2 parallel queries internally (project + membership)
+    // - taskRepo.findOne: core task only (ManyToOne relations only — no OneToMany).
+    //   assignees/dependencyEdges/viewMetadataEntries are NOT loaded here because:
+    //     • assignees       → re-fetched inside the tx via tx.find(TaskAssignee, ...)
+    //     • dependencyEdges → re-fetched inside the tx via tx.find(TaskDependency, ...)
+    //     • viewMetadataEntries → upsertViewMetadata queries fresh per viewType
+    //   Removing them eliminates a 3-way Cartesian product on OneToMany relations.
+    // - reporteeMembership / dependencyTasks / actorUser: independent of the task load.
+    // - newStatus: pre-load outside the tx to avoid a sequential query inside it.
+    //
+    // Net: one wave instead of 3+ sequential round-trips.
+    const [{ membership }, task, reporteeMembership, dependencyTasks, actorUser, newStatus] = await Promise.all([
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+      this.taskRepo.findOne({
+        where: { id: taskId, projectId, deletedAt: IsNull() },
+        relations: ['project'],  // ManyToOne only — no Cartesian product
+      }),
+      dto.reportee     !== undefined ? this.membersSvc.ensureReporteeMember(projectId, dto.reportee) : Promise.resolve(undefined),
       dto.dependencyIds !== undefined ? this.relationsSvc.ensureDependencyTasks(projectId, dto.dependencyIds) : Promise.resolve(undefined),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
+      dto.statusId      ? this.projectStatusRepo.findOne({ where: { id: dto.statusId, projectId }, select: ['id', 'isTerminal'] }) : Promise.resolve(null),
     ]);
+    if (!task) throw new NotFoundException(TASK_NOT_FOUND);
 
     const nextStartDate = dto.startDate !== undefined ? (dto.startDate ?? null) : task.startDate;
     const nextEndDate   = dto.endDate   !== undefined ? (dto.endDate   ?? null) : task.endDate;
@@ -181,10 +194,8 @@ export class TaskCrudService {
     if (dto.statusId    !== undefined) {
       task.statusId = dto.statusId ?? task.statusId;
       changedFields.push('statusId');
-      if (dto.statusId) {
-        const newStatus = await this.projectStatusRepo.findOne({ where: { id: dto.statusId, projectId } });
-        if (newStatus) task.completed = newStatus.isTerminal;
-      }
+      // newStatus was pre-loaded in wave 1 — no extra query needed here
+      if (newStatus) task.completed = newStatus.isTerminal;
     }
     if (dto.priorityId !== undefined) { task.priorityId = dto.priorityId ?? null; changedFields.push('priorityId'); }
     if (dto.taskTypeId !== undefined) { task.taskTypeId = dto.taskTypeId;          changedFields.push('taskTypeId'); }
@@ -283,7 +294,7 @@ export class TaskCrudService {
       await this.activitySvc.log(tx, task, actorUser, TaskActionType.TASK_UPDATED, { changedFields });
     });
 
-    return getTask(projectId, task.id, requestUser);
+    return getTask(projectId, task.id, requestUser, membership);
   }
 
   async moveTask(
@@ -291,11 +302,11 @@ export class TaskCrudService {
     taskId: string,
     dto: MoveTaskDto,
     requestUser: RequestUser,
-    getTask: (projectId: string, taskId: string, requestUser: RequestUser) => Promise<TaskSerializer>,
+    getTask: (projectId: string, taskId: string, requestUser: RequestUser, membership?: ProjectMembership | null) => Promise<TaskSerializer>,
   ): Promise<TaskSerializer> {
-    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
-
-    const [task, actorUser] = await Promise.all([
+    // All three are independent — fire in one wave
+    const [{ membership }, task, actorUser] = await Promise.all([
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
       this.taskRepo.findOne({ where: { id: taskId, projectId, deletedAt: IsNull() }, relations: ['project'] }),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
@@ -334,7 +345,7 @@ export class TaskCrudService {
       });
     });
 
-    return getTask(projectId, task.id, requestUser);
+    return getTask(projectId, task.id, requestUser, membership);
   }
 
   async bulkUpdateTasks(
@@ -342,19 +353,23 @@ export class TaskCrudService {
     dto: BulkUpdateTasksDto,
     requestUser: RequestUser,
   ): Promise<TaskListItemSerializer[]> {
-    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
-
-    const actorUser    = await this.userRepo.findOneOrFail({ where: { id: requestUser.id } });
     const requestedIds = [...new Set(dto.items.map((item) => item.taskId))];
-    const tasks        = await this.taskRepo.find({
-      where: { id: In(requestedIds), projectId, deletedAt: IsNull() },
-      relations: ['project'],
-    });
+
+    // Three independent queries — fire in one wave
+    const [, actorUser, tasks] = await Promise.all([
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
+      this.taskRepo.find({ where: { id: In(requestedIds), projectId, deletedAt: IsNull() }, relations: ['project'] }),
+    ]);
 
     const taskMap       = new Map(tasks.map((t) => [t.id, t]));
     const updatedTaskIds: string[] = [];
 
     await this.taskRepo.manager.transaction(async (tx) => {
+      // Collect activity log entries for batch-saving at the end of the transaction.
+      // This avoids 2 serial INSERTs per task (which compounds badly at 50+ items).
+      const activityEntries: Parameters<typeof this.activitySvc.logBatch>[1] = [];
+
       for (const item of dto.items) {
         const task = taskMap.get(item.taskId);
         if (!task) continue;
@@ -402,13 +417,25 @@ export class TaskCrudService {
         await tx.save(task);
         if (item.viewMeta !== undefined) await this.relationsSvc.upsertViewMetadata(tx, task, item.viewMeta);
 
-        await this.activitySvc.log(
-          tx, task, actorUser,
-          movedScope ? TaskActionType.TASK_MOVED : TaskActionType.TASK_UPDATED,
-          { statusId: task.statusId, progress: item.progress, startDate: item.startDate, endDate: item.endDate, parentTaskId: task.parentTaskId, viewMetaUpdated: item.viewMeta !== undefined },
-        );
+        // Accumulate — do NOT call log() here (2 serial INSERTs × N tasks)
+        activityEntries.push({
+          task,
+          actorUser,
+          actionType: movedScope ? TaskActionType.TASK_MOVED : TaskActionType.TASK_UPDATED,
+          actionMeta: {
+            statusId: task.statusId,
+            progress: item.progress,
+            startDate: item.startDate,
+            endDate: item.endDate,
+            parentTaskId: task.parentTaskId,
+            viewMetaUpdated: item.viewMeta !== undefined,
+          },
+        });
         updatedTaskIds.push(task.id);
       }
+
+      // Single batch INSERT for all activity logs (2 statements instead of 2N)
+      await this.activitySvc.logBatch(tx, activityEntries);
     });
 
     return this.authSvc.loadTasksForList(updatedTaskIds, projectId);

@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -92,11 +93,14 @@ export class TasksController {
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'view')
   getProjectTasks(
+    @Req() req: any,
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Query() filters: TaskFiltersDto,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.getProjectTasks(projectId, filters, user);
+    // Pass the membership already loaded by ProjectPermissionGuard so the service
+    // can skip a redundant verifyProjectPermission call (saves 2 DB queries per request).
+    return this.tasksService.getProjectTasks(projectId, filters, user, req.projectMembership);
   }
 
   @Post('tasks')
@@ -157,11 +161,14 @@ export class TasksController {
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'view')
   getTask(
+    @Req() req: any,
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @GetUser() user: RequestUser,
   ) {
-    return this.tasksService.getTask(projectId, taskId, user);
+    // Pass the membership already loaded by ProjectPermissionGuard so the service
+    // skips an otherwise redundant DB query for the same row.
+    return this.tasksService.getTask(projectId, taskId, user, req.projectMembership);
   }
 
   @Patch('tasks/:taskId')

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
 import { FilterResponse } from 'src/common/interfaces';
+import { ProjectMembership } from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
 import { Task, TaskComment } from '../entities';
 import { TaskFiltersDto } from '../dtos';
@@ -22,9 +23,28 @@ export class TaskQueryService {
     private readonly membersSvc: TaskMembersService,
   ) {}
 
-  async getTask(projectId: string, taskId: string, requestUser: RequestUser): Promise<TaskSerializer> {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    const task = await this.authSvc.loadTaskOrFail(taskId, projectId);
+  async getTask(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ): Promise<TaskSerializer> {
+    // Wave 1: auth check + task load + child count — all fire simultaneously.
+    //
+    // - prefetchedMembership comes from ProjectPermissionGuard (already ran) so its
+    //   Promise.resolve() costs nothing — no DB hit.
+    // - loadTaskOrFail internally fires 7 parallel queries (core task + 6 sub-resources),
+    //   all in one Promise.all wave inside the method.
+    // - childCount only needs taskId (known from the URL), so it fires alongside the task load.
+    //
+    // Net effect: the entire task fetch + child count completes in ONE DB round-trip wave.
+    const [{ membership }, task, childCount] = await Promise.all([
+      prefetchedMembership !== undefined
+        ? Promise.resolve({ project: null as any, membership: prefetchedMembership })
+        : this.authSvc.verifyProjectPermission(projectId, requestUser, 'view'),
+      this.authSvc.loadTaskOrFail(taskId, projectId),
+      this.taskRepo.count({ where: { parentTaskId: taskId, deletedAt: IsNull() } }),
+    ]);
 
     const viewScope = (membership?.projectRole?.permissions?.taskManagement as any)?.viewScope ?? 'all';
     if (viewScope === 'assigned') {
@@ -33,21 +53,35 @@ export class TaskQueryService {
       if (!isAssignee && !isReportee) throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
     }
 
-    const counts     = await this.membersSvc.computeCounts(task.id, this.commentRepo);
-    const roleContext = await this.membersSvc.loadProjectRoleContextMap(
-      projectId,
-      [...[task.reporteeUserId].filter((v): v is string => Boolean(v)), ...(task.assignees ?? []).map((a) => a.userId)],
-    );
+    const userIds = [
+      task.reporteeUserId,
+      ...(task.assignees ?? []).map((a) => a.userId),
+    ].filter((v): v is string => Boolean(v));
 
-    return this.authSvc.toTaskSerializer(this.membersSvc.buildTaskReadModel(task, roleContext, counts));
+    // Wave 2: role context — requires assignee userIds from wave 1, so unavoidably sequential.
+    // Comment count is derived from already-loaded task.comments (no extra query).
+    const roleContext = await this.membersSvc.loadProjectRoleContextMap(projectId, userIds);
+    const commentCount = task.comments.length;
+
+    return this.authSvc.toTaskSerializer(
+      this.membersSvc.buildTaskReadModel(task, roleContext, { childCount, commentCount }),
+    );
   }
 
   async getProjectTasks(
     projectId: string,
     filters: TaskFiltersDto,
     requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
   ): Promise<FilterResponse<TaskListItemSerializer> & { meta: { projectId: string; flat: boolean } }> {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    // ── Auth ──────────────────────────────────────────────────────────────
+    //
+    // prefetchedMembership comes from ProjectPermissionGuard (already ran) via
+    // req.projectMembership, so Promise.resolve() costs zero DB queries.
+    // Without prefetching this would be 2 sequential queries (project + membership).
+    const { membership } = prefetchedMembership !== undefined
+      ? { membership: prefetchedMembership }
+      : await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
 
     const viewScope = (membership?.projectRole?.permissions?.taskManagement as any)?.viewScope ?? 'all';
     if (viewScope === 'assigned') filters = { ...filters, assignedUserId: requestUser.id };
@@ -140,28 +174,48 @@ export class TaskQueryService {
     const orderBy  = filters.orderBy && orderByAllowed.has(filters.orderBy) ? `task.${filters.orderBy}` : 'task.createdAt';
     qb.orderBy(orderBy, filters.sortOrder ?? 'DESC').skip((page - 1) * limit).take(limit);
 
+    // ── Wave 1: main paginated query ──────────────────────────────────────
     const [tasks, count] = await qb.getManyAndCount();
 
-    // ── Batch comment counts (avoids double-join when include=comments) ───
-    const commentCountMap = new Map<string, number>();
-    if (tasks.length > 0) {
-      const rows = await this.commentRepo
-        .createQueryBuilder('c')
-        .select('c.taskId', 'taskId')
-        .addSelect('COUNT(c.id)', 'cnt')
-        .where('c.taskId IN (:...ids)', { ids: tasks.map((t) => t.id) })
-        .andWhere('c.deletedAt IS NULL')
-        .groupBy('c.taskId')
-        .getRawMany<{ taskId: string; cnt: string }>();
-      for (const row of rows) commentCountMap.set(row.taskId, Number(row.cnt));
-    }
-
-    const roleContext = await this.membersSvc.loadProjectRoleContextMap(
-      projectId,
-      tasks.flatMap((t) =>
-        [t.reporteeUserId, ...(t.assignees ?? []).map((a) => a.userId)].filter((v): v is string => Boolean(v)),
-      ),
+    // ── Wave 2: comment counts + roleContext — fire in parallel ───────────
+    //
+    // Both depend only on the task list from wave 1 and are independent of each other.
+    //
+    // Comment count optimization: when include=comments, the main query already
+    // joined task.comments so the data is in-memory — derive the count for free
+    // instead of issuing a redundant GROUP BY query.
+    const taskIds = tasks.map((t) => t.id);
+    const userIds = tasks.flatMap((t) =>
+      [t.reporteeUserId, ...(t.assignees ?? []).map((a) => a.userId)].filter((v): v is string => Boolean(v)),
     );
+
+    const commentCountQuery: Promise<{ taskId: string; cnt: string }[] | null> =
+      includes.has('comments')
+        ? Promise.resolve(null)   // already in-memory — skip the DB round-trip entirely
+        : tasks.length > 0
+          ? this.commentRepo
+              .createQueryBuilder('c')
+              .select('c.taskId', 'taskId')
+              .addSelect('COUNT(c.id)', 'cnt')
+              .where('c.taskId IN (:...ids)', { ids: taskIds })
+              .andWhere('c.deletedAt IS NULL')
+              .groupBy('c.taskId')
+              .getRawMany<{ taskId: string; cnt: string }>()
+          : Promise.resolve([]);
+
+    const [commentRows, roleContext] = await Promise.all([
+      commentCountQuery,
+      this.membersSvc.loadProjectRoleContextMap(projectId, userIds),
+    ]);
+
+    // Assemble comment count map — from DB rows OR from in-memory comments
+    const commentCountMap = new Map<string, number>();
+    if (commentRows === null) {
+      // include=comments was set: counts already in-memory on task.comments
+      for (const task of tasks) commentCountMap.set(task.id, (task.comments ?? []).length);
+    } else {
+      for (const row of commentRows) commentCountMap.set(row.taskId, Number(row.cnt));
+    }
 
     return {
       items: tasks.map((task) =>

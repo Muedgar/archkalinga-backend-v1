@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -94,11 +95,18 @@ export class ProjectsController {
   @ResponseMessage(PROJECT_FETCHED)
   @UseGuards(ProjectPermissionGuard) // membership verified by service; no specific permission required
   getProject(
+    @Req() req: any,
     @Param('id', ParseUUIDPipe) id: string,
     @GetUser() user: RequestUser,
     @GetWorkspaceMember() member: WorkspaceMember,
   ) {
-    return this.projectsService.getProject(id, user, member.workspaceId, member);
+    return this.projectsService.getProject(
+      id,
+      user,
+      member.workspaceId,
+      member,
+      req.projectMembership,
+    );
   }
 
   @Patch(':id')
@@ -109,12 +117,20 @@ export class ProjectsController {
   @RequireProjectPermission('canManageProject')
   @LogActivity({ action: 'update:project', resource: 'project', includeBody: true })
   updateProject(
+    @Req() req: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateProjectDto,
     @GetUser() user: RequestUser,
     @GetWorkspaceMember() member: WorkspaceMember,
   ) {
-    return this.projectsService.updateProject(id, dto, user, member.workspaceId, member);
+    return this.projectsService.updateProject(
+      id,
+      dto,
+      user,
+      member.workspaceId,
+      member,
+      req.projectMembership,
+    );
   }
 
   @Get(':projectId/members')
@@ -124,11 +140,18 @@ export class ProjectsController {
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'view')
   listProjectMembers(
+    @Req() req: any,
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @GetUser() user: RequestUser,
     @GetWorkspaceMember() member: WorkspaceMember,
   ) {
-    return this.projectsService.listMembers(projectId, user, member.workspaceId, member);
+    return this.projectsService.listMembers(
+      projectId,
+      user,
+      member.workspaceId,
+      member,
+      req.projectMembership,
+    );
   }
 
   @Patch(':projectId/members/:memberId/role')
@@ -139,13 +162,22 @@ export class ProjectsController {
   @RequireProjectPermission('canManageProject')
   @LogActivity({ action: 'update:project-member-role', resource: 'project-membership', includeBody: true })
   updateProjectMemberRole(
+    @Req() req: any,
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('memberId', ParseUUIDPipe) memberId: string,
     @Body() dto: UpdateProjectMemberRoleDto,
     @GetUser() user: RequestUser,
     @GetWorkspaceMember() member: WorkspaceMember,
   ) {
-    return this.projectsService.updateMemberRole(projectId, memberId, dto, user, member.workspaceId, member);
+    return this.projectsService.updateMemberRole(
+      projectId,
+      memberId,
+      dto,
+      user,
+      member.workspaceId,
+      member,
+      req.projectMembership,
+    );
   }
 
   @Delete(':id')
@@ -156,10 +188,17 @@ export class ProjectsController {
   @RequireProjectPermission('canManageProject')
   @LogActivity({ action: 'delete:project', resource: 'project' })
   deleteProject(
+    @Req() req: any,
     @Param('id', ParseUUIDPipe) id: string,
     @GetUser() user: RequestUser,
     @GetWorkspaceMember() member: WorkspaceMember,
   ) {
-    return this.projectsService.deleteProject(id, user, member.workspaceId, member);
+    return this.projectsService.deleteProject(
+      id,
+      user,
+      member.workspaceId,
+      member,
+      req.projectMembership,
+    );
   }
 }

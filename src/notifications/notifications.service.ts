@@ -77,12 +77,11 @@ export class NotificationsService {
       qb.andWhere('n.is_read = :isRead', { isRead });
     }
 
-    const [notifications, count] = await qb.getManyAndCount();
-
-    // Fetch global unread count for badge (regardless of isRead filter)
-    const unreadCount = await this.notificationRepo.count({
-      where: { userId, isRead: false },
-    });
+    // Run paginated list and unread badge count concurrently
+    const [[notifications, count], unreadCount] = await Promise.all([
+      qb.getManyAndCount(),
+      this.notificationRepo.count({ where: { userId, isRead: false } }),
+    ]);
 
     return {
       items: notifications.map((n) => this.toSerializer(n)),

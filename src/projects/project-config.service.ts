@@ -150,9 +150,6 @@ export class ProjectConfigService {
       { name: 'Done',        key: 'done',         color: '#10B981', orderIndex: 3, category: StatusCategory.DONE,        isDefault: false, isTerminal: true  },
       { name: 'Blocked',     key: 'blocked',      color: '#EF4444', orderIndex: 4, category: StatusCategory.IN_PROGRESS, isDefault: false, isTerminal: false },
     ];
-    await this.statusRepo.save(
-      statusSeeds.map((s) => this.statusRepo.create({ ...s, projectId: pid, project: { pkid } as Project })),
-    );
 
     // ── Priorities ────────────────────────────────────────────────────────────
     const prioritySeeds: Partial<ProjectPriority>[] = [
@@ -161,9 +158,6 @@ export class ProjectConfigService {
       { name: 'High',   key: 'high',   color: '#EF4444', orderIndex: 2, isDefault: false },
       { name: 'Urgent', key: 'urgent', color: '#DC2626', orderIndex: 3, isDefault: false },
     ];
-    await this.priorityRepo.save(
-      prioritySeeds.map((p) => this.priorityRepo.create({ ...p, projectId: pid, project: { pkid } as Project })),
-    );
 
     // ── Severities ────────────────────────────────────────────────────────────
     const severitySeeds: Partial<ProjectSeverity>[] = [
@@ -171,9 +165,6 @@ export class ProjectConfigService {
       { name: 'Major',    key: 'major',    color: '#F59E0B', orderIndex: 1, isDefault: false },
       { name: 'Critical', key: 'critical', color: '#DC2626', orderIndex: 2, isDefault: false },
     ];
-    await this.severityRepo.save(
-      severitySeeds.map((s) => this.severityRepo.create({ ...s, projectId: pid, project: { pkid } as Project })),
-    );
 
     // ── Task Types ────────────────────────────────────────────────────────────
     const taskTypeSeeds: Partial<ProjectTaskType>[] = [
@@ -183,9 +174,22 @@ export class ProjectConfigService {
       { name: 'Story',   key: 'story',   color: '#8B5CF6', icon: null, isDefault: false, isSubtaskType: false },
       { name: 'Subtask', key: 'subtask', color: '#6B7280', icon: null, isDefault: false, isSubtaskType: true  },
     ];
-    await this.taskTypeRepo.save(
-      taskTypeSeeds.map((t) => this.taskTypeRepo.create({ ...t, projectId: pid, project: { pkid } as Project })),
-    );
+
+    // Run all four INSERT batches concurrently — they are independent tables
+    await Promise.all([
+      this.statusRepo.save(
+        statusSeeds.map((s) => this.statusRepo.create({ ...s, projectId: pid, project: { pkid } as Project })),
+      ),
+      this.priorityRepo.save(
+        prioritySeeds.map((p) => this.priorityRepo.create({ ...p, projectId: pid, project: { pkid } as Project })),
+      ),
+      this.severityRepo.save(
+        severitySeeds.map((s) => this.severityRepo.create({ ...s, projectId: pid, project: { pkid } as Project })),
+      ),
+      this.taskTypeRepo.save(
+        taskTypeSeeds.map((t) => this.taskTypeRepo.create({ ...t, projectId: pid, project: { pkid } as Project })),
+      ),
+    ]);
 
     // Labels: no defaults seeded
   }

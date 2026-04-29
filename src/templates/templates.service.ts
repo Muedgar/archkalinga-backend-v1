@@ -111,10 +111,12 @@ export class TemplatesService {
     workspaceId: string,
   ): Promise<TemplateSerializer> {
     const name = this.normalizeName(dto.name);
-    await this.ensureNameFree(name, workspaceId);
 
-    // Load workspace record to resolve the integer FK via TypeORM relation
-    const workspaceRecord = await this.workspaceRepo.findOneOrFail({ where: { id: workspaceId } });
+    // Both are independent — fire in parallel (name uniqueness check + workspace FK lookup)
+    const [, workspaceRecord] = await Promise.all([
+      this.ensureNameFree(name, workspaceId),
+      this.workspaceRepo.findOneOrFail({ where: { id: workspaceId } }),
+    ]);
 
     const saved = await this.templateRepo.manager.transaction(async (tx) => {
       if (dto.isDefault) {
@@ -131,11 +133,14 @@ export class TemplatesService {
 
       const savedTemplate = await tx.save(template);
       const tasks = this.buildTaskEntities(dto.tasks, savedTemplate);
-      await tx.save(tasks);
+      const savedTasks = await tx.save(tasks);
+      // Return the complete template with tasks already in memory — avoids a
+      // redundant SELECT after the transaction commits.
+      savedTemplate.tasks = savedTasks;
       return savedTemplate;
     });
 
-    return this.toSerializer(await this.loadOne({ id: saved.id, workspaceId }));
+    return this.toSerializer(saved);
   }
 
   async getTemplates(

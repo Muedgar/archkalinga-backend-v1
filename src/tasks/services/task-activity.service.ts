@@ -44,30 +44,33 @@ export class TaskActivityService {
     actionType: TaskActionType,
     actionMeta?: Record<string, unknown> | null,
   ): Promise<void> {
-    await manager.save(
-      manager.create(TaskActivityLog, {
-        taskId: task.id,
-        actorUser,
-        actorUserId: actorUser.id,
-        actorName:
-          [actorUser.firstName, actorUser.lastName].filter(Boolean).join(' ') ||
-          actorUser.email,
-        actionType,
-        actionMeta: actionMeta ?? {},
-      }),
-    );
+    const actorName =
+      [actorUser.firstName, actorUser.lastName].filter(Boolean).join(' ') || actorUser.email;
 
-    await manager.save(
-      manager.create(ProjectActivityLog, {
-        project: task.project,
-        projectId: task.projectId,
-        user: actorUser,
-        userId: actorUser.id,
-        taskId: task.id,
-        actionType,
-        actionMeta: actionMeta ?? {},
-      }),
-    );
+    // Save both log rows concurrently (independent inserts — no FK between them)
+    await Promise.all([
+      manager.save(
+        manager.create(TaskActivityLog, {
+          taskId: task.id,
+          actorUser,
+          actorUserId: actorUser.id,
+          actorName,
+          actionType,
+          actionMeta: actionMeta ?? {},
+        }),
+      ),
+      manager.save(
+        manager.create(ProjectActivityLog, {
+          project: task.project,
+          projectId: task.projectId,
+          user: actorUser,
+          userId: actorUser.id,
+          taskId: task.id,
+          actionType,
+          actionMeta: actionMeta ?? {},
+        }),
+      ),
+    ]);
 
     await this.outboxService.record(manager, {
       aggregateType: 'task',
@@ -80,6 +83,78 @@ export class TaskActivityService {
         ...(actionMeta ?? {}),
       },
     });
+  }
+
+  /**
+   * Batch-log multiple task activities in a single transaction pass.
+   * Each entry produces a TaskActivityLog, a ProjectActivityLog, and an outbox event.
+   * All log rows are batch-saved at the end (two INSERT ... VALUES ... statements),
+   * then outbox events are saved individually (they need separate IDs).
+   *
+   * Use this in bulk operations (e.g. bulkUpdateTasks) instead of calling log() in a loop.
+   */
+  async logBatch(
+    manager: EntityManager,
+    entries: Array<{
+      task: Pick<Task, 'id' | 'projectId' | 'project'>;
+      actorUser: User;
+      actionType: TaskActionType;
+      actionMeta?: Record<string, unknown> | null;
+    }>,
+  ): Promise<void> {
+    if (!entries.length) return;
+
+    const taskLogs: TaskActivityLog[]    = [];
+    const projectLogs: ProjectActivityLog[] = [];
+
+    for (const { task, actorUser, actionType, actionMeta } of entries) {
+      const actorName =
+        [actorUser.firstName, actorUser.lastName].filter(Boolean).join(' ') || actorUser.email;
+
+      taskLogs.push(
+        manager.create(TaskActivityLog, {
+          taskId: task.id,
+          actorUser,
+          actorUserId: actorUser.id,
+          actorName,
+          actionType,
+          actionMeta: actionMeta ?? {},
+        }),
+      );
+
+      projectLogs.push(
+        manager.create(ProjectActivityLog, {
+          project: task.project,
+          projectId: task.projectId,
+          user: actorUser,
+          userId: actorUser.id,
+          taskId: task.id,
+          actionType,
+          actionMeta: actionMeta ?? {},
+        }),
+      );
+    }
+
+    // Two batch INSERTs instead of 2N serial saves
+    await Promise.all([
+      manager.save(TaskActivityLog, taskLogs),
+      manager.save(ProjectActivityLog, projectLogs),
+    ]);
+
+    // Outbox events need individual records (each gets its own UUID/row)
+    for (const { task, actorUser, actionType, actionMeta } of entries) {
+      await this.outboxService.record(manager, {
+        aggregateType: 'task',
+        aggregateId: task.id,
+        eventType: TaskActivityService.toEventType(actionType),
+        payload: {
+          taskId: task.id,
+          projectId: task.projectId,
+          actorUserId: actorUser.id,
+          ...(actionMeta ?? {}),
+        },
+      });
+    }
   }
 
   // ── Paginated activity list for a single task ─────────────────────────────
