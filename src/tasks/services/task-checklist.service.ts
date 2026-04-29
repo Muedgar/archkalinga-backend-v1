@@ -107,11 +107,16 @@ export class TaskChecklistService {
       remaining.splice(targetIndex, 0, movingItem);
     }
 
+    // Collect all items that need updating, then batch-save in one round-trip
+    const toUpdate: TaskChecklistItem[] = [];
     for (const [index, item] of remaining.entries()) {
       if (item.orderIndex !== index) {
         item.orderIndex = index;
-        await manager.save(item);
+        toUpdate.push(item);
       }
+    }
+    if (toUpdate.length > 0) {
+      await manager.save(toUpdate);
     }
   }
 

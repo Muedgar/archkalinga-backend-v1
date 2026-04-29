@@ -76,8 +76,6 @@ export class ProjectPermissionGuard implements CanActivate {
       context.getHandler(),
     );
 
-    if (!required) return true;
-
     const request = context.switchToHttp().getRequest<{
       user?: User;
       workspaceMember?: WorkspaceMember;
@@ -93,6 +91,8 @@ export class ProjectPermissionGuard implements CanActivate {
     }
 
     const projectId = this.resolveProjectId(request);
+    if (!required && !projectId) return true;
+
     if (!projectId) {
       throw new BadRequestException(PROJECT_CONTEXT_REQUIRED);
     }
@@ -110,7 +110,16 @@ export class ProjectPermissionGuard implements CanActivate {
       throw new ForbiddenException(PROJECT_MEMBERSHIP_REQUIRED);
     }
 
+    // Attach the loaded membership to the request so downstream service methods
+    // can reuse it without issuing a redundant DB query for the same row.
+    (request as any).projectMembership = membership;
+
     const permissions = membership.projectRole?.permissions;
+
+    // Some project routes only require active membership, not a specific project
+    // permission. In that mode the guard still does useful work by attaching the
+    // membership for the service layer.
+    if (!required) return true;
 
     // ── canManageProject flag ──────────────────────────────────────────────────
     if (required.domain === 'canManageProject') {

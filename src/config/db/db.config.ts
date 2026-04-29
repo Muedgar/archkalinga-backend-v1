@@ -31,6 +31,11 @@ const username = process.env.POSTGRES_USER || process.env.PGUSER;
 const password = process.env.POSTGRES_PASSWORD || process.env.PGPASSWORD;
 const database = process.env.POSTGRES_DB || process.env.PGDATABASE;
 
+// Default pool: 20 connections. Can be overridden per-environment via
+// POSTGRES_POOL_SIZE env var. The TypeORM default of 10 is too small for
+// concurrent requests — parallel queries end up queued behind each other.
+const poolSize = Number(process.env.POSTGRES_POOL_SIZE ?? 20);
+
 export const dataSourceOptions: DataSourceOptions = dbUrl
   ? {
       type: 'postgres',
@@ -40,6 +45,7 @@ export const dataSourceOptions: DataSourceOptions = dbUrl
       synchronize: false,
       logging: false,
       ssl: isProduction ? false : { rejectUnauthorized: false },
+      poolSize,
     }
   : {
       type: 'postgres',
@@ -53,7 +59,7 @@ export const dataSourceOptions: DataSourceOptions = dbUrl
       synchronize: false,
       logging: false,
       ssl: false,
-      // poolSize: Number(process.env.POSTGRES_POOL_SIZE),
+      poolSize,
     };
 
 export const dataSource = new DataSource(

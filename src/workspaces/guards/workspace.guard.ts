@@ -59,7 +59,7 @@ export class WorkspaceGuard implements CanActivate {
 
     const member = await this.memberRepo.findOne({
       where: { workspaceId, userId },
-      relations: ['workspaceRole', 'workspace'],
+      relations: ['workspaceRole'],  // 'workspace' record is never read by the guard
     });
 
     if (!member) {

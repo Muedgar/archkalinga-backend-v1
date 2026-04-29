@@ -86,22 +86,35 @@ export class TaskRelationsService {
   ): Promise<void> {
     if (taskId === dependsOnTaskId) throw new BadRequestException(INVALID_TASK_DEPENDENCY);
 
+    // Load the entire reachable dependency graph starting from dependsOnTaskId
+    // in a single query, then traverse in memory — avoids one DB round-trip per node.
+    //
+    // Strategy: iteratively expand the frontier, querying only the IDs we haven't
+    // visited yet, so we converge to the full reachable set in at most O(depth) queries
+    // instead of O(nodes) queries.
     const visited = new Set<string>();
-    const queue = [dependsOnTaskId];
+    let frontier = [dependsOnTaskId];
 
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      if (current === taskId) throw new BadRequestException(INVALID_TASK_DEPENDENCY);
-      if (visited.has(current)) continue;
-      visited.add(current);
+    while (frontier.length > 0) {
+      // Check for cycle before loading the next layer
+      if (frontier.includes(taskId)) throw new BadRequestException(INVALID_TASK_DEPENDENCY);
 
-      const outgoing = await manager.find(TaskDependency, { where: { taskId: current } });
-      for (const edge of outgoing) {
-        if (!visited.has(edge.dependsOnTaskId)) {
-          queue.push(edge.dependsOnTaskId);
-        }
-      }
+      const unseen = frontier.filter((id) => !visited.has(id));
+      if (!unseen.length) break;
+      for (const id of unseen) visited.add(id);
+
+      // Batch-load all outgoing edges for the current frontier in one query
+      const edges = await manager.find(TaskDependency, {
+        where: { taskId: In(unseen) },
+        select: ['taskId', 'dependsOnTaskId'],
+      });
+
+      frontier = edges
+        .map((e) => e.dependsOnTaskId)
+        .filter((id) => !visited.has(id));
     }
+
+    if (frontier.includes(taskId)) throw new BadRequestException(INVALID_TASK_DEPENDENCY);
   }
 
   // ── View metadata upsert ──────────────────────────────────────────────────

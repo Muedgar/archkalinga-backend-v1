@@ -21,6 +21,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
+import { ProjectMembership } from 'src/projects/entities';
 import { User } from 'src/users/entities';
 import {
   AddChecklistItemDto,
@@ -80,15 +81,15 @@ export class TasksService {
   // ── Core task CRUD ────────────────────────────────────────────────────────
 
   async createTask(projectId: string, dto: CreateTaskDto, requestUser: RequestUser) {
-    return this.crudSvc.createTask(projectId, dto, requestUser, (p, id, u) => this.getTask(p, id, u));
+    return this.crudSvc.createTask(projectId, dto, requestUser, (p, id, u, m) => this.getTask(p, id, u, m));
   }
 
   async updateTask(projectId: string, taskId: string, dto: UpdateTaskDto, requestUser: RequestUser) {
-    return this.crudSvc.updateTask(projectId, taskId, dto, requestUser, (p, id, u) => this.getTask(p, id, u));
+    return this.crudSvc.updateTask(projectId, taskId, dto, requestUser, (p, id, u, m) => this.getTask(p, id, u, m));
   }
 
   async moveTask(projectId: string, taskId: string, dto: MoveTaskDto, requestUser: RequestUser) {
-    return this.crudSvc.moveTask(projectId, taskId, dto, requestUser, (p, id, u) => this.getTask(p, id, u));
+    return this.crudSvc.moveTask(projectId, taskId, dto, requestUser, (p, id, u, m) => this.getTask(p, id, u, m));
   }
 
   async bulkUpdateTasks(projectId: string, dto: BulkUpdateTasksDto, requestUser: RequestUser) {
@@ -101,12 +102,22 @@ export class TasksService {
 
   // ── Task retrieval ────────────────────────────────────────────────────────
 
-  async getTask(projectId: string, taskId: string, requestUser: RequestUser) {
-    return this.querySvc.getTask(projectId, taskId, requestUser);
+  async getTask(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    return this.querySvc.getTask(projectId, taskId, requestUser, prefetchedMembership);
   }
 
-  async getProjectTasks(projectId: string, filters: TaskFiltersDto, requestUser: RequestUser) {
-    return this.querySvc.getProjectTasks(projectId, filters, requestUser);
+  async getProjectTasks(
+    projectId: string,
+    filters: TaskFiltersDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    return this.querySvc.getProjectTasks(projectId, filters, requestUser, prefetchedMembership);
   }
 
   async findOneOrFail(taskId: string, projectId: string): Promise<Task> {

@@ -301,6 +301,50 @@ export class TaskMembersService {
     return { childCount, commentCount };
   }
 
+  /**
+   * Batch version of computeCounts — fetches child counts and comment counts
+   * for multiple tasks in exactly 2 queries (GROUP BY), regardless of how many
+   * task IDs are provided. Use this instead of calling computeCounts() in a loop.
+   */
+  async computeBatchCounts(
+    taskIds: string[],
+    taskCommentRepo: Repository<import('../entities').TaskComment>,
+  ): Promise<Map<string, TaskCounts>> {
+    if (!taskIds.length) return new Map();
+
+    const [childRows, commentRows] = await Promise.all([
+      this.taskRepo
+        .createQueryBuilder('t')
+        .select('t.parentTaskId', 'parentTaskId')
+        .addSelect('COUNT(t.id)', 'cnt')
+        .where('t.parentTaskId IN (:...ids)', { ids: taskIds })
+        .andWhere('t.deletedAt IS NULL')
+        .groupBy('t.parentTaskId')
+        .getRawMany<{ parentTaskId: string; cnt: string }>(),
+
+      taskCommentRepo
+        .createQueryBuilder('c')
+        .select('c.taskId', 'taskId')
+        .addSelect('COUNT(c.id)', 'cnt')
+        .where('c.taskId IN (:...ids)', { ids: taskIds })
+        .andWhere('c.deletedAt IS NULL')
+        .groupBy('c.taskId')
+        .getRawMany<{ taskId: string; cnt: string }>(),
+    ]);
+
+    const childCountMap   = new Map(childRows.map((r)   => [r.parentTaskId, Number(r.cnt)]));
+    const commentCountMap = new Map(commentRows.map((r) => [r.taskId,       Number(r.cnt)]));
+
+    const result = new Map<string, TaskCounts>();
+    for (const id of taskIds) {
+      result.set(id, {
+        childCount:   childCountMap.get(id)   ?? 0,
+        commentCount: commentCountMap.get(id) ?? 0,
+      });
+    }
+    return result;
+  }
+
   // ── Watchers ──────────────────────────────────────────────────────────────
 
   async listWatchers(taskId: string): Promise<TaskWatcherDetailSerializer[]> {

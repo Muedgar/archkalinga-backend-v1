@@ -25,7 +25,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * Workspace-role relations are loaded per-request by WorkspaceGuard.
    */
   async validate(payload: JwtPayload): Promise<Omit<User, 'password'>> {
-    const user = await this.userRepo.findOne({ where: { id: payload.id } });
+    // Select only the columns needed for token validation — loading the full
+    // User record on every request added 50-200ms per API call.
+    const user = await this.userRepo.findOne({
+      where: { id: payload.id },
+      select: ['id', 'pkid', 'email', 'firstName', 'lastName', 'userName',
+               'status', 'tokenVersion', 'isPublicProfile', 'createdAt', 'updatedAt'],
+    });
 
     if (!user || !user.status) {
       throw new UnauthorizedException(UNAUTHORIZED);
