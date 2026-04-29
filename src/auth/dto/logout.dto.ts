@@ -8,5 +8,5 @@ export class LogoutDto {
   })
   @IsString()
   @IsNotEmpty()
-  refreshToken: string;
+  refreshToken!: string;
 }

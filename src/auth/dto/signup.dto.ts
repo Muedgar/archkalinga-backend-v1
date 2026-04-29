@@ -21,25 +21,25 @@ export class SignupDto {
   @ApiProperty({ example: 'John' })
   @IsString()
   @IsNotEmpty()
-  firstName: string;
+  firstName!: string;
 
   @ApiProperty({ example: 'Doe' })
   @IsString()
   @IsNotEmpty()
-  lastName: string;
+  lastName!: string;
 
   @ApiProperty({ example: 'jdoe' })
   @IsString()
   @IsNotEmpty()
-  userName: string;
+  userName!: string;
 
   @ApiProperty({ example: 'john@example.com' })
   @IsEmail()
-  email: string;
+  email!: string;
 
   @ApiProperty({ example: 'Secret123!' })
   @IsStrongPassword({ minLength: 8 })
-  password: string;
+  password!: string;
 
   @ApiPropertyOptional({ example: 'Senior Architect' })
   @IsOptional()
@@ -53,9 +53,11 @@ export class SignupDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
-  workspaceName: string;
+  workspaceName!: string;
 
-  @ApiPropertyOptional({ example: 'Architecture and design firm based in Kigali' })
+  @ApiPropertyOptional({
+    example: 'Architecture and design firm based in Kigali',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(500)

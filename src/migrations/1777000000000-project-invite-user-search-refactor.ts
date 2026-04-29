@@ -41,20 +41,22 @@ export class ProjectInviteUserSearchRefactor1777000000000
     `);
 
     // ── 3. project_invites: drop task-context columns ─────────────────────────
+    //    NOTE: migration 1776 created these with camelCase identifiers, so the
+    //    DROP statements must quote them in camelCase to match.
     await queryRunner.query(`
       ALTER TABLE "project_invites"
-        DROP COLUMN IF EXISTS "task_id",
-        DROP COLUMN IF EXISTS "subtask_id",
-        DROP COLUMN IF EXISTS "target_type",
-        DROP COLUMN IF EXISTS "target_name",
-        DROP COLUMN IF EXISTS "auto_assign_on_accept",
-        DROP COLUMN IF EXISTS "project_name"
+        DROP COLUMN IF EXISTS "taskId",
+        DROP COLUMN IF EXISTS "subtaskId",
+        DROP COLUMN IF EXISTS "targetType",
+        DROP COLUMN IF EXISTS "targetName",
+        DROP COLUMN IF EXISTS "autoAssignOnAccept",
+        DROP COLUMN IF EXISTS "projectName"
     `);
 
-    // ── 4. project_invites: drop invitee_email ────────────────────────────────
+    // ── 4. project_invites: drop inviteeEmail ─────────────────────────────────
     await queryRunner.query(`
       ALTER TABLE "project_invites"
-        DROP COLUMN IF EXISTS "invitee_email"
+        DROP COLUMN IF EXISTS "inviteeEmail"
     `);
 
     // ── 5. project_invites: make invitee_user_id NOT NULL ─────────────────────
@@ -73,8 +75,10 @@ export class ProjectInviteUserSearchRefactor1777000000000
     `);
 
     // ── 7. project_invites: drop InviteTargetType enum if it exists ───────────
+    //    Migration 1776 named the enum "project_invites_targettype_enum" (no
+    //    underscore between "target" and "type"), so match that here.
     await queryRunner.query(`
-      DROP TYPE IF EXISTS "project_invites_target_type_enum" CASCADE
+      DROP TYPE IF EXISTS "project_invites_targettype_enum" CASCADE
     `);
   }
 
@@ -90,26 +94,26 @@ export class ProjectInviteUserSearchRefactor1777000000000
         ALTER COLUMN "invitee_user_id" DROP NOT NULL
     `);
 
-    // Restore invitee_email
+    // Restore inviteeEmail (matches camelCase identifier from migration 1776)
     await queryRunner.query(`
       ALTER TABLE "project_invites"
-        ADD COLUMN "invitee_email" varchar(100) NOT NULL DEFAULT ''
+        ADD COLUMN "inviteeEmail" varchar(100) NOT NULL DEFAULT ''
     `);
 
-    // Restore task-context columns
+    // Restore task-context columns (camelCase to match migration 1776)
     await queryRunner.query(`
-      CREATE TYPE "project_invites_target_type_enum"
+      CREATE TYPE "project_invites_targettype_enum"
         AS ENUM ('project', 'task', 'subtask')
     `);
     await queryRunner.query(`
       ALTER TABLE "project_invites"
-        ADD COLUMN "task_id"              uuid          DEFAULT NULL,
-        ADD COLUMN "subtask_id"           uuid          DEFAULT NULL,
-        ADD COLUMN "target_type"          "project_invites_target_type_enum"
-                                          NOT NULL DEFAULT 'project',
-        ADD COLUMN "target_name"          varchar(200)  DEFAULT NULL,
-        ADD COLUMN "auto_assign_on_accept" boolean      NOT NULL DEFAULT false,
-        ADD COLUMN "project_name"         varchar(200)  DEFAULT NULL
+        ADD COLUMN "taskId"             uuid          DEFAULT NULL,
+        ADD COLUMN "subtaskId"          uuid          DEFAULT NULL,
+        ADD COLUMN "targetType"         "project_invites_targettype_enum"
+                                        NOT NULL DEFAULT 'project',
+        ADD COLUMN "targetName"         varchar(200)  DEFAULT NULL,
+        ADD COLUMN "autoAssignOnAccept" boolean       NOT NULL DEFAULT false,
+        ADD COLUMN "projectName"        varchar(200)  DEFAULT NULL
     `);
 
     // Remove public profile columns

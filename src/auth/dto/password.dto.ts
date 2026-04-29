@@ -12,7 +12,7 @@ import { Match } from '../decorators';
 export class RequestResetPasswordDto {
   @ApiProperty()
   @IsEmail()
-  email: string;
+  email!: string;
 }
 
 export class ResetPasswordDto {
@@ -23,20 +23,20 @@ export class ResetPasswordDto {
   })
   @IsNotEmpty()
   @IsString()
-  password: string;
+  password!: string;
 
   @ApiProperty()
   @Match('password', { message: 'Passwords do not match' })
   @IsNotEmpty()
   @IsString()
-  confirmPassword: string;
+  confirmPassword!: string;
 }
 
 export class ChangePasswordDto {
   @ApiProperty()
   @IsNotEmpty()
   @IsString()
-  currentPassword: string;
+  currentPassword!: string;
 
   @ApiProperty()
   @MinLength(12, { message: 'Password must be at least 12 characters' })
@@ -45,11 +45,11 @@ export class ChangePasswordDto {
   })
   @IsNotEmpty()
   @IsString()
-  newPassword: string;
+  newPassword!: string;
 
   @ApiProperty()
   @Match('newPassword', { message: 'Passwords do not match' })
   @IsNotEmpty()
   @IsString()
-  confirmPassword: string;
+  confirmPassword!: string;
 }

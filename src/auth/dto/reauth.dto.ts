@@ -9,5 +9,5 @@ export class ReauthDto {
   })
   @IsString()
   @IsNotEmpty()
-  currentPassword: string;
+  currentPassword!: string;
 }
