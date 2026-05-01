@@ -10,14 +10,14 @@ export class TaskLabel extends AppBaseEntity {
     nullable: false,
     onDelete: 'CASCADE',
   })
-  @JoinColumn({ name: 'task_id' })
+  @JoinColumn({ name: 'taskId', referencedColumnName: 'id' })
   task: Task;
 
   @Column({ type: 'uuid', nullable: false })
   taskId: string;
 
   @ManyToOne(() => ProjectLabel, { nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'label_id' })
+  @JoinColumn({ name: 'labelId', referencedColumnName: 'id' })
   label: ProjectLabel;
 
   @Column({ type: 'uuid', nullable: false })
