@@ -347,6 +347,11 @@ export class ProjectConfigTables1779000000000 implements MigrationInterface {
     `);
 
     // ── task_labels join table ────────────────────────────────────────────────
+    //    Uses uuid FKs (taskId → tasks(id), labelId → project_labels(id)) as
+    //    the single source of truth — the older dual-column design that also
+    //    carried integer task_id/label_id columns has been removed because
+    //    the entity only declares the uuid side, leaving the integer FKs
+    //    unpopulated and tripping NOT NULL on insert.
     await queryRunner.query(`
       CREATE TABLE "task_labels" (
         "pkid"        SERIAL    NOT NULL,
@@ -356,15 +361,13 @@ export class ProjectConfigTables1779000000000 implements MigrationInterface {
         "updatedAt"   TIMESTAMP NOT NULL DEFAULT now(),
         "taskId"      uuid      NOT NULL,
         "labelId"     uuid      NOT NULL,
-        "task_id"     integer   NOT NULL,
-        "label_id"    integer   NOT NULL,
-        CONSTRAINT "UQ_task_labels_id"        UNIQUE ("id"),
-        CONSTRAINT "UQ_task_labels_task_label" UNIQUE ("task_id", "label_id"),
-        CONSTRAINT "PK_task_labels"           PRIMARY KEY ("pkid"),
-        CONSTRAINT "FK_task_labels_task"      FOREIGN KEY ("task_id")
-          REFERENCES "tasks"("pkid") ON DELETE CASCADE,
-        CONSTRAINT "FK_task_labels_label"     FOREIGN KEY ("label_id")
-          REFERENCES "project_labels"("pkid") ON DELETE CASCADE
+        CONSTRAINT "UQ_task_labels_id"          UNIQUE ("id"),
+        CONSTRAINT "UQ_task_labels_task_label"  UNIQUE ("taskId", "labelId"),
+        CONSTRAINT "PK_task_labels"             PRIMARY KEY ("pkid"),
+        CONSTRAINT "FK_task_labels_task"        FOREIGN KEY ("taskId")
+          REFERENCES "tasks"("id") ON DELETE CASCADE,
+        CONSTRAINT "FK_task_labels_label"       FOREIGN KEY ("labelId")
+          REFERENCES "project_labels"("id") ON DELETE CASCADE
       )
     `);
   }
