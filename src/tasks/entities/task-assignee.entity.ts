@@ -31,10 +31,6 @@ export class TaskAssignee extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: true })
   projectRoleId: string | null;
 
-  @Column({
-    type: 'enum',
-    enum: AssignmentRole,
-    default: AssignmentRole.ASSIGNEE,
-  })
+  @Column({ type: 'varchar', length: 50, default: AssignmentRole.ASSIGNEE })
   assignmentRole: AssignmentRole;
 }

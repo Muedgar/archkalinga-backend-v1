@@ -16,7 +16,7 @@ export class TaskComment extends AppBaseEntity {
   taskId: string;
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'author_id' })
+  @JoinColumn({ name: 'author_user_id' })
   authorUser: User;
 
   @Column({ name: 'authorUserId', type: 'uuid', nullable: false })

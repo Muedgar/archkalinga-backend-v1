@@ -51,6 +51,7 @@ export class TaskActivityService {
     await Promise.all([
       manager.save(
         manager.create(TaskActivityLog, {
+          projectId: task.projectId,
           taskId: task.id,
           actorUser,
           actorUserId: actorUser.id,
@@ -113,6 +114,7 @@ export class TaskActivityService {
 
       taskLogs.push(
         manager.create(TaskActivityLog, {
+          projectId: task.projectId,
           taskId: task.id,
           actorUser,
           actorUserId: actorUser.id,

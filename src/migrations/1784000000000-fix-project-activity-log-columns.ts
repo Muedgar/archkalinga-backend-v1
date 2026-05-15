@@ -21,20 +21,29 @@ export class FixProjectActivityLogColumns1784000000000
   name = 'FixProjectActivityLogColumns1784000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    const table = await queryRunner.getTable('project_activity_logs');
+    const hasMetadata = table?.findColumnByName('metadata');
+    const hasActionMeta = table?.findColumnByName('actionMeta');
+    const actionType = table?.findColumnByName('actionType');
+
     // 1. Rename metadata → actionMeta
-    await queryRunner.query(`
-      ALTER TABLE "project_activity_logs"
-        RENAME COLUMN "metadata" TO "actionMeta"
-    `);
+    if (hasMetadata && !hasActionMeta) {
+      await queryRunner.query(`
+        ALTER TABLE "project_activity_logs"
+          RENAME COLUMN "metadata" TO "actionMeta"
+      `);
+    }
 
     // 2. Convert actionType from ENUM to varchar(100)
     //    USING casts the existing enum values to text.
-    await queryRunner.query(`
-      ALTER TABLE "project_activity_logs"
-        ALTER COLUMN "actionType"
-        TYPE varchar(100)
-        USING "actionType"::text
-    `);
+    if (actionType?.type !== 'character varying' && actionType?.type !== 'varchar') {
+      await queryRunner.query(`
+        ALTER TABLE "project_activity_logs"
+          ALTER COLUMN "actionType"
+          TYPE varchar(100)
+          USING "actionType"::text
+      `);
+    }
 
     // 3. Drop the now-unused enum type (best-effort — ignore if already gone)
     await queryRunner.query(`
