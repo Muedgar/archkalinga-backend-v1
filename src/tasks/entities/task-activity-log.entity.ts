@@ -19,21 +19,24 @@ export enum TaskActionType {
 @Entity('task_activity_logs')
 export class TaskActivityLog extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
+  projectId: string;
+
+  @Column({ type: 'uuid', nullable: false })
   taskId: string;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({ name: 'actor_user_id' })
   actorUser: User | null;
 
-  @Column({ name: 'userId', type: 'uuid', nullable: true })
+  @Column({ name: 'actorUserId', type: 'uuid', nullable: true })
   actorUserId: string | null;
 
   @Column({ name: 'actorName', type: 'varchar', length: 200, nullable: true })
   actorName: string | null;
 
-  @Column({ type: 'enum', enum: TaskActionType, nullable: false })
+  @Column({ type: 'varchar', length: 100, nullable: false })
   actionType: TaskActionType;
 
-  @Column({ name: 'metadata', type: 'jsonb', nullable: true, default: {} })
+  @Column({ name: 'actionMeta', type: 'jsonb', nullable: true, default: {} })
   actionMeta: Record<string, unknown> | null;
 }

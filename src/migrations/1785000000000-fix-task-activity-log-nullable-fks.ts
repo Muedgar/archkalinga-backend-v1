@@ -24,18 +24,26 @@ export class FixTaskActivityLogNullableFks1785000000000
   name = 'FixTaskActivityLogNullableFks1785000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    const table = await queryRunner.getTable('task_activity_logs');
+
     // Drop the NOT NULL constraint on task_id in task_activity_logs
-    await queryRunner.query(`
-      ALTER TABLE "task_activity_logs"
-        ALTER COLUMN "task_id" DROP NOT NULL
-    `);
+    if (table?.findColumnByName('task_id')) {
+      await queryRunner.query(`
+        ALTER TABLE "task_activity_logs"
+          ALTER COLUMN "task_id" DROP NOT NULL
+      `);
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    const table = await queryRunner.getTable('task_activity_logs');
+
     // Restore NOT NULL — will fail if any rows have task_id = NULL
-    await queryRunner.query(`
-      ALTER TABLE "task_activity_logs"
-        ALTER COLUMN "task_id" SET NOT NULL
-    `);
+    if (table?.findColumnByName('task_id')) {
+      await queryRunner.query(`
+        ALTER TABLE "task_activity_logs"
+          ALTER COLUMN "task_id" SET NOT NULL
+      `);
+    }
   }
 }

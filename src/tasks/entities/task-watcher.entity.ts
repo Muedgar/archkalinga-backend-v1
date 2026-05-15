@@ -13,13 +13,13 @@ export class TaskWatcher extends AppBaseEntity {
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
-  @Column({ name: 'task_id', type: 'uuid', nullable: false })
+  @Column({ type: 'uuid', nullable: false })
   taskId: string;
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column({ name: 'user_id', type: 'uuid', nullable: false })
+  @Column({ type: 'uuid', nullable: false })
   userId: string;
 }

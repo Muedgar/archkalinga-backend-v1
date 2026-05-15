@@ -12,13 +12,13 @@ export class TaskChecklist extends AppBaseEntity {
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
-  @Column({ name: 'task_id', type: 'uuid', nullable: false })
+  @Column({ type: 'uuid', nullable: false })
   taskId: string;
 
   @Column({ type: 'varchar', length: 255, nullable: false })
   title: string;
 
-  @Column({ name: 'order_index', type: 'int', default: 0 })
+  @Column({ type: 'int', default: 0 })
   orderIndex: number;
 
   @OneToMany(() => TaskChecklistItem, (item) => item.checklistGroup)

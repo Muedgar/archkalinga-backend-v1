@@ -19,7 +19,7 @@ export class TaskRelation extends AppBaseEntity {
   @JoinColumn({ name: 'task_id' })
   task: Task;
 
-  @Column({ name: 'task_id', type: 'uuid', nullable: false })
+  @Column({ type: 'uuid', nullable: false })
   taskId: string;
 
   @ManyToOne(() => Task, (task) => task.incomingRelations, {
@@ -29,11 +29,10 @@ export class TaskRelation extends AppBaseEntity {
   @JoinColumn({ name: 'related_task_id' })
   relatedTask: Task;
 
-  @Column({ name: 'related_task_id', type: 'uuid', nullable: false })
+  @Column({ type: 'uuid', nullable: false })
   relatedTaskId: string;
 
   @Column({
-    name: 'relation_type',
     type: 'enum',
     enum: RelationType,
     default: RelationType.RELATES_TO,
