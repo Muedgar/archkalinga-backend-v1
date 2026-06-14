@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
@@ -13,7 +17,12 @@ import {
   TaskViewMetadata,
   ViewType,
 } from '../entities';
-import { AddDependencyDto, AddRelationDto, CreateTaskDto } from '../dtos';
+import {
+  AddDependencyDto,
+  AddRelationDto,
+  CreateTaskDto,
+  UpdateDependencyDto,
+} from '../dtos';
 import {
   INVALID_TASK_DEPENDENCY,
   INVALID_TASK_RELATION,
@@ -44,23 +53,39 @@ export class TaskRelationsService {
 
   // ── Serializers ───────────────────────────────────────────────────────────
 
-  private serializeDependency(dep: Partial<TaskDependency>): TaskDependencyDetailSerializer {
-    return plainToInstance(TaskDependencyDetailSerializer, dep, { excludeExtraneousValues: true });
+  private serializeDependency(
+    dep: Partial<TaskDependency>,
+  ): TaskDependencyDetailSerializer {
+    return plainToInstance(TaskDependencyDetailSerializer, dep, {
+      excludeExtraneousValues: true,
+    });
   }
 
-  private serializeRelation(rel: Partial<TaskRelation>): TaskRelationDetailSerializer {
-    return plainToInstance(TaskRelationDetailSerializer, rel, { excludeExtraneousValues: true });
+  private serializeRelation(
+    rel: Partial<TaskRelation>,
+  ): TaskRelationDetailSerializer {
+    return plainToInstance(TaskRelationDetailSerializer, rel, {
+      excludeExtraneousValues: true,
+    });
   }
 
   // ── Private loaders ───────────────────────────────────────────────────────
 
-  async getDependencyOrFail(taskId: string, depId: string): Promise<TaskDependency> {
-    const dep = await this.dependencyRepo.findOne({ where: { id: depId, taskId } });
+  async getDependencyOrFail(
+    taskId: string,
+    depId: string,
+  ): Promise<TaskDependency> {
+    const dep = await this.dependencyRepo.findOne({
+      where: { id: depId, taskId },
+    });
     if (!dep) throw new NotFoundException(TASK_DEPENDENCY_NOT_FOUND);
     return dep;
   }
 
-  async getRelationOrFail(taskId: string, relationId: string): Promise<TaskRelation> {
+  async getRelationOrFail(
+    taskId: string,
+    relationId: string,
+  ): Promise<TaskRelation> {
     const r = await this.taskRelationRepo.findOne({
       where: { id: relationId, taskId },
       relations: ['relatedTask'],
@@ -84,7 +109,8 @@ export class TaskRelationsService {
     taskId: string,
     dependsOnTaskId: string,
   ): Promise<void> {
-    if (taskId === dependsOnTaskId) throw new BadRequestException(INVALID_TASK_DEPENDENCY);
+    if (taskId === dependsOnTaskId)
+      throw new BadRequestException(INVALID_TASK_DEPENDENCY);
 
     // Load the entire reachable dependency graph starting from dependsOnTaskId
     // in a single query, then traverse in memory — avoids one DB round-trip per node.
@@ -97,7 +123,8 @@ export class TaskRelationsService {
 
     while (frontier.length > 0) {
       // Check for cycle before loading the next layer
-      if (frontier.includes(taskId)) throw new BadRequestException(INVALID_TASK_DEPENDENCY);
+      if (frontier.includes(taskId))
+        throw new BadRequestException(INVALID_TASK_DEPENDENCY);
 
       const unseen = frontier.filter((id) => !visited.has(id));
       if (!unseen.length) break;
@@ -114,7 +141,8 @@ export class TaskRelationsService {
         .filter((id) => !visited.has(id));
     }
 
-    if (frontier.includes(taskId)) throw new BadRequestException(INVALID_TASK_DEPENDENCY);
+    if (frontier.includes(taskId))
+      throw new BadRequestException(INVALID_TASK_DEPENDENCY);
   }
 
   // ── View metadata upsert ──────────────────────────────────────────────────
@@ -126,9 +154,20 @@ export class TaskRelationsService {
   ): Promise<void> {
     if (!viewMeta) return;
 
-    const pairs: Array<{ viewType: ViewType; metaJson: Record<string, unknown> }> = [];
-    if (viewMeta.mindmap) pairs.push({ viewType: ViewType.MINDMAP, metaJson: viewMeta.mindmap as Record<string, unknown> });
-    if (viewMeta.gantt)   pairs.push({ viewType: ViewType.GANTT,   metaJson: viewMeta.gantt   as Record<string, unknown> });
+    const pairs: Array<{
+      viewType: ViewType;
+      metaJson: Record<string, unknown>;
+    }> = [];
+    if (viewMeta.mindmap)
+      pairs.push({
+        viewType: ViewType.MINDMAP,
+        metaJson: viewMeta.mindmap as Record<string, unknown>,
+      });
+    if (viewMeta.gantt)
+      pairs.push({
+        viewType: ViewType.GANTT,
+        metaJson: viewMeta.gantt as Record<string, unknown>,
+      });
 
     for (const pair of pairs) {
       const existing = await manager.findOne(TaskViewMetadata, {
@@ -152,7 +191,10 @@ export class TaskRelationsService {
 
   // ── Dependency validation helper (bulk) ───────────────────────────────────
 
-  async ensureDependencyTasks(projectId: string, taskIds: string[]): Promise<Task[]> {
+  async ensureDependencyTasks(
+    projectId: string,
+    taskIds: string[],
+  ): Promise<Task[]> {
     if (!taskIds.length) return [];
 
     const tasks = await this.taskRepo.find({
@@ -169,7 +211,9 @@ export class TaskRelationsService {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  async listDependencies(taskId: string): Promise<TaskDependencyDetailSerializer[]> {
+  async listDependencies(
+    taskId: string,
+  ): Promise<TaskDependencyDetailSerializer[]> {
     const deps = await this.dependencyRepo.find({
       where: { taskId },
       relations: ['dependsOnTask'],
@@ -184,7 +228,10 @@ export class TaskRelationsService {
     dto: AddDependencyDto,
     projectId: string,
   ): Promise<TaskDependencyDetailSerializer> {
-    const dependencyTask = await this.findTaskOrFail(dto.dependsOnTaskId, projectId);
+    const dependencyTask = await this.findTaskOrFail(
+      dto.dependsOnTaskId,
+      projectId,
+    );
 
     return this.dependencyRepo.manager.transaction(async (tx) => {
       const existing = await tx.findOne(TaskDependency, {
@@ -206,13 +253,81 @@ export class TaskRelationsService {
         }),
       );
 
-      await this.activitySvc.log(tx, task, actorUser, TaskActionType.DEPENDENCY_ADDED, {
-        dependencyId: dep.id,
-        dependsOnTaskId: dep.dependsOnTaskId,
-        operation: 'dependency_added',
-      });
+      await this.activitySvc.log(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.DEPENDENCY_ADDED,
+        {
+          dependencyId: dep.id,
+          dependsOnTaskId: dep.dependsOnTaskId,
+          operation: 'dependency_added',
+        },
+      );
 
-      return this.serializeDependency({ ...dep, dependsOnTask: dependencyTask });
+      return this.serializeDependency({
+        ...dep,
+        dependsOnTask: dependencyTask,
+      });
+    });
+  }
+
+  async updateDependency(
+    task: Task,
+    depId: string,
+    actorUser: User,
+    dto: UpdateDependencyDto & { dependsOnTaskId?: string },
+    projectId: string,
+  ): Promise<TaskDependencyDetailSerializer> {
+    const existing = await this.getDependencyOrFail(task.id, depId);
+    const nextDependsOnTaskId = dto.dependsOnTaskId ?? existing.dependsOnTaskId;
+    const dependencyTask = await this.findTaskOrFail(
+      nextDependsOnTaskId,
+      projectId,
+    );
+
+    return this.dependencyRepo.manager.transaction(async (tx) => {
+      if (nextDependsOnTaskId !== existing.dependsOnTaskId) {
+        const duplicate = await tx.findOne(TaskDependency, {
+          where: {
+            taskId: task.id,
+            dependsOnTaskId: nextDependsOnTaskId,
+          },
+        });
+        if (duplicate && duplicate.id !== existing.id) {
+          throw new BadRequestException(INVALID_TASK_DEPENDENCY);
+        }
+        await this.ensureNoDependencyCycle(tx, task.id, nextDependsOnTaskId);
+        existing.dependsOnTaskId = nextDependsOnTaskId;
+        existing.dependsOnTask = dependencyTask;
+      }
+
+      if (dto.dependencyType !== undefined) {
+        existing.dependencyType = dto.dependencyType;
+      }
+      if (dto.lagDays !== undefined) {
+        existing.lagDays = dto.lagDays ?? null;
+      }
+
+      const saved = await tx.save(TaskDependency, existing);
+      await this.activitySvc.log(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_UPDATED,
+        {
+          dependencyId: saved.id,
+          dependsOnTaskId: saved.dependsOnTaskId,
+          dependencyType: saved.dependencyType,
+          lagDays: saved.lagDays,
+          operation: 'dependency_updated',
+        },
+      );
+
+      return this.serializeDependency({
+        ...saved,
+        dependsOnTask: dependencyTask,
+      });
     });
   }
 
@@ -225,10 +340,16 @@ export class TaskRelationsService {
 
     await this.dependencyRepo.manager.transaction(async (tx) => {
       await tx.remove(dep);
-      await this.activitySvc.log(tx, task, actorUser, TaskActionType.DEPENDENCY_REMOVED, {
-        dependencyId: depId,
-        dependsOnTaskId: dep.dependsOnTaskId,
-      });
+      await this.activitySvc.log(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.DEPENDENCY_REMOVED,
+        {
+          dependencyId: depId,
+          dependsOnTaskId: dep.dependsOnTaskId,
+        },
+      );
     });
 
     return { id: depId, success: true };
@@ -236,11 +357,22 @@ export class TaskRelationsService {
 
   async listRelations(taskId: string): Promise<TaskRelationDetailSerializer[]> {
     const [outgoing, incoming] = await Promise.all([
-      this.taskRelationRepo.find({ where: { taskId }, relations: ['relatedTask'], order: { createdAt: 'ASC' } }),
-      this.taskRelationRepo.find({ where: { relatedTaskId: taskId }, relations: ['task'], order: { createdAt: 'ASC' } }),
+      this.taskRelationRepo.find({
+        where: { taskId },
+        relations: ['relatedTask'],
+        order: { createdAt: 'ASC' },
+      }),
+      this.taskRelationRepo.find({
+        where: { relatedTaskId: taskId },
+        relations: ['task'],
+        order: { createdAt: 'ASC' },
+      }),
     ]);
 
-    const outgoingView = outgoing.map((r) => ({ ...r, direction: 'outgoing' as const }));
+    const outgoingView = outgoing.map((r) => ({
+      ...r,
+      direction: 'outgoing' as const,
+    }));
     const incomingView = incoming.map((r) => ({
       ...r,
       taskId: r.relatedTaskId,
@@ -249,7 +381,9 @@ export class TaskRelationsService {
       direction: 'incoming' as const,
     }));
 
-    return [...outgoingView, ...incomingView].map((r) => this.serializeRelation(r));
+    return [...outgoingView, ...incomingView].map((r) =>
+      this.serializeRelation(r),
+    );
   }
 
   async addRelation(
@@ -257,7 +391,8 @@ export class TaskRelationsService {
     dto: AddRelationDto,
     projectId: string,
   ): Promise<TaskRelationDetailSerializer> {
-    if (dto.relatedTaskId === task.id) throw new BadRequestException(TASK_RELATION_SELF);
+    if (dto.relatedTaskId === task.id)
+      throw new BadRequestException(TASK_RELATION_SELF);
 
     const relatedTask = await this.taskRepo.findOne({
       where: { id: dto.relatedTaskId, projectId, deletedAt: IsNull() },
@@ -285,7 +420,10 @@ export class TaskRelationsService {
     return this.serializeRelation({ ...relation, relatedTask });
   }
 
-  async deleteRelation(taskId: string, relationId: string): Promise<{ id: string; success: true }> {
+  async deleteRelation(
+    taskId: string,
+    relationId: string,
+  ): Promise<{ id: string; success: true }> {
     const relation = await this.getRelationOrFail(taskId, relationId);
     await this.taskRelationRepo.remove(relation);
     return { id: relationId, success: true };

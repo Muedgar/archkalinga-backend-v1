@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
@@ -40,17 +44,27 @@ export class TaskQueryService {
     // Net effect: the entire task fetch + child count completes in ONE DB round-trip wave.
     const [{ membership }, task, childCount] = await Promise.all([
       prefetchedMembership !== undefined
-        ? Promise.resolve({ project: null as any, membership: prefetchedMembership })
+        ? Promise.resolve({
+            project: null as any,
+            membership: prefetchedMembership,
+          })
         : this.authSvc.verifyProjectPermission(projectId, requestUser, 'view'),
       this.authSvc.loadTaskOrFail(taskId, projectId),
-      this.taskRepo.count({ where: { parentTaskId: taskId, deletedAt: IsNull() } }),
+      this.taskRepo.count({
+        where: { parentTaskId: taskId, deletedAt: IsNull() },
+      }),
     ]);
 
-    const viewScope = (membership?.projectRole?.permissions?.taskManagement as any)?.viewScope ?? 'all';
+    const viewScope =
+      (membership?.projectRole?.permissions?.taskManagement as any)
+        ?.viewScope ?? 'all';
     if (viewScope === 'assigned') {
-      const isAssignee = (task.assignees ?? []).some((a) => a.userId === requestUser.id);
+      const isAssignee = (task.assignees ?? []).some(
+        (a) => a.userId === requestUser.id,
+      );
       const isReportee = task.reporteeUserId === requestUser.id;
-      if (!isAssignee && !isReportee) throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
+      if (!isAssignee && !isReportee)
+        throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
     }
 
     const userIds = [
@@ -60,11 +74,17 @@ export class TaskQueryService {
 
     // Wave 2: role context — requires assignee userIds from wave 1, so unavoidably sequential.
     // Comment count is derived from already-loaded task.comments (no extra query).
-    const roleContext = await this.membersSvc.loadProjectRoleContextMap(projectId, userIds);
+    const roleContext = await this.membersSvc.loadProjectRoleContextMap(
+      projectId,
+      userIds,
+    );
     const commentCount = task.comments.length;
 
     return this.authSvc.toTaskSerializer(
-      this.membersSvc.buildTaskReadModel(task, roleContext, { childCount, commentCount }),
+      this.membersSvc.buildTaskReadModel(task, roleContext, {
+        childCount,
+        commentCount,
+      }),
     );
   }
 
@@ -73,37 +93,70 @@ export class TaskQueryService {
     filters: TaskFiltersDto,
     requestUser: RequestUser,
     prefetchedMembership?: ProjectMembership | null,
-  ): Promise<FilterResponse<TaskListItemSerializer> & { meta: { projectId: string; flat: boolean } }> {
+  ): Promise<
+    FilterResponse<TaskListItemSerializer> & {
+      meta: { projectId: string; flat: boolean };
+    }
+  > {
     // ── Auth ──────────────────────────────────────────────────────────────
     //
     // prefetchedMembership comes from ProjectPermissionGuard (already ran) via
     // req.projectMembership, so Promise.resolve() costs zero DB queries.
     // Without prefetching this would be 2 sequential queries (project + membership).
-    const { membership } = prefetchedMembership !== undefined
-      ? { membership: prefetchedMembership }
-      : await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    const { membership } =
+      prefetchedMembership !== undefined
+        ? { membership: prefetchedMembership }
+        : await this.authSvc.verifyProjectPermission(
+            projectId,
+            requestUser,
+            'view',
+          );
 
-    const viewScope = (membership?.projectRole?.permissions?.taskManagement as any)?.viewScope ?? 'all';
-    if (viewScope === 'assigned') filters = { ...filters, assignedUserId: requestUser.id };
+    const viewScope =
+      (membership?.projectRole?.permissions?.taskManagement as any)
+        ?.viewScope ?? 'all';
+    if (viewScope === 'assigned')
+      filters = { ...filters, assignedUserId: requestUser.id };
 
-    const includes     = this.authSvc.parseIncludes(filters.include);
-    const page         = filters.page  ?? 1;
-    const limit        = filters.limit ?? 10;
-    const includeDeleted = filters.includeDeleted === true && this.authSvc.isAdmin(requestUser);
+    const includes = this.authSvc.parseIncludes(filters.include);
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 10;
+    const includeDeleted =
+      filters.includeDeleted === true && this.authSvc.isAdmin(requestUser);
 
-    const qb = this.taskRepo.createQueryBuilder('task').where('task.projectId = :projectId', { projectId });
+    const qb = this.taskRepo
+      .createQueryBuilder('task')
+      .where('task.projectId = :projectId', { projectId });
     if (!includeDeleted) qb.andWhere('task.deletedAt IS NULL');
 
     // ── Hierarchy filter ──────────────────────────────────────────────────
-    if (filters.parentTaskId === 'root')   qb.andWhere('task.parentTaskId IS NULL');
-    else if (filters.parentTaskId)         qb.andWhere('task.parentTaskId = :parentTaskId', { parentTaskId: filters.parentTaskId });
-    else if (filters.flat === false)       qb.andWhere('task.parentTaskId IS NULL');
+    if (filters.parentTaskId === 'root')
+      qb.andWhere('task.parentTaskId IS NULL');
+    else if (filters.parentTaskId)
+      qb.andWhere('task.parentTaskId = :parentTaskId', {
+        parentTaskId: filters.parentTaskId,
+      });
+    else if (filters.flat === false) qb.andWhere('task.parentTaskId IS NULL');
 
     // ── Scalar FK filters ─────────────────────────────────────────────────
-    if (filters.statusId)   qb.andWhere('task.statusId = :statusId',     { statusId: filters.statusId });
-    if (filters.priorityId) qb.andWhere('task.priorityId = :priorityId', { priorityId: filters.priorityId });
-    if (filters.taskTypeId) qb.andWhere('task.taskTypeId = :taskTypeId', { taskTypeId: filters.taskTypeId });
-    if (filters.severityId) qb.andWhere('task.severityId = :severityId', { severityId: filters.severityId });
+    if (filters.statusId)
+      qb.andWhere('task.statusId = :statusId', { statusId: filters.statusId });
+    if (filters.priorityId)
+      qb.andWhere('task.priorityId = :priorityId', {
+        priorityId: filters.priorityId,
+      });
+    if (filters.taskTypeId)
+      qb.andWhere('task.taskTypeId = :taskTypeId', {
+        taskTypeId: filters.taskTypeId,
+      });
+    if (filters.severityId)
+      qb.andWhere('task.severityId = :severityId', {
+        severityId: filters.severityId,
+      });
+    if (filters.scheduleType)
+      qb.andWhere('task.scheduleType = :scheduleType', {
+        scheduleType: filters.scheduleType,
+      });
 
     // ── Assignee filter (EXISTS subquery avoids duplicate rows) ───────────
     if (filters.assignedUserId) {
@@ -113,7 +166,10 @@ export class TaskQueryService {
       );
     }
 
-    if (filters.reporteeUserId) qb.andWhere('task.reporteeUserId = :reporteeUserId', { reporteeUserId: filters.reporteeUserId });
+    if (filters.reporteeUserId)
+      qb.andWhere('task.reporteeUserId = :reporteeUserId', {
+        reporteeUserId: filters.reporteeUserId,
+      });
 
     // ── Role filter ───────────────────────────────────────────────────────
     if (filters.projectRoleId) {
@@ -137,42 +193,88 @@ export class TaskQueryService {
     }
 
     // ── Text & date filters ───────────────────────────────────────────────
-    if (filters.search)        qb.andWhere('task.title ILIKE :search',               { search: `%${filters.search}%` });
-    if (filters.startDateFrom) qb.andWhere('task.startDate >= :startDateFrom',       { startDateFrom: filters.startDateFrom });
-    if (filters.startDateTo)   qb.andWhere('task.startDate <= :startDateTo',         { startDateTo: filters.startDateTo });
-    if (filters.endDateFrom)   qb.andWhere('task.endDate >= :endDateFrom',           { endDateFrom: filters.endDateFrom });
-    if (filters.endDateTo)     qb.andWhere('task.endDate <= :endDateTo',             { endDateTo: filters.endDateTo });
+    if (filters.search)
+      qb.andWhere('task.title ILIKE :search', {
+        search: `%${filters.search}%`,
+      });
+    if (filters.startDateFrom)
+      qb.andWhere('task.startDate >= :startDateFrom', {
+        startDateFrom: filters.startDateFrom,
+      });
+    if (filters.startDateTo)
+      qb.andWhere('task.startDate <= :startDateTo', {
+        startDateTo: filters.startDateTo,
+      });
+    if (filters.endDateFrom)
+      qb.andWhere('task.endDate >= :endDateFrom', {
+        endDateFrom: filters.endDateFrom,
+      });
+    if (filters.endDateTo)
+      qb.andWhere('task.endDate <= :endDateTo', {
+        endDateTo: filters.endDateTo,
+      });
 
     // ── Checklist completion filter ───────────────────────────────────────
     if (filters.hasIncompleteChecklist === true) {
-      qb.andWhere(`EXISTS (SELECT 1 FROM "task_checklist_items" "tci" WHERE "tci"."taskId" = task.id AND "tci"."completed" = false)`);
+      qb.andWhere(
+        `EXISTS (SELECT 1 FROM "task_checklist_items" "tci" WHERE "tci"."taskId" = task.id AND "tci"."completed" = false)`,
+      );
     } else if (filters.hasIncompleteChecklist === false) {
-      qb.andWhere(`NOT EXISTS (SELECT 1 FROM "task_checklist_items" "tci" WHERE "tci"."taskId" = task.id AND "tci"."completed" = false)`);
+      qb.andWhere(
+        `NOT EXISTS (SELECT 1 FROM "task_checklist_items" "tci" WHERE "tci"."taskId" = task.id AND "tci"."completed" = false)`,
+      );
     }
 
     // ── Always-on joins (assignees, config FKs) ───────────────────────────
-    qb.leftJoinAndSelect('task.assignees',    'assignees')
-      .leftJoinAndSelect('assignees.user',    'assigneeUser')
+    qb.leftJoinAndSelect('task.assignees', 'assignees')
+      .leftJoinAndSelect('assignees.user', 'assigneeUser')
       .leftJoinAndSelect('task.reporteeUser', 'reporteeUser')
-      .leftJoinAndSelect('task.status',       'status')
-      .leftJoinAndSelect('task.priority',     'priority')
-      .leftJoinAndSelect('task.taskType',     'taskType')
-      .leftJoinAndSelect('task.severity',     'severity');
+      .leftJoinAndSelect('task.status', 'status')
+      .leftJoinAndSelect('task.priority', 'priority')
+      .leftJoinAndSelect('task.taskType', 'taskType')
+      .leftJoinAndSelect('task.severity', 'severity');
 
     // ── Optional includes ─────────────────────────────────────────────────
-    if (includes.has('checklist'))    qb.leftJoinAndSelect('task.checklistItems',     'checklistItems');
-    if (includes.has('dependencies')) qb.leftJoinAndSelect('task.dependencyEdges',    'dependencyEdges');
-    if (includes.has('comments'))     qb.leftJoinAndSelect('task.comments', 'comments', 'comments.deletedAt IS NULL');
-    if (includes.has('viewMeta'))     qb.leftJoinAndSelect('task.viewMetadataEntries', 'viewMetadataEntries');
+    if (includes.has('checklist'))
+      qb.leftJoinAndSelect('task.checklistItems', 'checklistItems');
+    if (includes.has('dependencies'))
+      qb.leftJoinAndSelect('task.dependencyEdges', 'dependencyEdges');
+    if (includes.has('comments'))
+      qb.leftJoinAndSelect(
+        'task.comments',
+        'comments',
+        'comments.deletedAt IS NULL',
+      );
+    if (includes.has('viewMeta'))
+      qb.leftJoinAndSelect('task.viewMetadataEntries', 'viewMetadataEntries');
 
-    qb.loadRelationCountAndMap('task.childCount', 'task.children', 'children', (sub) =>
-      sub.andWhere('children.deletedAt IS NULL'),
+    qb.loadRelationCountAndMap(
+      'task.childCount',
+      'task.children',
+      'children',
+      (sub) => sub.andWhere('children.deletedAt IS NULL'),
     );
 
     // ── Order & pagination ────────────────────────────────────────────────
-    const orderByAllowed = new Set(['title', 'status', 'priority', 'startDate', 'endDate', 'rank', 'createdAt', 'updatedAt']);
-    const orderBy  = filters.orderBy && orderByAllowed.has(filters.orderBy) ? `task.${filters.orderBy}` : 'task.createdAt';
-    qb.orderBy(orderBy, filters.sortOrder ?? 'DESC').skip((page - 1) * limit).take(limit);
+    const orderByAllowed = new Set([
+      'title',
+      'status',
+      'priority',
+      'startDate',
+      'endDate',
+      'rank',
+      'wbsCode',
+      'wbsSortKey',
+      'createdAt',
+      'updatedAt',
+    ]);
+    const orderBy =
+      filters.orderBy && orderByAllowed.has(filters.orderBy)
+        ? `task.${filters.orderBy}`
+        : 'task.createdAt';
+    qb.orderBy(orderBy, filters.sortOrder ?? 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
 
     // ── Wave 1: main paginated query ──────────────────────────────────────
     const [tasks, count] = await qb.getManyAndCount();
@@ -186,12 +288,14 @@ export class TaskQueryService {
     // instead of issuing a redundant GROUP BY query.
     const taskIds = tasks.map((t) => t.id);
     const userIds = tasks.flatMap((t) =>
-      [t.reporteeUserId, ...(t.assignees ?? []).map((a) => a.userId)].filter((v): v is string => Boolean(v)),
+      [t.reporteeUserId, ...(t.assignees ?? []).map((a) => a.userId)].filter(
+        (v): v is string => Boolean(v),
+      ),
     );
 
     const commentCountQuery: Promise<{ taskId: string; cnt: string }[] | null> =
       includes.has('comments')
-        ? Promise.resolve(null)   // already in-memory — skip the DB round-trip entirely
+        ? Promise.resolve(null) // already in-memory — skip the DB round-trip entirely
         : tasks.length > 0
           ? this.commentRepo
               .createQueryBuilder('c')
@@ -212,9 +316,11 @@ export class TaskQueryService {
     const commentCountMap = new Map<string, number>();
     if (commentRows === null) {
       // include=comments was set: counts already in-memory on task.comments
-      for (const task of tasks) commentCountMap.set(task.id, (task.comments ?? []).length);
+      for (const task of tasks)
+        commentCountMap.set(task.id, (task.comments ?? []).length);
     } else {
-      for (const row of commentRows) commentCountMap.set(row.taskId, Number(row.cnt));
+      for (const row of commentRows)
+        commentCountMap.set(row.taskId, Number(row.cnt));
     }
 
     return {
@@ -237,7 +343,9 @@ export class TaskQueryService {
   }
 
   async findOneOrFail(taskId: string, projectId: string): Promise<Task> {
-    const task = await this.taskRepo.findOne({ where: { id: taskId, projectId, deletedAt: IsNull() } });
+    const task = await this.taskRepo.findOne({
+      where: { id: taskId, projectId, deletedAt: IsNull() },
+    });
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
     return task;
   }

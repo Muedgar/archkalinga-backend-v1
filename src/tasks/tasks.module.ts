@@ -20,8 +20,11 @@ import {
   ProjectTaskType,
 } from './project-config';
 import {
+  ProjectCalendar,
+  ProjectCalendarException,
   Task,
   TaskActivityLog,
+  TaskActivitySchedule,
   TaskAssignee,
   TaskChecklist,
   TaskChecklistItem,
@@ -29,12 +32,21 @@ import {
   TaskDependency,
   TaskLabel,
   TaskRelation,
+  TaskScheduleCalculationRun,
+  TaskScheduleExplanation,
+  TaskScheduleOverride,
   TaskViewMetadata,
   TaskWatcher,
 } from './entities';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
 import {
+  ActivityScheduleGanttService,
+  ActivityScheduleImportService,
+  ActivityScheduleQueryService,
+  ProjectCalendarService,
+  ScheduleCalculationService,
+  TaskActivityScheduleService,
   TaskActivityService,
   TaskAuthService,
   TaskChecklistService,
@@ -48,6 +60,12 @@ import {
 
 const SUB_SERVICES = [
   TaskAuthService,
+  ActivityScheduleGanttService,
+  ActivityScheduleImportService,
+  ActivityScheduleQueryService,
+  ProjectCalendarService,
+  ScheduleCalculationService,
+  TaskActivityScheduleService,
   TaskActivityService,
   TaskRankingService,
   TaskCommentsService,
@@ -61,14 +79,20 @@ const SUB_SERVICES = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      ProjectCalendar,
+      ProjectCalendarException,
       Task,
       TaskAssignee,
+      TaskActivitySchedule,
       TaskChecklist,
       TaskChecklistItem,
       TaskComment,
       TaskDependency,
       TaskLabel,
       TaskRelation,
+      TaskScheduleCalculationRun,
+      TaskScheduleExplanation,
+      TaskScheduleOverride,
       TaskViewMetadata,
       TaskWatcher,
       TaskActivityLog,

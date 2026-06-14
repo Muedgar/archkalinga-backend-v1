@@ -8,7 +8,16 @@ import { Workspace } from 'src/workspaces/entities/workspace.entity';
 import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
 import { Template, TemplateTask } from 'src/templates/entities';
 import { User } from 'src/users/entities/user.entity';
-import { Task, TaskActivityLog } from 'src/tasks/entities';
+import {
+  ProjectCalendar,
+  ProjectCalendarException,
+  Task,
+  TaskActivityLog,
+  TaskActivitySchedule,
+  TaskScheduleCalculationRun,
+  TaskScheduleExplanation,
+  TaskScheduleOverride,
+} from 'src/tasks/entities';
 import {
   ProjectLabel,
   ProjectPriority,
@@ -43,8 +52,14 @@ import { ProjectsService } from './projects.service';
       Template,
       TemplateTask,
       User,
+      ProjectCalendar,
+      ProjectCalendarException,
       Task,
       TaskActivityLog,
+      TaskActivitySchedule,
+      TaskScheduleCalculationRun,
+      TaskScheduleExplanation,
+      TaskScheduleOverride,
       // Project config entities
       ProjectStatus,
       ProjectPriority,
@@ -56,8 +71,17 @@ import { ProjectsService } from './projects.service';
     OutboxModule,
     WorkspacesModule,
   ],
-  controllers: [ProjectsController, ProjectRolesController, ProjectConfigController],
-  providers: [ProjectsService, ProjectRolesService, ProjectConfigService, ProjectPermissionGuard],
+  controllers: [
+    ProjectsController,
+    ProjectRolesController,
+    ProjectConfigController,
+  ],
+  providers: [
+    ProjectsService,
+    ProjectRolesService,
+    ProjectConfigService,
+    ProjectPermissionGuard,
+  ],
   exports: [ProjectsService, ProjectConfigService, TypeOrmModule],
 })
 export class ProjectsModule {}

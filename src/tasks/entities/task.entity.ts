@@ -18,6 +18,14 @@ import { TaskRelation } from './task-relation.entity';
 import { TaskViewMetadata } from './task-view-metadata.entity';
 import { TaskWatcher } from './task-watcher.entity';
 
+export enum ScheduleType {
+  PHASE = 'phase',
+  STAGE = 'stage',
+  ACTIVITY = 'activity',
+  TASK = 'task',
+  MILESTONE = 'milestone',
+}
+
 @Entity('tasks')
 export class Task extends AppBaseEntity {
   @Column({ type: 'varchar', length: 500, nullable: false })
@@ -74,6 +82,39 @@ export class Task extends AppBaseEntity {
 
   @Column({ type: 'boolean', default: false })
   completed: boolean;
+
+  // ── Schedule identity / WBS ────────────────────────────────────────────────
+  @Column({
+    type: 'enum',
+    enum: ScheduleType,
+    enumName: 'tasks_scheduletype_enum',
+    default: ScheduleType.TASK,
+  })
+  scheduleType: ScheduleType;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  wbsCode: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  wbsSortKey: string | null;
+
+  @Column({
+    type: 'numeric',
+    precision: 5,
+    scale: 2,
+    nullable: true,
+    transformer: {
+      to: (value: number | null) => value,
+      from: (value: string | null) => (value === null ? null : Number(value)),
+    },
+  })
+  weightPercent: number | null;
+
+  @Column({ type: 'boolean', default: false })
+  isManuallyScheduled: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  manualScheduleReason: string | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
   rank: string | null; // fractional indexing for reordering tasks in columns.

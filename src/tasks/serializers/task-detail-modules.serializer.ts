@@ -22,6 +22,65 @@ export class TaskChecklistGroupDetailSerializer extends BaseSerializer {
   items: TaskChecklistItemDetailSerializer[];
 }
 
+export class TaskActivityScheduleDetailSerializer extends BaseSerializer {
+  @Expose() taskId: string;
+  @Expose() durationDays: number | null;
+  @Expose() plannedStartDate: string | null;
+  @Expose() plannedEndDate: string | null;
+  @Expose() plannedStartOffset: number | null;
+  @Expose() plannedEndOffset: number | null;
+  @Expose() actualStartDate: string | null;
+  @Expose() actualEndDate: string | null;
+  @Expose() earlyStartOffset: number | null;
+  @Expose() earlyFinishOffset: number | null;
+  @Expose() lateStartOffset: number | null;
+  @Expose() lateFinishOffset: number | null;
+  @Expose() earlyStartDate: string | null;
+  @Expose() earlyFinishDate: string | null;
+  @Expose() lateStartDate: string | null;
+  @Expose() lateFinishDate: string | null;
+  @Expose() totalFloatDays: number | null;
+  @Expose() freeFloatDays: number | null;
+  @Expose() isCritical: boolean;
+  @Expose() isManuallyScheduled: boolean;
+  @Expose() manualReason: string | null;
+  @Expose() calculatedAt: Date | null;
+}
+
+export class ActivityScheduleRowSerializer extends TaskActivityScheduleDetailSerializer {
+  @Expose()
+  @Transform(({ obj }) => {
+    const task = obj?.task;
+    if (!task) return null;
+    return {
+      id: task.id,
+      parentTaskId: task.parentTaskId ?? null,
+      title: task.title ?? null,
+      scheduleType: task.scheduleType ?? null,
+      wbsCode: task.wbsCode ?? null,
+      wbsSortKey: task.wbsSortKey ?? null,
+      statusId: task.statusId ?? null,
+      progress: task.progress ?? null,
+      completed: task.completed ?? false,
+      startDate: task.startDate ?? null,
+      endDate: task.endDate ?? null,
+    };
+  })
+  task: {
+    id: string;
+    parentTaskId: string | null;
+    title: string | null;
+    scheduleType: string | null;
+    wbsCode: string | null;
+    wbsSortKey: string | null;
+    statusId: string | null;
+    progress: number | null;
+    completed: boolean;
+    startDate: string | null;
+    endDate: string | null;
+  } | null;
+}
+
 export class TaskCommentDetailSerializer extends BaseSerializer {
   @Expose() taskId: string;
   @Expose() authorUserId: string;
@@ -131,5 +190,9 @@ export class TaskRelationDetailSerializer extends BaseSerializer {
       statusId: t.statusId ?? null,
     };
   })
-  relatedTask: { id: string; title: string | null; statusId: string | null } | null;
+  relatedTask: {
+    id: string;
+    title: string | null;
+    statusId: string | null;
+  } | null;
 }
