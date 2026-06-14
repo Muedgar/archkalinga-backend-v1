@@ -111,6 +111,12 @@ export class TaskSerializer extends BaseSerializer {
   @Expose() endDate: string | null;
   @Expose() progress: number | null;
   @Expose() completed: boolean;
+  @Expose() scheduleType: string;
+  @Expose() wbsCode: string | null;
+  @Expose() wbsSortKey: string | null;
+  @Expose() weightPercent: number | null;
+  @Expose() isManuallyScheduled: boolean;
+  @Expose() manualScheduleReason: string | null;
   @Expose() rank: string | null;
   @Expose() createdByUserId: string;
   @Expose() deletedAt: Date | null;

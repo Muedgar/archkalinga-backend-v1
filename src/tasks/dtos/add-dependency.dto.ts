@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsUUID } from 'class-validator';
 import { DependencyType } from '../entities';
 
 export class AddDependencyDto {
@@ -15,9 +15,12 @@ export class AddDependencyDto {
   @IsEnum(DependencyType)
   dependencyType?: DependencyType;
 
-  @ApiPropertyOptional({ example: 2 })
+  @ApiPropertyOptional({
+    example: -2,
+    description:
+      'Signed lag in days. Positive values wait after the dependency point; 0 means no delay; negative values are lead and shift the successor earlier.',
+  })
   @IsOptional()
   @IsInt()
-  @Min(0)
   lagDays?: number;
 }

@@ -9,6 +9,38 @@ export const TASK_FETCHED = 'Task fetched successfully';
 export const TASKS_FETCHED = 'Tasks fetched successfully';
 export const TASK_MOVED = 'Task moved successfully';
 export const TASKS_BULK_UPDATED = 'Tasks updated successfully';
+export const PROJECT_ACTIVITY_SCHEDULE_FETCHED =
+  'Project activity schedule fetched successfully';
+export const PROJECT_CRITICAL_PATH_FETCHED =
+  'Project critical path fetched successfully';
+export const PROJECT_ACTIVITY_SCHEDULE_GANTT_FETCHED =
+  'Project activity schedule Gantt fetched successfully';
+export const PROJECT_ACTIVITY_SCHEDULE_PROGRESS_FETCHED =
+  'Project activity schedule progress tracker fetched successfully';
+export const PROJECT_ACTIVITY_SCHEDULE_SUMMARY_FETCHED =
+  'Project activity schedule summary fetched successfully';
+export const PROJECT_ACTIVITY_SCHEDULE_CHECKS_FETCHED =
+  'Project activity schedule checks fetched successfully';
+export const PROJECT_ACTIVITY_SCHEDULE_EXPLANATION_FETCHED =
+  'Project activity schedule explanation fetched successfully';
+export const PROJECT_CALENDAR_FETCHED = 'Project calendar fetched successfully';
+export const PROJECT_CALENDAR_UPDATED = 'Project calendar updated successfully';
+export const PROJECT_CALENDAR_EXCEPTIONS_FETCHED =
+  'Project calendar exceptions fetched successfully';
+export const PROJECT_CALENDAR_EXCEPTION_CREATED =
+  'Project calendar exception created successfully';
+export const PROJECT_CALENDAR_EXCEPTION_UPDATED =
+  'Project calendar exception updated successfully';
+export const PROJECT_CALENDAR_EXCEPTION_DELETED =
+  'Project calendar exception deleted successfully';
+export const TASK_ACTIVITY_SCHEDULE_FETCHED =
+  'Task activity schedule fetched successfully';
+export const TASK_ACTIVITY_SCHEDULE_UPDATED =
+  'Task activity schedule updated successfully';
+export const TASK_ACTIVITY_SCHEDULE_RECALCULATED =
+  'Task activity schedule recalculated successfully';
+export const TASK_ACTIVITY_SCHEDULE_IMPORTED =
+  'Task activity schedule import processed successfully';
 export const TASK_COMMENTS_FETCHED = 'Task comments fetched successfully';
 export const TASK_COMMENT_ADDED = 'Task comment added successfully';
 export const TASK_COMMENT_UPDATED = 'Task comment updated successfully';
@@ -23,6 +55,7 @@ export const TASK_CHECKLIST_ITEM_DELETED =
 export const TASK_DEPENDENCIES_FETCHED =
   'Task dependencies fetched successfully';
 export const TASK_DEPENDENCY_ADDED = 'Task dependency added successfully';
+export const TASK_DEPENDENCY_UPDATED = 'Task dependency updated successfully';
 export const TASK_DEPENDENCY_DELETED = 'Task dependency deleted successfully';
 
 // Checklist groups

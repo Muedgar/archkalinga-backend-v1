@@ -3,8 +3,11 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDateString,
+  IsEnum,
   IsInt,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -14,7 +17,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { DependencyType } from '../entities';
+import { DependencyType, ScheduleType } from '../entities';
 
 class CreateTaskChecklistItemDto {
   @ApiProperty({ example: 'Collect reference images' })
@@ -109,7 +112,8 @@ export class CreateTaskDto {
 
   @ApiPropertyOptional({
     example: '3a42068b-6f82-40b1-926b-6c2244d07d29',
-    description: 'UUID of the project status to assign. Defaults to the project default status.',
+    description:
+      'UUID of the project status to assign. Defaults to the project default status.',
   })
   @IsOptional()
   @IsUUID()
@@ -125,7 +129,8 @@ export class CreateTaskDto {
 
   @ApiPropertyOptional({
     example: 'f1a2b3c4-d5e6-7f89-a0b1-c2d3e4f50002',
-    description: 'UUID of the project task type. Defaults to the project default task type.',
+    description:
+      'UUID of the project task type. Defaults to the project default task type.',
   })
   @IsOptional()
   @IsUUID()
@@ -156,6 +161,52 @@ export class CreateTaskDto {
   @Min(0)
   @Max(100)
   progress?: number;
+
+  @ApiPropertyOptional({
+    enum: ScheduleType,
+    example: ScheduleType.ACTIVITY,
+    description:
+      'Fixed activity-schedule/WBS type. Separate from the configurable project task type.',
+  })
+  @IsOptional()
+  @IsEnum(ScheduleType)
+  scheduleType?: ScheduleType;
+
+  @ApiPropertyOptional({ example: '2.2.3.4' })
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  @Type(() => String)
+  wbsCode?: string | null;
+
+  @ApiPropertyOptional({ example: '0002.0002.0003.0004' })
+  @IsOptional()
+  @IsString()
+  @Length(1, 500)
+  @Type(() => String)
+  wbsSortKey?: string | null;
+
+  @ApiPropertyOptional({ example: 25 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  weightPercent?: number | null;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  isManuallyScheduled?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'Pinned to match client-approved site access window.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  @Length(1, 1000)
+  @Type(() => String)
+  manualScheduleReason?: string | null;
 
   @ApiPropertyOptional({
     type: () => [TaskAssignedMemberDto],

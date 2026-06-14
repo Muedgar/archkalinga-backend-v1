@@ -3,11 +3,13 @@ import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
+  IsEnum,
   IsOptional,
   IsString,
   IsUUID,
 } from 'class-validator';
 import { ListFilterDTO } from 'src/common/dtos';
+import { ScheduleType } from '../entities';
 
 function toBoolean(value: unknown): boolean | undefined {
   if (value === undefined || value === null || value === '') return undefined;
@@ -41,6 +43,11 @@ export class TaskFiltersDto extends ListFilterDTO {
   @IsOptional()
   @IsUUID()
   severityId?: string;
+
+  @ApiPropertyOptional({ enum: ScheduleType })
+  @IsOptional()
+  @IsEnum(ScheduleType)
+  scheduleType?: ScheduleType;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -30,18 +30,34 @@ import {
   AddLabelDto,
   AddRelationDto,
   AddWatcherDto,
+  ActivityScheduleFiltersDto,
+  ActivityScheduleGanttQueryDto,
+  ActivityScheduleImportDto,
   BulkUpdateTasksDto,
+  CreateProjectCalendarExceptionDto,
   CreateChecklistGroupDto,
   CreateTaskDto,
   MoveTaskDto,
+  RecalculateActivityScheduleDto,
   TaskFiltersDto,
+  UpdateActivityScheduleDto,
+  UpdateProjectCalendarExceptionDto,
   UpdateChecklistGroupDto,
   UpdateChecklistItemDto,
   UpdateCommentDto,
+  UpdateDependencyDto,
+  UpsertProjectCalendarDto,
   UpdateTaskDto,
 } from './dtos';
 import { Task } from './entities';
 import {
+  ActivityScheduleGanttService,
+  ActivityScheduleImportService,
+  ActivityScheduleUploadFile,
+  ActivityScheduleQueryService,
+  ProjectCalendarService,
+  ScheduleCalculationService,
+  TaskActivityScheduleService,
   TaskActivityService,
   TaskAuthService,
   TaskChecklistService,
@@ -62,6 +78,12 @@ export class TasksService {
     private readonly authSvc: TaskAuthService,
     private readonly crudSvc: TaskCrudService,
     private readonly querySvc: TaskQueryService,
+    private readonly activityScheduleGanttSvc: ActivityScheduleGanttService,
+    private readonly activityScheduleImportSvc: ActivityScheduleImportService,
+    private readonly activityScheduleQuerySvc: ActivityScheduleQueryService,
+    private readonly projectCalendarSvc: ProjectCalendarService,
+    private readonly scheduleCalculationSvc: ScheduleCalculationService,
+    private readonly activityScheduleSvc: TaskActivityScheduleService,
     private readonly activitySvc: TaskActivityService,
     private readonly rankingSvc: TaskRankingService,
     private readonly commentsSvc: TaskCommentsService,
@@ -80,23 +102,59 @@ export class TasksService {
 
   // ── Core task CRUD ────────────────────────────────────────────────────────
 
-  async createTask(projectId: string, dto: CreateTaskDto, requestUser: RequestUser) {
-    return this.crudSvc.createTask(projectId, dto, requestUser, (p, id, u, m) => this.getTask(p, id, u, m));
+  async createTask(
+    projectId: string,
+    dto: CreateTaskDto,
+    requestUser: RequestUser,
+  ) {
+    return this.crudSvc.createTask(projectId, dto, requestUser, (p, id, u, m) =>
+      this.getTask(p, id, u, m),
+    );
   }
 
-  async updateTask(projectId: string, taskId: string, dto: UpdateTaskDto, requestUser: RequestUser) {
-    return this.crudSvc.updateTask(projectId, taskId, dto, requestUser, (p, id, u, m) => this.getTask(p, id, u, m));
+  async updateTask(
+    projectId: string,
+    taskId: string,
+    dto: UpdateTaskDto,
+    requestUser: RequestUser,
+  ) {
+    return this.crudSvc.updateTask(
+      projectId,
+      taskId,
+      dto,
+      requestUser,
+      (p, id, u, m) => this.getTask(p, id, u, m),
+    );
   }
 
-  async moveTask(projectId: string, taskId: string, dto: MoveTaskDto, requestUser: RequestUser) {
-    return this.crudSvc.moveTask(projectId, taskId, dto, requestUser, (p, id, u, m) => this.getTask(p, id, u, m));
+  async moveTask(
+    projectId: string,
+    taskId: string,
+    dto: MoveTaskDto,
+    requestUser: RequestUser,
+  ) {
+    return this.crudSvc.moveTask(
+      projectId,
+      taskId,
+      dto,
+      requestUser,
+      (p, id, u, m) => this.getTask(p, id, u, m),
+    );
   }
 
-  async bulkUpdateTasks(projectId: string, dto: BulkUpdateTasksDto, requestUser: RequestUser) {
+  async bulkUpdateTasks(
+    projectId: string,
+    dto: BulkUpdateTasksDto,
+    requestUser: RequestUser,
+  ) {
     return this.crudSvc.bulkUpdateTasks(projectId, dto, requestUser);
   }
 
-  async deleteTask(projectId: string, taskId: string, requestUser: RequestUser) {
+  async deleteTask(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
     return this.crudSvc.deleteTask(projectId, taskId, requestUser);
   }
 
@@ -108,7 +166,12 @@ export class TasksService {
     requestUser: RequestUser,
     prefetchedMembership?: ProjectMembership | null,
   ) {
-    return this.querySvc.getTask(projectId, taskId, requestUser, prefetchedMembership);
+    return this.querySvc.getTask(
+      projectId,
+      taskId,
+      requestUser,
+      prefetchedMembership,
+    );
   }
 
   async getProjectTasks(
@@ -117,11 +180,234 @@ export class TasksService {
     requestUser: RequestUser,
     prefetchedMembership?: ProjectMembership | null,
   ) {
-    return this.querySvc.getProjectTasks(projectId, filters, requestUser, prefetchedMembership);
+    return this.querySvc.getProjectTasks(
+      projectId,
+      filters,
+      requestUser,
+      prefetchedMembership,
+    );
   }
 
   async findOneOrFail(taskId: string, projectId: string): Promise<Task> {
     return this.querySvc.findOneOrFail(taskId, projectId);
+  }
+
+  // ── Activity schedule ────────────────────────────────────────────────────
+
+  async getProjectActivitySchedule(
+    projectId: string,
+    filters: ActivityScheduleFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.activityScheduleQuerySvc.listProjectSchedule(
+      projectId,
+      filters,
+    );
+  }
+
+  async getProjectCriticalPath(
+    projectId: string,
+    filters: ActivityScheduleFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.activityScheduleQuerySvc.listCriticalPath(projectId, filters);
+  }
+
+  async getProjectActivityScheduleGantt(
+    projectId: string,
+    filters: ActivityScheduleGanttQueryDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.activityScheduleGanttSvc.getGantt(projectId, filters);
+  }
+
+  async getProjectActivityScheduleProgressTracker(
+    projectId: string,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.activityScheduleGanttSvc.getProgressTracker(projectId);
+  }
+
+  async getProjectActivityScheduleSummary(
+    projectId: string,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.activityScheduleGanttSvc.getSummary(projectId);
+  }
+
+  async getProjectActivityScheduleChecks(
+    projectId: string,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.activityScheduleGanttSvc.getChecks(projectId);
+  }
+
+  async getProjectActivityScheduleExplanation(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.activityScheduleGanttSvc.getExplanation(projectId, taskId);
+  }
+
+  async getProjectCalendar(projectId: string, requestUser: RequestUser) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.projectCalendarSvc.getCalendar(projectId);
+  }
+
+  async upsertProjectCalendar(
+    projectId: string,
+    dto: UpsertProjectCalendarDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const actorUser = await this.actor(requestUser);
+    return this.projectCalendarSvc.upsertCalendar(projectId, dto, actorUser);
+  }
+
+  async listProjectCalendarExceptions(
+    projectId: string,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.projectCalendarSvc.listExceptions(projectId);
+  }
+
+  async createProjectCalendarException(
+    projectId: string,
+    dto: CreateProjectCalendarExceptionDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    return this.projectCalendarSvc.createException(projectId, dto);
+  }
+
+  async updateProjectCalendarException(
+    projectId: string,
+    exceptionId: string,
+    dto: UpdateProjectCalendarExceptionDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    return this.projectCalendarSvc.updateException(projectId, exceptionId, dto);
+  }
+
+  async deleteProjectCalendarException(
+    projectId: string,
+    exceptionId: string,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    return this.projectCalendarSvc.deleteException(projectId, exceptionId);
+  }
+
+  async getTaskActivitySchedule(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.activityScheduleSvc.getForTask(taskId);
+  }
+
+  async updateTaskActivitySchedule(
+    projectId: string,
+    taskId: string,
+    dto: UpdateActivityScheduleDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.activityScheduleSvc.upsertForTask(task, actorUser, dto);
+  }
+
+  async recalculateActivitySchedule(
+    projectId: string,
+    dto: RecalculateActivityScheduleDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    if (dto.triggerTaskId) {
+      await this.authSvc.ensureTaskForSubresource(
+        projectId,
+        dto.triggerTaskId,
+        { requestUser, membership },
+      );
+    }
+    return this.scheduleCalculationSvc.recalculateProject(projectId, dto);
+  }
+
+  async importActivitySchedule(
+    projectId: string,
+    file: ActivityScheduleUploadFile | undefined,
+    dto: ActivityScheduleImportDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const actorUser = await this.actor(requestUser);
+    return this.activityScheduleImportSvc.importProjectSchedule(
+      projectId,
+      file,
+      dto,
+      actorUser,
+    );
   }
 
   // ── Helper: load actor user ───────────────────────────────────────────────
@@ -132,69 +418,182 @@ export class TasksService {
 
   // ── Comments ──────────────────────────────────────────────────────────────
 
-  async getTaskComments(projectId: string, taskId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async getTaskComments(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.commentsSvc.listComments(taskId);
   }
 
-  async addTaskComment(projectId: string, taskId: string, dto: AddCommentDto, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'create');
+  async addTaskComment(
+    projectId: string,
+    taskId: string,
+    dto: AddCommentDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'create',
+    );
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
     return this.commentsSvc.addComment(task, actorUser, dto);
   }
 
-  async updateTaskComment(projectId: string, taskId: string, commentId: string, dto: UpdateCommentDto, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async updateTaskComment(
+    projectId: string,
+    taskId: string,
+    commentId: string,
+    dto: UpdateCommentDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
-    return this.commentsSvc.updateComment(task, commentId, requestUser.id, actorUser, dto);
+    return this.commentsSvc.updateComment(
+      task,
+      commentId,
+      requestUser.id,
+      actorUser,
+      dto,
+    );
   }
 
-  async deleteTaskComment(projectId: string, taskId: string, commentId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'delete');
+  async deleteTaskComment(
+    projectId: string,
+    taskId: string,
+    commentId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'delete',
+    );
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
-    return this.commentsSvc.deleteComment(task, commentId, requestUser.id, actorUser);
+    return this.commentsSvc.deleteComment(
+      task,
+      commentId,
+      requestUser.id,
+      actorUser,
+    );
   }
 
   // ── Checklist items ───────────────────────────────────────────────────────
 
-  async getTaskChecklist(projectId: string, taskId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async getTaskChecklist(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.checklistSvc.listItems(taskId);
   }
 
-  async addChecklistItem(projectId: string, taskId: string, dto: AddChecklistItemDto, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async addChecklistItem(
+    projectId: string,
+    taskId: string,
+    dto: AddChecklistItemDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
     return this.checklistSvc.addItem(task, actorUser, dto);
   }
 
-  async updateChecklistItem(projectId: string, taskId: string, itemId: string, dto: UpdateChecklistItemDto, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async updateChecklistItem(
+    projectId: string,
+    taskId: string,
+    itemId: string,
+    dto: UpdateChecklistItemDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
-    return this.checklistSvc.updateItem(task, itemId, requestUser.id, actorUser, dto);
+    return this.checklistSvc.updateItem(
+      task,
+      itemId,
+      requestUser.id,
+      actorUser,
+      dto,
+    );
   }
 
-  async deleteChecklistItem(projectId: string, taskId: string, itemId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async deleteChecklistItem(
+    projectId: string,
+    taskId: string,
+    itemId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
     return this.checklistSvc.deleteItem(task, itemId, actorUser);
@@ -202,51 +601,159 @@ export class TasksService {
 
   // ── Checklist groups ──────────────────────────────────────────────────────
 
-  async getChecklistGroups(projectId: string, taskId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async getChecklistGroups(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.checklistSvc.listGroups(taskId);
   }
 
-  async createChecklistGroup(projectId: string, taskId: string, dto: CreateChecklistGroupDto, requestUser: RequestUser) {
-    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async createChecklistGroup(
+    projectId: string,
+    taskId: string,
+    dto: CreateChecklistGroupDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
     return this.checklistSvc.createGroup(task, dto);
   }
 
-  async updateChecklistGroup(projectId: string, taskId: string, groupId: string, dto: UpdateChecklistGroupDto, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async updateChecklistGroup(
+    projectId: string,
+    taskId: string,
+    groupId: string,
+    dto: UpdateChecklistGroupDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.checklistSvc.updateGroup(taskId, groupId, dto);
   }
 
-  async deleteChecklistGroup(projectId: string, taskId: string, groupId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async deleteChecklistGroup(
+    projectId: string,
+    taskId: string,
+    groupId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.checklistSvc.deleteGroup(taskId, groupId);
   }
 
   // ── Dependencies ──────────────────────────────────────────────────────────
 
-  async getTaskDependencies(projectId: string, taskId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async getTaskDependencies(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.relationsSvc.listDependencies(taskId);
   }
 
-  async addTaskDependency(projectId: string, taskId: string, dto: AddDependencyDto, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async addTaskDependency(
+    projectId: string,
+    taskId: string,
+    dto: AddDependencyDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
     return this.relationsSvc.addDependency(task, actorUser, dto, projectId);
   }
 
-  async deleteTaskDependency(projectId: string, taskId: string, depId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async updateTaskDependency(
+    projectId: string,
+    taskId: string,
+    depId: string,
+    dto: UpdateDependencyDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.relationsSvc.updateDependency(
+      task,
+      depId,
+      actorUser,
+      dto,
+      projectId,
+    );
+  }
+
+  async deleteTaskDependency(
+    projectId: string,
+    taskId: string,
+    depId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
     return this.relationsSvc.deleteDependency(task, depId, actorUser);
@@ -254,69 +761,178 @@ export class TasksService {
 
   // ── Relations ─────────────────────────────────────────────────────────────
 
-  async getTaskRelations(projectId: string, taskId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async getTaskRelations(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.relationsSvc.listRelations(taskId);
   }
 
-  async addTaskRelation(projectId: string, taskId: string, dto: AddRelationDto, requestUser: RequestUser) {
-    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async addTaskRelation(
+    projectId: string,
+    taskId: string,
+    dto: AddRelationDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
     return this.relationsSvc.addRelation(task, dto, projectId);
   }
 
-  async deleteTaskRelation(projectId: string, taskId: string, relationId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async deleteTaskRelation(
+    projectId: string,
+    taskId: string,
+    relationId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.relationsSvc.deleteRelation(taskId, relationId);
   }
 
   // ── Labels ────────────────────────────────────────────────────────────────
 
-  async getTaskLabels(projectId: string, taskId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async getTaskLabels(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.membersSvc.listLabels(taskId);
   }
 
-  async addTaskLabel(projectId: string, taskId: string, dto: AddLabelDto, requestUser: RequestUser) {
-    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async addTaskLabel(
+    projectId: string,
+    taskId: string,
+    dto: AddLabelDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
     return this.membersSvc.addLabel(task, dto, projectId);
   }
 
-  async removeTaskLabel(projectId: string, taskId: string, taskLabelId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async removeTaskLabel(
+    projectId: string,
+    taskId: string,
+    taskLabelId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.membersSvc.removeLabel(taskId, taskLabelId);
   }
 
   // ── Watchers ──────────────────────────────────────────────────────────────
 
-  async getTaskWatchers(projectId: string, taskId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async getTaskWatchers(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.membersSvc.listWatchers(taskId);
   }
 
-  async addTaskWatcher(projectId: string, taskId: string, dto: AddWatcherDto, requestUser: RequestUser) {
-    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
+  async addTaskWatcher(
+    projectId: string,
+    taskId: string,
+    dto: AddWatcherDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
     const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
     return this.membersSvc.addWatcher(task, dto, projectId);
   }
 
-  async removeTaskWatcher(projectId: string, taskId: string, watcherId: string, requestUser: RequestUser) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'update');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async removeTaskWatcher(
+    projectId: string,
+    taskId: string,
+    watcherId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.membersSvc.removeWatcher(taskId, watcherId);
   }
 
   // ── Activity log ──────────────────────────────────────────────────────────
 
-  async getTaskActivity(projectId: string, taskId: string, requestUser: RequestUser, page = 1, limit = 20) {
-    const { membership } = await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    await this.authSvc.ensureTaskForSubresource(projectId, taskId, { requestUser, membership });
+  async getTaskActivity(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+    page = 1,
+    limit = 20,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.activitySvc.listForTask(taskId, page, limit);
   }
 }
