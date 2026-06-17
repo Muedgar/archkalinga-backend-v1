@@ -507,9 +507,9 @@ export class TasksController {
 
   @Post('activity-schedule/import')
   @ApiOperation({
-    summary: 'Validate or import an Excel activity schedule by WBS',
+    summary: 'Validate or import Excel tasks by WBS',
     description:
-      'Accepts Activity schedule.xlsx-style workbooks. validateOnly reports issues without writes; upsertByWbs writes only after validation passes and then recalculates CPM fields.',
+      'Accepts Activity schedule.xlsx-style workbooks and WBS.xlsx-style hierarchy workbooks. WBS imports create/update Phase -> Stage -> Activity -> Task hierarchy by WBS code. validateOnly reports issues without writes; upsertByWbs writes only after validation passes.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({

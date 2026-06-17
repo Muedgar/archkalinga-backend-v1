@@ -1,4 +1,11 @@
-import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  OneToOne,
+} from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { Project } from 'src/projects/entities';
 import { User } from 'src/users/entities';
@@ -9,6 +16,7 @@ import {
   ProjectTaskType,
 } from '../project-config';
 import { TaskAssignee } from './task-assignee.entity';
+import { TaskActivitySchedule } from './task-activity-schedule.entity';
 import { TaskChecklist } from './task-checklist.entity';
 import { TaskChecklistItem } from './task-checklist-item.entity';
 import { TaskComment } from './task-comment.entity';
@@ -161,6 +169,9 @@ export class Task extends AppBaseEntity {
   // ── Relations ─────────────────────────────────────────────────────────────
   @OneToMany(() => TaskAssignee, (assignee) => assignee.task)
   assignees: TaskAssignee[];
+
+  @OneToOne(() => TaskActivitySchedule, (schedule) => schedule.task)
+  activitySchedule: TaskActivitySchedule | null;
 
   @OneToMany(() => TaskChecklist, (group) => group.task)
   checklistGroups: TaskChecklist[];

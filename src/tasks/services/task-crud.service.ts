@@ -17,6 +17,7 @@ import {
 import {
   Task,
   TaskActionType,
+  TaskActivitySchedule,
   TaskAssignee,
   TaskChecklistItem,
   TaskDependency,
@@ -95,6 +96,7 @@ export class TaskCrudService {
       ]);
 
     this.authSvc.ensureDateRange(dto.startDate, dto.endDate);
+    this.ensureScheduleDto(dto);
 
     const [defaultStatus, defaultTaskType] = await Promise.all([
       dto.statusId
@@ -172,6 +174,7 @@ export class TaskCrudService {
       });
 
       const saved = await tx.save(task);
+      await this.upsertActivitySchedule(tx, saved, dto);
 
       if (assignedUsers.length) {
         await tx.save(
@@ -284,6 +287,7 @@ export class TaskCrudService {
     const nextEndDate =
       dto.endDate !== undefined ? (dto.endDate ?? null) : task.endDate;
     this.authSvc.ensureDateRange(nextStartDate, nextEndDate);
+    this.ensureScheduleDto(dto);
 
     const originalStatusId = task.statusId;
     const changedFields: string[] = [];
@@ -350,6 +354,13 @@ export class TaskCrudService {
       task.manualScheduleReason = dto.manualScheduleReason?.trim() ?? null;
       changedFields.push('manualScheduleReason');
     }
+    if (dto.durationDays !== undefined) changedFields.push('durationDays');
+    if (dto.plannedStartDate !== undefined)
+      changedFields.push('plannedStartDate');
+    if (dto.plannedEndDate !== undefined) changedFields.push('plannedEndDate');
+    if (dto.actualStartDate !== undefined)
+      changedFields.push('actualStartDate');
+    if (dto.actualEndDate !== undefined) changedFields.push('actualEndDate');
     if (dto.reportee !== undefined) {
       task.reporteeUser = reporteeMembership!.user;
       task.reporteeUserId = reporteeMembership!.userId;
@@ -361,6 +372,7 @@ export class TaskCrudService {
         await this.authSvc.assertWipLimit(tx, task.statusId, projectId);
       }
       await tx.save(task);
+      await this.upsertActivitySchedule(tx, task, dto);
 
       if (dto.assignedMembers !== undefined) {
         const assignedUsers = await this.membersSvc.ensureAssignedMembers(
@@ -498,6 +510,83 @@ export class TaskCrudService {
     });
 
     return getTask(projectId, task.id, requestUser, membership);
+  }
+
+  private ensureScheduleDto(dto: CreateTaskDto | UpdateTaskDto): void {
+    this.authSvc.ensureDateRange(dto.plannedStartDate, dto.plannedEndDate);
+    this.authSvc.ensureDateRange(dto.actualStartDate, dto.actualEndDate);
+  }
+
+  private async upsertActivitySchedule(
+    tx: EntityManager,
+    task: Task,
+    dto: CreateTaskDto | UpdateTaskDto,
+  ): Promise<void> {
+    const schedule =
+      (await tx.findOne(TaskActivitySchedule, {
+        where: { taskId: task.id },
+      })) ??
+      tx.create(TaskActivitySchedule, {
+        task,
+        taskId: task.id,
+        durationDays: this.defaultDurationDays(task.scheduleType),
+        isCritical: false,
+        isManuallyScheduled: false,
+      });
+
+    const plannedDateChanged =
+      dto.plannedStartDate !== undefined || dto.plannedEndDate !== undefined;
+    const nextIsManual =
+      dto.isManuallyScheduled ?? schedule.isManuallyScheduled ?? false;
+    const nextManualReason =
+      dto.manualScheduleReason !== undefined
+        ? (dto.manualScheduleReason?.trim() ?? null)
+        : schedule.manualReason;
+
+    if (plannedDateChanged && !nextIsManual) {
+      throw new BadRequestException(
+        'isManuallyScheduled must be true when manually changing planned schedule dates',
+      );
+    }
+    if (nextIsManual && !nextManualReason) {
+      throw new BadRequestException(
+        'manualScheduleReason is required when manually pinning activity schedule dates',
+      );
+    }
+
+    if (dto.durationDays !== undefined) {
+      schedule.durationDays = dto.durationDays ?? null;
+    } else {
+      schedule.durationDays =
+        schedule.durationDays ?? this.defaultDurationDays(task.scheduleType);
+    }
+    if (dto.plannedStartDate !== undefined) {
+      schedule.plannedStartDate = dto.plannedStartDate ?? null;
+    }
+    if (dto.plannedEndDate !== undefined) {
+      schedule.plannedEndDate = dto.plannedEndDate ?? null;
+    }
+    if (dto.actualStartDate !== undefined) {
+      schedule.actualStartDate = dto.actualStartDate ?? null;
+    }
+    if (dto.actualEndDate !== undefined) {
+      schedule.actualEndDate = dto.actualEndDate ?? null;
+    }
+    if (dto.isManuallyScheduled !== undefined) {
+      schedule.isManuallyScheduled = dto.isManuallyScheduled;
+    }
+    if (dto.manualScheduleReason !== undefined) {
+      schedule.manualReason = nextManualReason;
+    }
+
+    await tx.save(TaskActivitySchedule, schedule);
+  }
+
+  private defaultDurationDays(scheduleType: ScheduleType): number {
+    return scheduleType === ScheduleType.TASK ||
+      scheduleType === ScheduleType.ACTIVITY
+      ? 1
+      : 0;
   }
 
   async moveTask(

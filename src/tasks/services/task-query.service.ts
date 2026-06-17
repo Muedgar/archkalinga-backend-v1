@@ -232,7 +232,8 @@ export class TaskQueryService {
       .leftJoinAndSelect('task.status', 'status')
       .leftJoinAndSelect('task.priority', 'priority')
       .leftJoinAndSelect('task.taskType', 'taskType')
-      .leftJoinAndSelect('task.severity', 'severity');
+      .leftJoinAndSelect('task.severity', 'severity')
+      .leftJoinAndSelect('task.activitySchedule', 'activitySchedule');
 
     // ── Optional includes ─────────────────────────────────────────────────
     if (includes.has('checklist'))
