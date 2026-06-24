@@ -31,7 +31,9 @@ import {
   TaskComment,
   TaskDependency,
   TaskLabel,
+  TaskMaterial,
   TaskRelation,
+  TaskResourceAllocation,
   TaskScheduleCalculationRun,
   TaskScheduleExplanation,
   TaskScheduleOverride,
@@ -53,9 +55,15 @@ import {
   TaskCommentsService,
   TaskCrudService,
   TaskMembersService,
+  TaskMaterialsReportImportService,
+  TaskMaterialsReportService,
+  TaskMaterialsService,
   TaskQueryService,
   TaskRankingService,
   TaskRelationsService,
+  TaskResourceAllocationService,
+  TaskResourceReportImportService,
+  TaskResourceReportService,
 } from './services';
 
 const SUB_SERVICES = [
@@ -72,8 +80,14 @@ const SUB_SERVICES = [
   TaskChecklistService,
   TaskRelationsService,
   TaskMembersService,
+  TaskMaterialsReportImportService,
+  TaskMaterialsReportService,
+  TaskMaterialsService,
   TaskCrudService,
   TaskQueryService,
+  TaskResourceAllocationService,
+  TaskResourceReportImportService,
+  TaskResourceReportService,
 ];
 
 @Module({
@@ -89,7 +103,9 @@ const SUB_SERVICES = [
       TaskComment,
       TaskDependency,
       TaskLabel,
+      TaskMaterial,
       TaskRelation,
+      TaskResourceAllocation,
       TaskScheduleCalculationRun,
       TaskScheduleExplanation,
       TaskScheduleOverride,

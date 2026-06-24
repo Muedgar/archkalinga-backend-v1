@@ -23,6 +23,7 @@ export const TASK_COMMENT_NOT_FOUND = 'Task comment not found';
 export const TASK_COMMENT_ACCESS_DENIED =
   'You can only edit or delete your own comments';
 export const TASK_CHECKLIST_ITEM_NOT_FOUND = 'Task checklist item not found';
+export const TASK_MATERIAL_NOT_FOUND = 'Task material not found';
 export const TASK_DEPENDENCY_NOT_FOUND = 'Task dependency not found';
 export const TOO_MANY_TASK_INCLUDES =
   'Too many include values requested for task list';
@@ -41,6 +42,8 @@ export const TASK_WATCHER_ALREADY_WATCHING =
 export const INVALID_TASK_WATCHER =
   'Watcher must be an active member of the project';
 export const TASK_RELATION_NOT_FOUND = 'Task relation not found';
+export const TASK_RESOURCE_ALLOCATION_NOT_FOUND =
+  'Task resource allocation not found';
 export const INVALID_TASK_RELATION =
   'Related task must belong to the same project and must not create a self-relation or duplicate';
 export const TASK_RELATION_SELF = 'A task cannot be related to itself';

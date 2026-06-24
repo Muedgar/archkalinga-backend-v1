@@ -11,6 +11,14 @@ export const TASK_MOVED = 'Task moved successfully';
 export const TASKS_BULK_UPDATED = 'Tasks updated successfully';
 export const PROJECT_ACTIVITY_SCHEDULE_FETCHED =
   'Project activity schedule fetched successfully';
+export const PROJECT_RESOURCE_REPORT_FETCHED =
+  'Project resource report fetched successfully';
+export const PROJECT_RESOURCE_REPORT_IMPORTED =
+  'Project resource report import processed successfully';
+export const PROJECT_MATERIALS_REPORT_FETCHED =
+  'Project materials report fetched successfully';
+export const PROJECT_MATERIALS_REPORT_IMPORTED =
+  'Project materials report import processed successfully';
 export const PROJECT_CRITICAL_PATH_FETCHED =
   'Project critical path fetched successfully';
 export const PROJECT_ACTIVITY_SCHEDULE_GANTT_FETCHED =
@@ -37,6 +45,21 @@ export const TASK_ACTIVITY_SCHEDULE_FETCHED =
   'Task activity schedule fetched successfully';
 export const TASK_ACTIVITY_SCHEDULE_UPDATED =
   'Task activity schedule updated successfully';
+export const TASK_RESOURCE_ALLOCATIONS_FETCHED =
+  'Task resource allocations fetched successfully';
+export const TASK_RESOURCE_ALLOCATION_FETCHED =
+  'Task resource allocation fetched successfully';
+export const TASK_RESOURCE_ALLOCATION_CREATED =
+  'Task resource allocation created successfully';
+export const TASK_RESOURCE_ALLOCATION_UPDATED =
+  'Task resource allocation updated successfully';
+export const TASK_RESOURCE_ALLOCATION_DELETED =
+  'Task resource allocation deleted successfully';
+export const TASK_MATERIALS_FETCHED = 'Task materials fetched successfully';
+export const TASK_MATERIAL_FETCHED = 'Task material fetched successfully';
+export const TASK_MATERIAL_CREATED = 'Task material created successfully';
+export const TASK_MATERIAL_UPDATED = 'Task material updated successfully';
+export const TASK_MATERIAL_DELETED = 'Task material deleted successfully';
 export const TASK_ACTIVITY_SCHEDULE_RECALCULATED =
   'Task activity schedule recalculated successfully';
 export const TASK_ACTIVITY_SCHEDULE_IMPORTED =

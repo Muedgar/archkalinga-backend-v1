@@ -22,7 +22,9 @@ import { TaskChecklistItem } from './task-checklist-item.entity';
 import { TaskComment } from './task-comment.entity';
 import { TaskDependency } from './task-dependency.entity';
 import { TaskLabel } from './task-label.entity';
+import { TaskMaterial } from './task-material.entity';
 import { TaskRelation } from './task-relation.entity';
+import { TaskResourceAllocation } from './task-resource-allocation.entity';
 import { TaskViewMetadata } from './task-view-metadata.entity';
 import { TaskWatcher } from './task-watcher.entity';
 
@@ -196,6 +198,12 @@ export class Task extends AppBaseEntity {
 
   @OneToMany(() => TaskRelation, (relation) => relation.relatedTask)
   incomingRelations: TaskRelation[];
+
+  @OneToMany(() => TaskResourceAllocation, (allocation) => allocation.task)
+  resourceAllocations: TaskResourceAllocation[];
+
+  @OneToMany(() => TaskMaterial, (material) => material.task)
+  materials: TaskMaterial[];
 
   @OneToMany(() => TaskViewMetadata, (metadata) => metadata.task)
   viewMetadataEntries: TaskViewMetadata[];

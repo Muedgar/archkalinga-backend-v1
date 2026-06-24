@@ -79,6 +79,43 @@ export class ActivityScheduleRowSerializer extends TaskActivityScheduleDetailSer
     startDate: string | null;
     endDate: string | null;
   } | null;
+
+  @Expose()
+  @Transform(({ obj }) =>
+    (obj?.task?.dependencyEdges ?? []).map((dependency) => {
+      const predecessor = dependency.dependsOnTask;
+      return {
+        id: dependency.id,
+        dependsOnTaskId: dependency.dependsOnTaskId,
+        dependencyType: dependency.dependencyType,
+        lagDays: dependency.lagDays ?? 0,
+        predecessor: predecessor
+          ? {
+              id: predecessor.id,
+              title: predecessor.title ?? null,
+              wbsCode: predecessor.wbsCode ?? null,
+              scheduleType: predecessor.scheduleType ?? null,
+              startDate: predecessor.startDate ?? null,
+              endDate: predecessor.endDate ?? null,
+            }
+          : null,
+      };
+    }),
+  )
+  predecessors: {
+    id: string;
+    dependsOnTaskId: string;
+    dependencyType: string;
+    lagDays: number;
+    predecessor: {
+      id: string;
+      title: string | null;
+      wbsCode: string | null;
+      scheduleType: string | null;
+      startDate: string | null;
+      endDate: string | null;
+    } | null;
+  }[];
 }
 
 export class TaskCommentDetailSerializer extends BaseSerializer {
