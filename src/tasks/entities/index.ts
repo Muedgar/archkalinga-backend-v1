@@ -7,6 +7,8 @@ export * from './task-checklist.entity';
 export * from './task-checklist-item.entity';
 export * from './task-comment.entity';
 export * from './task-dependency.entity';
+export * from './task-document.entity';
+export * from './task-document-attachment.entity';
 export * from './task-label.entity';
 export * from './task-material.entity';
 export * from './task-relation.entity';

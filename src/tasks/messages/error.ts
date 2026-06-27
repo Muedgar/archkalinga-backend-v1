@@ -24,18 +24,21 @@ export const TASK_COMMENT_ACCESS_DENIED =
   'You can only edit or delete your own comments';
 export const TASK_CHECKLIST_ITEM_NOT_FOUND = 'Task checklist item not found';
 export const TASK_MATERIAL_NOT_FOUND = 'Task material not found';
+export const TASK_DOCUMENT_NOT_FOUND = 'Task document not found';
+export const INVALID_TASK_DOCUMENT_ATTACHMENTS =
+  'A task document can only have one active attachment';
 export const TASK_DEPENDENCY_NOT_FOUND = 'Task dependency not found';
 export const TOO_MANY_TASK_INCLUDES =
   'Too many include values requested for task list';
 
-export const TASK_CHECKLIST_GROUP_NOT_FOUND =
-  'Task checklist group not found';
+export const TASK_CHECKLIST_GROUP_NOT_FOUND = 'Task checklist group not found';
 export const TASK_CHECKLIST_GROUP_MISMATCH =
   'Checklist group does not belong to this task';
 export const INVALID_TASK_LABEL =
   'Label must belong to the same project as the task';
 export const TASK_LABEL_NOT_FOUND = 'Task label assignment not found';
-export const TASK_LABEL_ALREADY_ADDED = 'This label is already added to the task';
+export const TASK_LABEL_ALREADY_ADDED =
+  'This label is already added to the task';
 export const TASK_WATCHER_NOT_FOUND = 'Task watcher not found';
 export const TASK_WATCHER_ALREADY_WATCHING =
   'User is already watching this task';

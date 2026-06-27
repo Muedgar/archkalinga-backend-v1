@@ -60,6 +60,11 @@ export const TASK_MATERIAL_FETCHED = 'Task material fetched successfully';
 export const TASK_MATERIAL_CREATED = 'Task material created successfully';
 export const TASK_MATERIAL_UPDATED = 'Task material updated successfully';
 export const TASK_MATERIAL_DELETED = 'Task material deleted successfully';
+export const TASK_DOCUMENTS_FETCHED = 'Task documents fetched successfully';
+export const TASK_DOCUMENT_FETCHED = 'Task document fetched successfully';
+export const TASK_DOCUMENT_CREATED = 'Task document created successfully';
+export const TASK_DOCUMENT_UPDATED = 'Task document updated successfully';
+export const TASK_DOCUMENT_DELETED = 'Task document deleted successfully';
 export const TASK_ACTIVITY_SCHEDULE_RECALCULATED =
   'Task activity schedule recalculated successfully';
 export const TASK_ACTIVITY_SCHEDULE_IMPORTED =

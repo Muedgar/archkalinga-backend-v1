@@ -21,6 +21,7 @@ import { TaskChecklist } from './task-checklist.entity';
 import { TaskChecklistItem } from './task-checklist-item.entity';
 import { TaskComment } from './task-comment.entity';
 import { TaskDependency } from './task-dependency.entity';
+import { TaskDocument } from './task-document.entity';
 import { TaskLabel } from './task-label.entity';
 import { TaskMaterial } from './task-material.entity';
 import { TaskRelation } from './task-relation.entity';
@@ -204,6 +205,9 @@ export class Task extends AppBaseEntity {
 
   @OneToMany(() => TaskMaterial, (material) => material.task)
   materials: TaskMaterial[];
+
+  @OneToMany(() => TaskDocument, (document) => document.task)
+  documents: TaskDocument[];
 
   @OneToMany(() => TaskViewMetadata, (metadata) => metadata.task)
   viewMetadataEntries: TaskViewMetadata[];

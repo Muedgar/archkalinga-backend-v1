@@ -21,6 +21,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
+import type { UploadableFile } from 'src/common/services';
 import { ProjectMembership } from 'src/projects/entities';
 import { User } from 'src/users/entities';
 import {
@@ -35,6 +36,7 @@ import {
   ActivityScheduleImportDto,
   BulkUpdateTasksDto,
   CreateTaskMaterialDto,
+  CreateTaskDocumentDto,
   CreateTaskResourceAllocationDto,
   CreateProjectCalendarExceptionDto,
   CreateChecklistGroupDto,
@@ -45,8 +47,10 @@ import {
   RecalculateActivityScheduleDto,
   ResourceReportFiltersDto,
   ResourceReportImportDto,
+  TaskDocumentFiltersDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
+  UpdateTaskDocumentDto,
   UpdateTaskMaterialDto,
   UpdateTaskResourceAllocationDto,
   UpdateActivityScheduleDto,
@@ -72,6 +76,7 @@ import {
   TaskChecklistService,
   TaskCommentsService,
   TaskCrudService,
+  TaskDocumentsService,
   TaskMembersService,
   TaskMaterialsReportImportService,
   TaskMaterialsReportService,
@@ -106,6 +111,7 @@ export class TasksService {
     private readonly relationsSvc: TaskRelationsService,
     private readonly membersSvc: TaskMembersService,
     private readonly materialsSvc: TaskMaterialsService,
+    private readonly documentsSvc: TaskDocumentsService,
     private readonly materialsReportImportSvc: TaskMaterialsReportImportService,
     private readonly materialsReportSvc: TaskMaterialsReportService,
     private readonly resourceAllocationSvc: TaskResourceAllocationService,
@@ -542,10 +548,14 @@ export class TasksService {
       requestUser,
       'update',
     );
-    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
-      requestUser,
-      membership,
-    });
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      {
+        requestUser,
+        membership,
+      },
+    );
     return this.resourceAllocationSvc.createForTask(task, dto);
   }
 
@@ -689,6 +699,114 @@ export class TasksService {
       this.actor(requestUser),
     ]);
     return this.materialsSvc.deleteTaskMaterial(task, materialId, actorUser);
+  }
+
+  async listTaskDocuments(
+    projectId: string,
+    taskId: string,
+    filters: TaskDocumentFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.documentsSvc.listTaskDocuments(taskId, filters);
+  }
+
+  async getTaskDocument(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.documentsSvc.getTaskDocument(taskId, documentId);
+  }
+
+  async createTaskDocument(
+    projectId: string,
+    taskId: string,
+    dto: CreateTaskDocumentDto,
+    requestUser: RequestUser,
+    file?: UploadableFile,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.documentsSvc.createTaskDocument(task, actorUser, dto, file);
+  }
+
+  async updateTaskDocument(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    dto: UpdateTaskDocumentDto,
+    requestUser: RequestUser,
+    file?: UploadableFile,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.documentsSvc.updateTaskDocument(
+      task,
+      documentId,
+      actorUser,
+      dto,
+      file,
+    );
+  }
+
+  async deleteTaskDocument(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.documentsSvc.deleteTaskDocument(task, documentId, actorUser);
   }
 
   async recalculateActivitySchedule(

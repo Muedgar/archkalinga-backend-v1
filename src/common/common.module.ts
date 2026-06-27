@@ -4,6 +4,7 @@ import {
   AuditLogService,
   ListFilterService,
   MailHealthService,
+  MinioService,
 } from './services';
 import { EmailProcessor } from './processors';
 import { BullModule } from '@nestjs/bull';
@@ -50,12 +51,14 @@ import { MailHealthController } from './controllers/mail-health.controller';
     AuditLogService,
     ListFilterService,
     MailHealthService,
+    MinioService,
   ],
   exports: [
     EmailService,
     AuditLogService,
     ListFilterService,
     MailHealthService,
+    MinioService,
   ],
 })
 export class CommonModule {}

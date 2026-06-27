@@ -30,6 +30,7 @@ import { GetUser, RequireProjectPermission } from 'src/auth/decorators';
 import { JwtAuthGuard, ProjectPermissionGuard } from 'src/auth/guards';
 import type { RequestUser } from 'src/auth/types';
 import { LogActivity, ResponseMessage } from 'src/common/decorators';
+import type { UploadableFile } from 'src/common/services';
 import {
   AddChecklistItemDto,
   AddCommentDto,
@@ -42,6 +43,7 @@ import {
   ActivityScheduleImportDto,
   ActivityScheduleImportMode,
   BulkUpdateTasksDto,
+  CreateTaskDocumentDto,
   CreateTaskMaterialDto,
   CreateTaskResourceAllocationDto,
   CreateProjectCalendarExceptionDto,
@@ -55,8 +57,10 @@ import {
   ResourceReportFiltersDto,
   ResourceReportImportDto,
   ResourceReportImportMode,
+  TaskDocumentFiltersDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
+  UpdateTaskDocumentDto,
   UpdateTaskMaterialDto,
   UpdateTaskResourceAllocationDto,
   UpdateActivityScheduleDto,
@@ -116,6 +120,11 @@ import {
   TASK_MATERIAL_FETCHED,
   TASK_MATERIALS_FETCHED,
   TASK_MATERIAL_UPDATED,
+  TASK_DOCUMENT_CREATED,
+  TASK_DOCUMENT_DELETED,
+  TASK_DOCUMENT_FETCHED,
+  TASK_DOCUMENTS_FETCHED,
+  TASK_DOCUMENT_UPDATED,
   TASK_RELATION_ADDED,
   TASK_RELATION_DELETED,
   TASK_RELATIONS_FETCHED,
@@ -946,7 +955,10 @@ export class TasksController {
 
   @Get('tasks/:taskId/resource-allocations')
   @ApiOperation({ summary: 'List task resource allocations' })
-  @ApiResponse({ status: 200, description: 'Task resource allocations fetched' })
+  @ApiResponse({
+    status: 200,
+    description: 'Task resource allocations fetched',
+  })
   @ResponseMessage(TASK_RESOURCE_ALLOCATIONS_FETCHED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'view')
@@ -1165,6 +1177,181 @@ export class TasksController {
       projectId,
       taskId,
       materialId,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/documents')
+  @ApiOperation({ summary: 'List task documents' })
+  @ApiResponse({ status: 200, description: 'Task documents fetched' })
+  @ResponseMessage(TASK_DOCUMENTS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  listTaskDocuments(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() filters: TaskDocumentFiltersDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.listTaskDocuments(
+      projectId,
+      taskId,
+      filters,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/documents/:documentId')
+  @ApiOperation({ summary: 'Get task document' })
+  @ApiResponse({ status: 200, description: 'Task document fetched' })
+  @ResponseMessage(TASK_DOCUMENT_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskDocument(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskDocument(
+      projectId,
+      taskId,
+      documentId,
+      user,
+    );
+  }
+
+  @Post('tasks/:taskId/documents')
+  @ApiOperation({ summary: 'Create task document' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['name', 'type'],
+      properties: {
+        name: { type: 'string', example: 'Site survey starter pack' },
+        description: {
+          type: 'string',
+          nullable: true,
+          example: 'Input documents required before work starts.',
+        },
+        type: {
+          type: 'string',
+          enum: ['STARTER', 'DELIVERABLE'],
+          example: 'STARTER',
+        },
+        bucketName: { type: 'string', example: 'task-documents' },
+        attachmentNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Signed site survey received from the consultant.',
+        },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Task document created' })
+  @ResponseMessage(TASK_DOCUMENT_CREATED)
+  @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'create:task-document',
+    resource: 'task-document',
+    includeBody: true,
+  })
+  createTaskDocument(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateTaskDocumentDto,
+    @UploadedFile() file: UploadableFile,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.createTaskDocument(
+      projectId,
+      taskId,
+      dto,
+      user,
+      file,
+    );
+  }
+
+  @Patch('tasks/:taskId/documents/:documentId')
+  @ApiOperation({ summary: 'Update task document' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'Updated document name' },
+        description: {
+          type: 'string',
+          nullable: true,
+          example: 'Updated document description.',
+        },
+        type: {
+          type: 'string',
+          enum: ['STARTER', 'DELIVERABLE'],
+          example: 'DELIVERABLE',
+        },
+        bucketName: { type: 'string', example: 'task-documents' },
+        attachmentNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Revised file uploaded after review.',
+        },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Task document updated' })
+  @ResponseMessage(TASK_DOCUMENT_UPDATED)
+  @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'update:task-document',
+    resource: 'task-document',
+    includeBody: true,
+  })
+  updateTaskDocument(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @Body() dto: UpdateTaskDocumentDto,
+    @UploadedFile() file: UploadableFile,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.updateTaskDocument(
+      projectId,
+      taskId,
+      documentId,
+      dto,
+      user,
+      file,
+    );
+  }
+
+  @Delete('tasks/:taskId/documents/:documentId')
+  @ApiOperation({ summary: 'Delete task document' })
+  @ApiResponse({ status: 200, description: 'Task document deleted' })
+  @ResponseMessage(TASK_DOCUMENT_DELETED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'delete:task-document',
+    resource: 'task-document',
+  })
+  deleteTaskDocument(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.deleteTaskDocument(
+      projectId,
+      taskId,
+      documentId,
       user,
     );
   }
