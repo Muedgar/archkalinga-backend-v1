@@ -21,6 +21,7 @@ export class AddTaskDocuments1787400000000 implements MigrationInterface {
         "updatedAt"           TIMESTAMP                  NOT NULL DEFAULT now(),
         "task_id"             uuid                       NOT NULL,
         "created_by_user_id"  uuid                       NOT NULL,
+        "updated_by_user_id"  uuid,
         "name"                varchar(255)               NOT NULL,
         "description"         text,
         "type"                "task_documents_type_enum" NOT NULL,
@@ -29,7 +30,9 @@ export class AddTaskDocuments1787400000000 implements MigrationInterface {
         CONSTRAINT "FK_task_documents_task" FOREIGN KEY ("task_id")
           REFERENCES "tasks" ("id") ON DELETE CASCADE,
         CONSTRAINT "FK_task_documents_created_by" FOREIGN KEY ("created_by_user_id")
-          REFERENCES "users" ("id") ON DELETE RESTRICT
+          REFERENCES "users" ("id") ON DELETE RESTRICT,
+        CONSTRAINT "FK_task_documents_updated_by" FOREIGN KEY ("updated_by_user_id")
+          REFERENCES "users" ("id") ON DELETE SET NULL
       )
     `);
 
@@ -41,6 +44,7 @@ export class AddTaskDocuments1787400000000 implements MigrationInterface {
         "createdAt"     TIMESTAMP    NOT NULL DEFAULT now(),
         "updatedAt"     TIMESTAMP    NOT NULL DEFAULT now(),
         "document_id"   uuid         NOT NULL,
+        "created_by_user_id" uuid     NOT NULL,
         "filename"      varchar(500) NOT NULL,
         "bucket_name"   varchar(255) NOT NULL,
         "notes"         text,
@@ -48,7 +52,9 @@ export class AddTaskDocuments1787400000000 implements MigrationInterface {
         CONSTRAINT "UQ_task_document_attachments_id" UNIQUE ("id"),
         CONSTRAINT "PK_task_document_attachments" PRIMARY KEY ("pkid"),
         CONSTRAINT "FK_task_document_attachments_document" FOREIGN KEY ("document_id")
-          REFERENCES "task_documents" ("id") ON DELETE CASCADE
+          REFERENCES "task_documents" ("id") ON DELETE CASCADE,
+        CONSTRAINT "FK_task_document_attachments_created_by" FOREIGN KEY ("created_by_user_id")
+          REFERENCES "users" ("id") ON DELETE RESTRICT
       )
     `);
 
@@ -61,12 +67,20 @@ export class AddTaskDocuments1787400000000 implements MigrationInterface {
         ON "task_documents" ("created_by_user_id")
     `);
     await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS "idx_task_documents_updated_by"
+        ON "task_documents" ("updated_by_user_id")
+    `);
+    await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "idx_task_document_attachments_document"
         ON "task_document_attachments" ("document_id")
     `);
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "idx_task_document_attachments_active"
         ON "task_document_attachments" ("document_id", "is_active")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS "idx_task_document_attachments_created_by"
+        ON "task_document_attachments" ("created_by_user_id")
     `);
     await queryRunner.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS "uq_task_document_one_active_attachment"

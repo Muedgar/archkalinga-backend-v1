@@ -35,6 +35,7 @@ import {
   ActivityScheduleGanttQueryDto,
   ActivityScheduleImportDto,
   BulkUpdateTasksDto,
+  CreateStarterFromDeliverableDto,
   CreateTaskMaterialDto,
   CreateTaskDocumentDto,
   CreateTaskResourceAllocationDto,
@@ -63,6 +64,7 @@ import {
   UpdateTaskDto,
 } from './dtos';
 import { Task } from './entities';
+import { TaskDocumentSerializer } from './serializers';
 import {
   ActivityScheduleGanttService,
   ActivityScheduleImportService,
@@ -737,6 +739,29 @@ export class TasksService {
     return this.documentsSvc.getTaskDocument(taskId, documentId);
   }
 
+  async getTaskDocumentAttachmentDownloadUrl(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    attachmentId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.documentsSvc.getTaskDocumentAttachmentDownloadUrl(
+      taskId,
+      documentId,
+      attachmentId,
+    );
+  }
+
   async createTaskDocument(
     projectId: string,
     taskId: string,
@@ -757,6 +782,42 @@ export class TasksService {
       this.actor(requestUser),
     ]);
     return this.documentsSvc.createTaskDocument(task, actorUser, dto, file);
+  }
+
+  async createStarterDocumentFromDeliverable(
+    projectId: string,
+    taskId: string,
+    dto: CreateStarterFromDeliverableDto,
+    requestUser: RequestUser,
+  ): Promise<TaskDocumentSerializer> {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [targetTask, sourceTask, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.authSvc.ensureTaskForSubresource(projectId, dto.sourceTaskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    const sourceDocument = await this.documentsSvc.getTaskDocumentEntityOrFail(
+      sourceTask.id,
+      dto.sourceDocumentId,
+    );
+
+    return this.documentsSvc.createStarterFromDeliverable(
+      targetTask,
+      sourceTask,
+      sourceDocument,
+      actorUser,
+      dto,
+    );
   }
 
   async updateTaskDocument(

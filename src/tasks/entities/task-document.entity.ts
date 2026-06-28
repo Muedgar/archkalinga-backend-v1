@@ -19,6 +19,9 @@ export enum TaskDocumentType {
 @Entity('task_documents')
 @Index('idx_task_documents_task_type', ['taskId', 'type'])
 @Index('idx_task_documents_created_by', ['createdByUserId'])
+@Index('idx_task_documents_updated_by', ['updatedByUserId'])
+@Index('idx_task_documents_source_task', ['sourceTaskId'])
+@Index('idx_task_documents_source_document', ['sourceDocumentId'])
 export class TaskDocument extends AppBaseEntity {
   @ManyToOne(() => Task, (task) => task.documents, {
     nullable: false,
@@ -36,6 +39,27 @@ export class TaskDocument extends AppBaseEntity {
 
   @Column({ name: 'created_by_user_id', type: 'uuid', nullable: false })
   createdByUserId: string;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'updated_by_user_id', referencedColumnName: 'id' })
+  updatedByUser: User | null;
+
+  @Column({ name: 'updated_by_user_id', type: 'uuid', nullable: true })
+  updatedByUserId: string | null;
+
+  @ManyToOne(() => Task, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'source_task_id', referencedColumnName: 'id' })
+  sourceTask: Task | null;
+
+  @Column({ name: 'source_task_id', type: 'uuid', nullable: true })
+  sourceTaskId: string | null;
+
+  @ManyToOne(() => TaskDocument, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'source_document_id', referencedColumnName: 'id' })
+  sourceDocument: TaskDocument | null;
+
+  @Column({ name: 'source_document_id', type: 'uuid', nullable: true })
+  sourceDocumentId: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: false })
   name: string;

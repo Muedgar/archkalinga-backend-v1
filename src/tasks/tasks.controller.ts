@@ -43,6 +43,7 @@ import {
   ActivityScheduleImportDto,
   ActivityScheduleImportMode,
   BulkUpdateTasksDto,
+  CreateStarterFromDeliverableDto,
   CreateTaskDocumentDto,
   CreateTaskMaterialDto,
   CreateTaskResourceAllocationDto,
@@ -121,10 +122,12 @@ import {
   TASK_MATERIALS_FETCHED,
   TASK_MATERIAL_UPDATED,
   TASK_DOCUMENT_CREATED,
+  TASK_DOCUMENT_ATTACHMENT_DOWNLOAD_URL_FETCHED,
   TASK_DOCUMENT_DELETED,
   TASK_DOCUMENT_FETCHED,
   TASK_DOCUMENTS_FETCHED,
   TASK_DOCUMENT_UPDATED,
+  TASK_STARTER_DOCUMENT_CREATED_FROM_DELIVERABLE,
   TASK_RELATION_ADDED,
   TASK_RELATION_DELETED,
   TASK_RELATIONS_FETCHED,
@@ -1221,13 +1224,69 @@ export class TasksController {
     );
   }
 
+  @Get(
+    'tasks/:taskId/documents/:documentId/attachments/:attachmentId/download-url',
+  )
+  @ApiOperation({ summary: 'Get task document attachment download URL' })
+  @ApiResponse({
+    status: 200,
+    description: 'Task document attachment download URL fetched',
+  })
+  @ResponseMessage(TASK_DOCUMENT_ATTACHMENT_DOWNLOAD_URL_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskDocumentAttachmentDownloadUrl(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskDocumentAttachmentDownloadUrl(
+      projectId,
+      taskId,
+      documentId,
+      attachmentId,
+      user,
+    );
+  }
+
+  @Post('tasks/:taskId/documents/from-deliverable')
+  @ApiOperation({ summary: 'Create starter document from a deliverable' })
+  @ApiBody({ type: CreateStarterFromDeliverableDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Starter document created from deliverable',
+  })
+  @ResponseMessage(TASK_STARTER_DOCUMENT_CREATED_FROM_DELIVERABLE)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'create:task-document-from-deliverable',
+    resource: 'task-document',
+    includeBody: true,
+  })
+  createStarterDocumentFromDeliverable(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateStarterFromDeliverableDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.createStarterDocumentFromDeliverable(
+      projectId,
+      taskId,
+      dto,
+      user,
+    );
+  }
+
   @Post('tasks/:taskId/documents')
   @ApiOperation({ summary: 'Create task document' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['name', 'type'],
+      required: ['name', 'type', 'file'],
       properties: {
         name: { type: 'string', example: 'Site survey starter pack' },
         description: {

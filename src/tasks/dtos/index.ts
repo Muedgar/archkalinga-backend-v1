@@ -4,6 +4,7 @@ export * from './create-task-resource-allocation.dto';
 export * from './update-task-resource-allocation.dto';
 export * from './task-document-attachment.dto';
 export * from './create-task-document.dto';
+export * from './create-starter-from-deliverable.dto';
 export * from './update-task-document.dto';
 export * from './task-document-filters.dto';
 export * from './create-task-material.dto';

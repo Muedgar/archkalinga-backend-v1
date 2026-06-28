@@ -62,7 +62,11 @@ export const TASK_MATERIAL_UPDATED = 'Task material updated successfully';
 export const TASK_MATERIAL_DELETED = 'Task material deleted successfully';
 export const TASK_DOCUMENTS_FETCHED = 'Task documents fetched successfully';
 export const TASK_DOCUMENT_FETCHED = 'Task document fetched successfully';
+export const TASK_DOCUMENT_ATTACHMENT_DOWNLOAD_URL_FETCHED =
+  'Task document attachment download URL fetched successfully';
 export const TASK_DOCUMENT_CREATED = 'Task document created successfully';
+export const TASK_STARTER_DOCUMENT_CREATED_FROM_DELIVERABLE =
+  'Starter document created from deliverable successfully';
 export const TASK_DOCUMENT_UPDATED = 'Task document updated successfully';
 export const TASK_DOCUMENT_DELETED = 'Task document deleted successfully';
 export const TASK_ACTIVITY_SCHEDULE_RECALCULATED =

@@ -25,8 +25,18 @@ export const TASK_COMMENT_ACCESS_DENIED =
 export const TASK_CHECKLIST_ITEM_NOT_FOUND = 'Task checklist item not found';
 export const TASK_MATERIAL_NOT_FOUND = 'Task material not found';
 export const TASK_DOCUMENT_NOT_FOUND = 'Task document not found';
+export const TASK_DOCUMENT_ATTACHMENT_NOT_FOUND =
+  'Task document attachment not found';
 export const INVALID_TASK_DOCUMENT_ATTACHMENTS =
   'A task document can only have one active attachment';
+export const INVALID_TASK_DOCUMENT_FILE_REQUIRED =
+  'A file is required when creating a task document';
+export const INVALID_TASK_DOCUMENT_SOURCE_SELF =
+  'A task cannot create a starter document from its own deliverable';
+export const INVALID_TASK_DOCUMENT_SOURCE_TYPE =
+  'Source document must be a DELIVERABLE';
+export const INVALID_TASK_DOCUMENT_SOURCE_ACTIVE_ATTACHMENT =
+  'Source deliverable must have exactly one active attachment';
 export const TASK_DEPENDENCY_NOT_FOUND = 'Task dependency not found';
 export const TOO_MANY_TASK_INCLUDES =
   'Too many include values requested for task list';
