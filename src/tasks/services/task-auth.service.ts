@@ -13,6 +13,7 @@ import type { ProjectPermissionAction } from 'src/projects/types/project-permiss
 import { User } from 'src/users/entities';
 import {
   Task,
+  TaskActivitySchedule,
   TaskAssignee,
   TaskChecklistItem,
   TaskComment,
@@ -38,7 +39,13 @@ import { plainToInstance } from 'class-transformer';
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 export const TASK_INCLUDE_KEYS = new Set([
-  'assignedMembers', 'reportee', 'checklist', 'dependencies', 'comments', 'viewMeta',
+  'assignedMembers',
+  'reportee',
+  'checklist',
+  'dependencies',
+  'comments',
+  'viewMeta',
+  'activitySchedule',
 ]);
 export const MAX_TASK_LIST_INCLUDES = 6;
 
@@ -65,24 +72,35 @@ export class TaskAuthService {
     private readonly taskLabelRepo: Repository<TaskLabel>,
     @InjectRepository(TaskViewMetadata)
     private readonly viewMetadataRepo: Repository<TaskViewMetadata>,
+    @InjectRepository(TaskActivitySchedule)
+    private readonly scheduleRepo: Repository<TaskActivitySchedule>,
     private readonly membersSvc: TaskMembersService,
   ) {}
 
   // ── Serializers (used by query + crud services) ───────────────────────────
 
   toTaskSerializer(task: any): TaskSerializer {
-    return plainToInstance(TaskSerializer, task, { excludeExtraneousValues: true });
+    return plainToInstance(TaskSerializer, task, {
+      excludeExtraneousValues: true,
+    });
   }
 
   toTaskListItemSerializer(task: any): TaskListItemSerializer {
-    return plainToInstance(TaskListItemSerializer, task, { excludeExtraneousValues: true });
+    return plainToInstance(TaskListItemSerializer, task, {
+      excludeExtraneousValues: true,
+    });
   }
 
   // ── Validation helpers ────────────────────────────────────────────────────
 
   parseIncludes(raw?: string): Set<string> {
     if (!raw) return new Set();
-    const includes = new Set(raw.split(',').map((v) => v.trim()).filter(Boolean));
+    const includes = new Set(
+      raw
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean),
+    );
     for (const include of includes) {
       if (!TASK_INCLUDE_KEYS.has(include)) {
         throw new BadRequestException(`${INVALID_TASK_INCLUDE}: ${include}`);
@@ -106,7 +124,9 @@ export class TaskAuthService {
     projectId: string,
     excludeTaskId?: string,
   ): Promise<void> {
-    const status = await tx.findOne(ProjectStatus, { where: { id: statusId, projectId } });
+    const status = await tx.findOne(ProjectStatus, {
+      where: { id: statusId, projectId },
+    });
     if (!status?.wipLimit) return;
 
     const qb = tx
@@ -115,13 +135,18 @@ export class TaskAuthService {
       .andWhere('task.projectId = :projectId', { projectId })
       .andWhere('task.deletedAt IS NULL');
 
-    if (excludeTaskId) qb.andWhere('task.id != :excludeTaskId', { excludeTaskId });
+    if (excludeTaskId)
+      qb.andWhere('task.id != :excludeTaskId', { excludeTaskId });
 
     const count = await qb.getCount();
-    if (count >= status.wipLimit) throw new BadRequestException(TASK_STATUS_WIP_LIMIT_EXCEEDED);
+    if (count >= status.wipLimit)
+      throw new BadRequestException(TASK_STATUS_WIP_LIMIT_EXCEEDED);
   }
 
-  async ensureParentTask(projectId: string, parentTaskId?: string | null): Promise<Task | null> {
+  async ensureParentTask(
+    projectId: string,
+    parentTaskId?: string | null,
+  ): Promise<Task | null> {
     if (!parentTaskId) return null;
     const parent = await this.taskRepo.findOne({
       where: { id: parentTaskId, projectId, deletedAt: IsNull() },
@@ -156,7 +181,11 @@ export class TaskAuthService {
     const [project, membership] = await Promise.all([
       this.projectRepo.findOne({ where: { id: projectId } }),
       this.membershipRepo.findOne({
-        where: { projectId, userId: requestUser.id, status: MembershipStatus.ACTIVE },
+        where: {
+          projectId,
+          userId: requestUser.id,
+          status: MembershipStatus.ACTIVE,
+        },
         relations: ['projectRole'],
       }),
     ]);
@@ -185,11 +214,15 @@ export class TaskAuthService {
 
     if (opts?.requestUser && opts?.membership !== undefined) {
       const viewScope =
-        (opts.membership?.projectRole?.permissions?.taskManagement as any)?.viewScope ?? 'all';
+        (opts.membership?.projectRole?.permissions?.taskManagement as any)
+          ?.viewScope ?? 'all';
       if (viewScope === 'assigned') {
-        const isAssignee = (task.assignees ?? []).some((a) => a.userId === opts.requestUser!.id);
+        const isAssignee = (task.assignees ?? []).some(
+          (a) => a.userId === opts.requestUser!.id,
+        );
         const isReportee = task.reporteeUserId === opts.requestUser!.id;
-        if (!isAssignee && !isReportee) throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
+        if (!isAssignee && !isReportee)
+          throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
       }
     }
 
@@ -218,6 +251,7 @@ export class TaskAuthService {
       dependencyEdges,
       labels,
       viewMetadataEntries,
+      activitySchedule,
     ] = await Promise.all([
       this.taskRepo
         .createQueryBuilder('task')
@@ -370,21 +404,26 @@ export class TaskAuthService {
         ])
         .where('viewMeta.taskId = :taskId', { taskId })
         .getMany(),
+      this.scheduleRepo.findOne({ where: { taskId } }),
     ]);
 
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
 
-    task.assignees           = assignees;
-    task.checklistItems      = checklistItems;
-    task.comments            = comments;  // already filtered: deletedAt IS NULL
-    task.dependencyEdges     = dependencyEdges;
-    task.labels              = labels;
+    task.assignees = assignees;
+    task.checklistItems = checklistItems;
+    task.comments = comments; // already filtered: deletedAt IS NULL
+    task.dependencyEdges = dependencyEdges;
+    task.labels = labels;
     task.viewMetadataEntries = viewMetadataEntries;
+    task.activitySchedule = activitySchedule;
 
     return task;
   }
 
-  async loadTasksForList(taskIds: string[], projectId: string): Promise<TaskListItemSerializer[]> {
+  async loadTasksForList(
+    taskIds: string[],
+    projectId: string,
+  ): Promise<TaskListItemSerializer[]> {
     if (!taskIds.length) return [];
 
     // Fire core task query + all sub-resource queries in a single Promise.all wave.
@@ -409,40 +448,78 @@ export class TaskAuthService {
     ] = await Promise.all([
       this.taskRepo.find({
         where: { id: In(idSet), projectId, deletedAt: IsNull() },
-        relations: ['reporteeUser', 'status', 'priority', 'taskType', 'severity'],
+        relations: [
+          'reporteeUser',
+          'status',
+          'priority',
+          'taskType',
+          'severity',
+        ],
         order: { createdAt: 'DESC' },
       }),
-      this.taskAssigneeRepo.find({ where: { taskId: In(idSet) }, relations: ['user'] }),
+      this.taskAssigneeRepo.find({
+        where: { taskId: In(idSet) },
+        relations: ['user'],
+      }),
       this.checklistItemRepo.find({ where: { taskId: In(idSet) } }),
-      this.commentRepo.find({ where: { taskId: In(idSet), deletedAt: IsNull() } }),
+      this.commentRepo.find({
+        where: { taskId: In(idSet), deletedAt: IsNull() },
+      }),
       this.dependencyEdgeRepo.find({ where: { taskId: In(idSet) } }),
-      this.taskLabelRepo.find({ where: { taskId: In(idSet) }, relations: ['label'] }),
+      this.taskLabelRepo.find({
+        where: { taskId: In(idSet) },
+        relations: ['label'],
+      }),
       this.viewMetadataRepo.find({ where: { taskId: In(idSet) } }),
     ]);
 
     // Group sub-resources by taskId for O(1) lookup during assembly
-    const assigneeMap        = new Map<string, typeof assignees>();
-    const checklistMap       = new Map<string, typeof checklistItems>();
-    const commentMap         = new Map<string, typeof comments>();
-    const depMap             = new Map<string, typeof dependencyEdges>();
-    const labelMap           = new Map<string, typeof labels>();
-    const viewMetaMap        = new Map<string, typeof viewMetadataEntries>();
+    const assigneeMap = new Map<string, typeof assignees>();
+    const checklistMap = new Map<string, typeof checklistItems>();
+    const commentMap = new Map<string, typeof comments>();
+    const depMap = new Map<string, typeof dependencyEdges>();
+    const labelMap = new Map<string, typeof labels>();
+    const viewMetaMap = new Map<string, typeof viewMetadataEntries>();
 
-    for (const r of assignees)           { const a = assigneeMap.get(r.taskId) ?? []; a.push(r); assigneeMap.set(r.taskId, a); }
-    for (const r of checklistItems)      { const a = checklistMap.get(r.taskId) ?? []; a.push(r); checklistMap.set(r.taskId, a); }
-    for (const r of comments)            { const a = commentMap.get(r.taskId) ?? []; a.push(r); commentMap.set(r.taskId, a); }
-    for (const r of dependencyEdges)     { const a = depMap.get(r.taskId) ?? []; a.push(r); depMap.set(r.taskId, a); }
-    for (const r of labels)              { const a = labelMap.get(r.taskId) ?? []; a.push(r); labelMap.set(r.taskId, a); }
-    for (const r of viewMetadataEntries) { const a = viewMetaMap.get(r.taskId) ?? []; a.push(r); viewMetaMap.set(r.taskId, a); }
+    for (const r of assignees) {
+      const a = assigneeMap.get(r.taskId) ?? [];
+      a.push(r);
+      assigneeMap.set(r.taskId, a);
+    }
+    for (const r of checklistItems) {
+      const a = checklistMap.get(r.taskId) ?? [];
+      a.push(r);
+      checklistMap.set(r.taskId, a);
+    }
+    for (const r of comments) {
+      const a = commentMap.get(r.taskId) ?? [];
+      a.push(r);
+      commentMap.set(r.taskId, a);
+    }
+    for (const r of dependencyEdges) {
+      const a = depMap.get(r.taskId) ?? [];
+      a.push(r);
+      depMap.set(r.taskId, a);
+    }
+    for (const r of labels) {
+      const a = labelMap.get(r.taskId) ?? [];
+      a.push(r);
+      labelMap.set(r.taskId, a);
+    }
+    for (const r of viewMetadataEntries) {
+      const a = viewMetaMap.get(r.taskId) ?? [];
+      a.push(r);
+      viewMetaMap.set(r.taskId, a);
+    }
 
     // Stitch sub-resources onto task objects in-memory (zero extra queries)
     for (const task of tasks) {
-      task.assignees           = assigneeMap.get(task.id)        ?? [];
-      task.checklistItems      = checklistMap.get(task.id)       ?? [];
-      task.comments            = commentMap.get(task.id)         ?? [];
-      task.dependencyEdges     = depMap.get(task.id)             ?? [];
-      task.labels              = labelMap.get(task.id)           ?? [];
-      task.viewMetadataEntries = viewMetaMap.get(task.id)        ?? [];
+      task.assignees = assigneeMap.get(task.id) ?? [];
+      task.checklistItems = checklistMap.get(task.id) ?? [];
+      task.comments = commentMap.get(task.id) ?? [];
+      task.dependencyEdges = depMap.get(task.id) ?? [];
+      task.labels = labelMap.get(task.id) ?? [];
+      task.viewMetadataEntries = viewMetaMap.get(task.id) ?? [];
     }
 
     // Wave 2: child counts + roleContext — both fire in parallel.
@@ -452,7 +529,9 @@ export class TaskAuthService {
     // roleContext needs assignee userIds from wave 1 (now assembled), so it must come after.
     // Both are independent of each other, so we fire them together.
     const userIds = tasks.flatMap((t) =>
-      [t.reporteeUserId, ...(t.assignees ?? []).map((a) => a.userId)].filter((v): v is string => Boolean(v)),
+      [t.reporteeUserId, ...(t.assignees ?? []).map((a) => a.userId)].filter(
+        (v): v is string => Boolean(v),
+      ),
     );
 
     const [childRows, roleContext] = await Promise.all([
@@ -467,13 +546,15 @@ export class TaskAuthService {
       this.membersSvc.loadProjectRoleContextMap(projectId, userIds),
     ]);
 
-    const childCountMap = new Map(childRows.map((r) => [r.parentTaskId, Number(r.cnt)]));
+    const childCountMap = new Map(
+      childRows.map((r) => [r.parentTaskId, Number(r.cnt)]),
+    );
 
     return tasks.map((task) =>
       this.toTaskListItemSerializer(
         this.membersSvc.buildTaskReadModel(task, roleContext, {
-          childCount:   childCountMap.get(task.id) ?? 0,
-          commentCount: commentMap.get(task.id)?.length ?? 0,  // in-memory, zero extra query
+          childCount: childCountMap.get(task.id) ?? 0,
+          commentCount: commentMap.get(task.id)?.length ?? 0, // in-memory, zero extra query
         }),
       ),
     );

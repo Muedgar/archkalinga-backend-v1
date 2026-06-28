@@ -193,6 +193,54 @@ export class CreateTaskDto {
   @Max(100)
   weightPercent?: number | null;
 
+  @ApiPropertyOptional({
+    example: 5,
+    description:
+      'Working-day duration for the activity schedule row. Defaults to 1 for task/activity rows and 0 for summary rows.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(999999.99)
+  durationDays?: number | null;
+
+  @ApiPropertyOptional({
+    example: '2026-06-15',
+    description:
+      'Planned schedule start date. Requires isManuallyScheduled=true.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsDateString()
+  plannedStartDate?: string | null;
+
+  @ApiPropertyOptional({
+    example: '2026-06-20',
+    description:
+      'Planned schedule end date. Requires isManuallyScheduled=true.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsDateString()
+  plannedEndDate?: string | null;
+
+  @ApiPropertyOptional({
+    example: '2026-06-16',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsDateString()
+  actualStartDate?: string | null;
+
+  @ApiPropertyOptional({
+    example: '2026-06-22',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsDateString()
+  actualEndDate?: string | null;
+
   @ApiPropertyOptional({ example: false })
   @IsOptional()
   @IsBoolean()

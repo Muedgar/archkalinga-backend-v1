@@ -10,6 +10,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -20,13 +21,16 @@ import {
   ApiBearerAuth,
   ApiConsumes,
   ApiOperation,
+  ApiProduces,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { GetUser, RequireProjectPermission } from 'src/auth/decorators';
 import { JwtAuthGuard, ProjectPermissionGuard } from 'src/auth/guards';
 import type { RequestUser } from 'src/auth/types';
 import { LogActivity, ResponseMessage } from 'src/common/decorators';
+import type { UploadableFile } from 'src/common/services';
 import {
   AddChecklistItemDto,
   AddCommentDto,
@@ -39,12 +43,27 @@ import {
   ActivityScheduleImportDto,
   ActivityScheduleImportMode,
   BulkUpdateTasksDto,
+  CreateStarterFromDeliverableDto,
+  CreateTaskDocumentDto,
+  CreateTaskMaterialDto,
+  CreateTaskResourceAllocationDto,
   CreateProjectCalendarExceptionDto,
   CreateChecklistGroupDto,
   CreateTaskDto,
+  MaterialsReportFiltersDto,
+  MaterialsReportImportDto,
+  MaterialsReportImportMode,
   MoveTaskDto,
   RecalculateActivityScheduleDto,
+  ResourceReportFiltersDto,
+  ResourceReportImportDto,
+  ResourceReportImportMode,
+  TaskDocumentFiltersDto,
+  TaskMaterialFiltersDto,
   TaskFiltersDto,
+  UpdateTaskDocumentDto,
+  UpdateTaskMaterialDto,
+  UpdateTaskResourceAllocationDto,
   UpdateActivityScheduleDto,
   UpdateProjectCalendarExceptionDto,
   UpdateChecklistGroupDto,
@@ -78,6 +97,10 @@ import {
   TASK_DEPENDENCY_UPDATED,
   PROJECT_ACTIVITY_SCHEDULE_FETCHED,
   PROJECT_ACTIVITY_SCHEDULE_PROGRESS_FETCHED,
+  PROJECT_MATERIALS_REPORT_FETCHED,
+  PROJECT_MATERIALS_REPORT_IMPORTED,
+  PROJECT_RESOURCE_REPORT_FETCHED,
+  PROJECT_RESOURCE_REPORT_IMPORTED,
   PROJECT_ACTIVITY_SCHEDULE_SUMMARY_FETCHED,
   PROJECT_CALENDAR_EXCEPTION_CREATED,
   PROJECT_CALENDAR_EXCEPTION_DELETED,
@@ -93,6 +116,18 @@ import {
   TASK_ACTIVITY_FETCHED,
   TASK_ACTIVITY_SCHEDULE_IMPORTED,
   TASK_MOVED,
+  TASK_MATERIAL_CREATED,
+  TASK_MATERIAL_DELETED,
+  TASK_MATERIAL_FETCHED,
+  TASK_MATERIALS_FETCHED,
+  TASK_MATERIAL_UPDATED,
+  TASK_DOCUMENT_CREATED,
+  TASK_DOCUMENT_ATTACHMENT_DOWNLOAD_URL_FETCHED,
+  TASK_DOCUMENT_DELETED,
+  TASK_DOCUMENT_FETCHED,
+  TASK_DOCUMENTS_FETCHED,
+  TASK_DOCUMENT_UPDATED,
+  TASK_STARTER_DOCUMENT_CREATED_FROM_DELIVERABLE,
   TASK_RELATION_ADDED,
   TASK_RELATION_DELETED,
   TASK_RELATIONS_FETCHED,
@@ -105,6 +140,11 @@ import {
   TASK_ACTIVITY_SCHEDULE_FETCHED,
   TASK_ACTIVITY_SCHEDULE_RECALCULATED,
   TASK_ACTIVITY_SCHEDULE_UPDATED,
+  TASK_RESOURCE_ALLOCATION_CREATED,
+  TASK_RESOURCE_ALLOCATION_DELETED,
+  TASK_RESOURCE_ALLOCATION_FETCHED,
+  TASK_RESOURCE_ALLOCATION_UPDATED,
+  TASK_RESOURCE_ALLOCATIONS_FETCHED,
 } from './messages';
 import { TasksService } from './tasks.service';
 import type { ActivityScheduleUploadFile } from './services';
@@ -197,6 +237,228 @@ export class TasksController {
     return this.tasksService.bulkUpdateTasks(projectId, dto, user);
   }
 
+  @Get('resource-report')
+  @ApiOperation({
+    summary: 'List project resource report rows',
+    description:
+      'Returns project resource allocations ordered by phase, stage, activity, and resource. Includes resource report totals by activity, stage, phase, and grand total.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Project resource report fetched',
+  })
+  @ResponseMessage(PROJECT_RESOURCE_REPORT_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getProjectResourceReport(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() filters: ResourceReportFiltersDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getProjectResourceReport(projectId, filters, user);
+  }
+
+  @Get('resource-report/export')
+  @ApiOperation({
+    summary: 'Download full project resource report as Excel',
+    description:
+      'Exports all matching resource allocation rows ordered by phase, stage, activity, and resource. Supports the same filters as the JSON report, but ignores page and limit so the workbook contains the full filtered report.',
+  })
+  @ApiProduces(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
+  @ApiResponse({
+    status: 200,
+    description: 'Project resource report Excel file',
+  })
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  async exportProjectResourceReport(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() filters: ResourceReportFiltersDto,
+    @GetUser() user: RequestUser,
+    @Res() res: Response,
+  ) {
+    const workbook = await this.tasksService.exportProjectResourceReport(
+      projectId,
+      filters,
+      user,
+    );
+    const filename = `resource-report-${projectId}.xlsx`;
+
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': workbook.length.toString(),
+    });
+    res.send(workbook);
+  }
+
+  @Post('resource-report/import')
+  @ApiOperation({
+    summary: 'Validate or import Excel resource report rows',
+    description:
+      'Accepts resource-report workbooks with Phase ID, Stage ID, Activity ID, Resource Type, Resource Name, Qty, rates, Cost (RWF), and Status columns. validateOnly reports issues without writes; replaceByActivity replaces allocations for matched activity codes, preserving duplicate resource rows from the workbook.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        mode: {
+          type: 'string',
+          enum: Object.values(ResourceReportImportMode),
+          default: ResourceReportImportMode.VALIDATE_ONLY,
+        },
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Resource report import processed',
+  })
+  @ResponseMessage(PROJECT_RESOURCE_REPORT_IMPORTED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @UseInterceptors(FileInterceptor('file'))
+  @LogActivity({
+    action: 'import:resource-report',
+    resource: 'resource-report',
+    includeBody: true,
+  })
+  importProjectResourceReport(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @UploadedFile() file: ActivityScheduleUploadFile,
+    @Body() dto: ResourceReportImportDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.importProjectResourceReport(
+      projectId,
+      file,
+      dto,
+      user,
+    );
+  }
+
+  @Get('materials-report')
+  @ApiOperation({
+    summary: 'List project materials report rows',
+    description:
+      'Returns project task materials ordered by phase, stage, activity, task, and material. Includes material report totals by task, activity, stage, phase, material category, and grand total.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Project materials report fetched',
+  })
+  @ResponseMessage(PROJECT_MATERIALS_REPORT_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getProjectMaterialsReport(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() filters: MaterialsReportFiltersDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getProjectMaterialsReport(
+      projectId,
+      filters,
+      user,
+    );
+  }
+
+  @Get('materials-report/export')
+  @ApiOperation({
+    summary: 'Download full project materials report as Excel',
+    description:
+      'Exports all matching material rows ordered by phase, stage, activity, task, and material. Supports the same filters as the JSON report, but ignores page and limit so the workbook contains the full filtered report.',
+  })
+  @ApiProduces(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
+  @ApiResponse({
+    status: 200,
+    description: 'Project materials report Excel file',
+  })
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  async exportProjectMaterialsReport(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() filters: MaterialsReportFiltersDto,
+    @GetUser() user: RequestUser,
+    @Res() res: Response,
+  ) {
+    const workbook = await this.tasksService.exportProjectMaterialsReport(
+      projectId,
+      filters,
+      user,
+    );
+    const filename = `materials-report-${projectId}.xlsx`;
+
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': workbook.length.toString(),
+    });
+    res.send(workbook);
+  }
+
+  @Post('materials-report/import')
+  @ApiOperation({
+    summary: 'Validate or import Excel material report rows',
+    description:
+      'Accepts material takeoff workbooks with Phase ID, Stage ID, Activity ID, Activity Name, Task ID, Task Name, Material Category, Material Name, Unit, Qty, Default Rate, Waste %, Material Cost (RWF), and Lookup Status columns. validateOnly reports issues without writes; append inserts rows; replaceByTask replaces materials for matched task codes.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        mode: {
+          type: 'string',
+          enum: Object.values(MaterialsReportImportMode),
+          default: MaterialsReportImportMode.VALIDATE_ONLY,
+        },
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Materials report import processed',
+  })
+  @ResponseMessage(PROJECT_MATERIALS_REPORT_IMPORTED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @UseInterceptors(FileInterceptor('file'))
+  @LogActivity({
+    action: 'import:materials-report',
+    resource: 'materials-report',
+    includeBody: true,
+  })
+  importProjectMaterialsReport(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @UploadedFile() file: ActivityScheduleUploadFile,
+    @Body() dto: MaterialsReportImportDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.importProjectMaterialsReport(
+      projectId,
+      file,
+      dto,
+      user,
+    );
+  }
+
   @Get('activity-schedule')
   @ApiOperation({
     summary: 'List project activity schedule rows',
@@ -222,6 +484,43 @@ export class TasksController {
     );
   }
 
+  @Get('activity-schedule/export')
+  @ApiOperation({
+    summary: 'Download full project activity schedule as Excel',
+    description:
+      'Exports all matching activity schedule rows ordered by WBS. Supports the same filters as the JSON list, but ignores page and limit so the workbook contains the full filtered schedule.',
+  })
+  @ApiProduces(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
+  @ApiResponse({
+    status: 200,
+    description: 'Project activity schedule Excel file',
+  })
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  async exportProjectActivitySchedule(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() filters: ActivityScheduleFiltersDto,
+    @GetUser() user: RequestUser,
+    @Res() res: Response,
+  ) {
+    const workbook = await this.tasksService.exportProjectActivitySchedule(
+      projectId,
+      filters,
+      user,
+    );
+    const filename = `activity-schedule-${projectId}.xlsx`;
+
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': workbook.length.toString(),
+    });
+    res.send(workbook);
+  }
+
   @Get('activity-schedule/critical-path')
   @ApiOperation({
     summary: 'List project critical path rows',
@@ -238,6 +537,43 @@ export class TasksController {
     @GetUser() user: RequestUser,
   ) {
     return this.tasksService.getProjectCriticalPath(projectId, filters, user);
+  }
+
+  @Get('activity-schedule/critical-path/export')
+  @ApiOperation({
+    summary: 'Download full project critical path as Excel',
+    description:
+      'Exports all matching critical path rows ordered by WBS. Supports the same filters as the JSON critical-path list, but ignores page and limit so the workbook contains the full filtered critical path.',
+  })
+  @ApiProduces(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
+  @ApiResponse({
+    status: 200,
+    description: 'Project critical path Excel file',
+  })
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  async exportProjectCriticalPath(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() filters: ActivityScheduleFiltersDto,
+    @GetUser() user: RequestUser,
+    @Res() res: Response,
+  ) {
+    const workbook = await this.tasksService.exportProjectCriticalPath(
+      projectId,
+      filters,
+      user,
+    );
+    const filename = `critical-path-${projectId}.xlsx`;
+
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': workbook.length.toString(),
+    });
+    res.send(workbook);
   }
 
   @Get('activity-schedule/gantt')
@@ -507,9 +843,9 @@ export class TasksController {
 
   @Post('activity-schedule/import')
   @ApiOperation({
-    summary: 'Validate or import an Excel activity schedule by WBS',
+    summary: 'Validate or import Excel tasks by WBS',
     description:
-      'Accepts Activity schedule.xlsx-style workbooks. validateOnly reports issues without writes; upsertByWbs writes only after validation passes and then recalculates CPM fields.',
+      'Accepts Activity schedule.xlsx-style workbooks and WBS.xlsx-style hierarchy workbooks. WBS imports create/update Phase -> Stage -> Activity -> Task hierarchy by WBS code. validateOnly reports issues without writes; upsertByWbs writes only after validation passes.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -616,6 +952,465 @@ export class TasksController {
       projectId,
       taskId,
       dto,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/resource-allocations')
+  @ApiOperation({ summary: 'List task resource allocations' })
+  @ApiResponse({
+    status: 200,
+    description: 'Task resource allocations fetched',
+  })
+  @ResponseMessage(TASK_RESOURCE_ALLOCATIONS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  listTaskResourceAllocations(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.listTaskResourceAllocations(
+      projectId,
+      taskId,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/resource-allocations/:allocationId')
+  @ApiOperation({ summary: 'Get task resource allocation' })
+  @ApiResponse({ status: 200, description: 'Task resource allocation fetched' })
+  @ResponseMessage(TASK_RESOURCE_ALLOCATION_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskResourceAllocation(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('allocationId', ParseUUIDPipe) allocationId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskResourceAllocation(
+      projectId,
+      taskId,
+      allocationId,
+      user,
+    );
+  }
+
+  @Post('tasks/:taskId/resource-allocations')
+  @ApiOperation({ summary: 'Create task resource allocation' })
+  @ApiResponse({ status: 201, description: 'Task resource allocation created' })
+  @ResponseMessage(TASK_RESOURCE_ALLOCATION_CREATED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'create:task-resource-allocation',
+    resource: 'task-resource-allocation',
+    includeBody: true,
+  })
+  createTaskResourceAllocation(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateTaskResourceAllocationDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.createTaskResourceAllocation(
+      projectId,
+      taskId,
+      dto,
+      user,
+    );
+  }
+
+  @Patch('tasks/:taskId/resource-allocations/:allocationId')
+  @ApiOperation({ summary: 'Update task resource allocation' })
+  @ApiResponse({ status: 200, description: 'Task resource allocation updated' })
+  @ResponseMessage(TASK_RESOURCE_ALLOCATION_UPDATED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'update:task-resource-allocation',
+    resource: 'task-resource-allocation',
+    includeBody: true,
+  })
+  updateTaskResourceAllocation(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('allocationId', ParseUUIDPipe) allocationId: string,
+    @Body() dto: UpdateTaskResourceAllocationDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.updateTaskResourceAllocation(
+      projectId,
+      taskId,
+      allocationId,
+      dto,
+      user,
+    );
+  }
+
+  @Delete('tasks/:taskId/resource-allocations/:allocationId')
+  @ApiOperation({ summary: 'Delete task resource allocation' })
+  @ApiResponse({ status: 200, description: 'Task resource allocation deleted' })
+  @ResponseMessage(TASK_RESOURCE_ALLOCATION_DELETED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'delete:task-resource-allocation',
+    resource: 'task-resource-allocation',
+  })
+  deleteTaskResourceAllocation(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('allocationId', ParseUUIDPipe) allocationId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.deleteTaskResourceAllocation(
+      projectId,
+      taskId,
+      allocationId,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/materials')
+  @ApiOperation({ summary: 'List task materials' })
+  @ApiResponse({ status: 200, description: 'Task materials fetched' })
+  @ResponseMessage(TASK_MATERIALS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  listTaskMaterials(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() filters: TaskMaterialFiltersDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.listTaskMaterials(
+      projectId,
+      taskId,
+      filters,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/materials/:materialId')
+  @ApiOperation({ summary: 'Get task material' })
+  @ApiResponse({ status: 200, description: 'Task material fetched' })
+  @ResponseMessage(TASK_MATERIAL_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskMaterial(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('materialId', ParseUUIDPipe) materialId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskMaterial(
+      projectId,
+      taskId,
+      materialId,
+      user,
+    );
+  }
+
+  @Post('tasks/:taskId/materials')
+  @ApiOperation({ summary: 'Create task material' })
+  @ApiResponse({ status: 201, description: 'Task material created' })
+  @ResponseMessage(TASK_MATERIAL_CREATED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'create:task-material',
+    resource: 'task-material',
+    includeBody: true,
+  })
+  createTaskMaterial(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateTaskMaterialDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.createTaskMaterial(projectId, taskId, dto, user);
+  }
+
+  @Patch('tasks/:taskId/materials/:materialId')
+  @ApiOperation({ summary: 'Update task material' })
+  @ApiResponse({ status: 200, description: 'Task material updated' })
+  @ResponseMessage(TASK_MATERIAL_UPDATED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'update:task-material',
+    resource: 'task-material',
+    includeBody: true,
+  })
+  updateTaskMaterial(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('materialId', ParseUUIDPipe) materialId: string,
+    @Body() dto: UpdateTaskMaterialDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.updateTaskMaterial(
+      projectId,
+      taskId,
+      materialId,
+      dto,
+      user,
+    );
+  }
+
+  @Delete('tasks/:taskId/materials/:materialId')
+  @ApiOperation({ summary: 'Delete task material' })
+  @ApiResponse({ status: 200, description: 'Task material deleted' })
+  @ResponseMessage(TASK_MATERIAL_DELETED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'delete:task-material',
+    resource: 'task-material',
+  })
+  deleteTaskMaterial(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('materialId', ParseUUIDPipe) materialId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.deleteTaskMaterial(
+      projectId,
+      taskId,
+      materialId,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/documents')
+  @ApiOperation({ summary: 'List task documents' })
+  @ApiResponse({ status: 200, description: 'Task documents fetched' })
+  @ResponseMessage(TASK_DOCUMENTS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  listTaskDocuments(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() filters: TaskDocumentFiltersDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.listTaskDocuments(
+      projectId,
+      taskId,
+      filters,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/documents/:documentId')
+  @ApiOperation({ summary: 'Get task document' })
+  @ApiResponse({ status: 200, description: 'Task document fetched' })
+  @ResponseMessage(TASK_DOCUMENT_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskDocument(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskDocument(
+      projectId,
+      taskId,
+      documentId,
+      user,
+    );
+  }
+
+  @Get(
+    'tasks/:taskId/documents/:documentId/attachments/:attachmentId/download-url',
+  )
+  @ApiOperation({ summary: 'Get task document attachment download URL' })
+  @ApiResponse({
+    status: 200,
+    description: 'Task document attachment download URL fetched',
+  })
+  @ResponseMessage(TASK_DOCUMENT_ATTACHMENT_DOWNLOAD_URL_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskDocumentAttachmentDownloadUrl(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskDocumentAttachmentDownloadUrl(
+      projectId,
+      taskId,
+      documentId,
+      attachmentId,
+      user,
+    );
+  }
+
+  @Post('tasks/:taskId/documents/from-deliverable')
+  @ApiOperation({ summary: 'Create starter document from a deliverable' })
+  @ApiBody({ type: CreateStarterFromDeliverableDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Starter document created from deliverable',
+  })
+  @ResponseMessage(TASK_STARTER_DOCUMENT_CREATED_FROM_DELIVERABLE)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'create:task-document-from-deliverable',
+    resource: 'task-document',
+    includeBody: true,
+  })
+  createStarterDocumentFromDeliverable(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateStarterFromDeliverableDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.createStarterDocumentFromDeliverable(
+      projectId,
+      taskId,
+      dto,
+      user,
+    );
+  }
+
+  @Post('tasks/:taskId/documents')
+  @ApiOperation({ summary: 'Create task document' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['name', 'type', 'file'],
+      properties: {
+        name: { type: 'string', example: 'Site survey starter pack' },
+        description: {
+          type: 'string',
+          nullable: true,
+          example: 'Input documents required before work starts.',
+        },
+        type: {
+          type: 'string',
+          enum: ['STARTER', 'DELIVERABLE'],
+          example: 'STARTER',
+        },
+        bucketName: { type: 'string', example: 'task-documents' },
+        attachmentNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Signed site survey received from the consultant.',
+        },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Task document created' })
+  @ResponseMessage(TASK_DOCUMENT_CREATED)
+  @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'create:task-document',
+    resource: 'task-document',
+    includeBody: true,
+  })
+  createTaskDocument(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateTaskDocumentDto,
+    @UploadedFile() file: UploadableFile,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.createTaskDocument(
+      projectId,
+      taskId,
+      dto,
+      user,
+      file,
+    );
+  }
+
+  @Patch('tasks/:taskId/documents/:documentId')
+  @ApiOperation({ summary: 'Update task document' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'Updated document name' },
+        description: {
+          type: 'string',
+          nullable: true,
+          example: 'Updated document description.',
+        },
+        type: {
+          type: 'string',
+          enum: ['STARTER', 'DELIVERABLE'],
+          example: 'DELIVERABLE',
+        },
+        bucketName: { type: 'string', example: 'task-documents' },
+        attachmentNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Revised file uploaded after review.',
+        },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Task document updated' })
+  @ResponseMessage(TASK_DOCUMENT_UPDATED)
+  @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'update:task-document',
+    resource: 'task-document',
+    includeBody: true,
+  })
+  updateTaskDocument(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @Body() dto: UpdateTaskDocumentDto,
+    @UploadedFile() file: UploadableFile,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.updateTaskDocument(
+      projectId,
+      taskId,
+      documentId,
+      dto,
+      user,
+      file,
+    );
+  }
+
+  @Delete('tasks/:taskId/documents/:documentId')
+  @ApiOperation({ summary: 'Delete task document' })
+  @ApiResponse({ status: 200, description: 'Task document deleted' })
+  @ResponseMessage(TASK_DOCUMENT_DELETED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'delete:task-document',
+    resource: 'task-document',
+  })
+  deleteTaskDocument(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.deleteTaskDocument(
+      projectId,
+      taskId,
+      documentId,
       user,
     );
   }

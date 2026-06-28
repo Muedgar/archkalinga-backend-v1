@@ -73,6 +73,31 @@ class StatusSnippet extends ConfigSnippet {
   @Expose() isTerminal: boolean;
 }
 
+class TaskActivityScheduleSerializer extends BaseSerializer {
+  @Expose() taskId: string;
+  @Expose() durationDays: number | null;
+  @Expose() plannedStartDate: string | null;
+  @Expose() plannedEndDate: string | null;
+  @Expose() plannedStartOffset: number | null;
+  @Expose() plannedEndOffset: number | null;
+  @Expose() actualStartDate: string | null;
+  @Expose() actualEndDate: string | null;
+  @Expose() earlyStartOffset: number | null;
+  @Expose() earlyFinishOffset: number | null;
+  @Expose() lateStartOffset: number | null;
+  @Expose() lateFinishOffset: number | null;
+  @Expose() earlyStartDate: string | null;
+  @Expose() earlyFinishDate: string | null;
+  @Expose() lateStartDate: string | null;
+  @Expose() lateFinishDate: string | null;
+  @Expose() totalFloatDays: number | null;
+  @Expose() freeFloatDays: number | null;
+  @Expose() isCritical: boolean;
+  @Expose() isManuallyScheduled: boolean;
+  @Expose() manualReason: string | null;
+  @Expose() calculatedAt: Date | null;
+}
+
 export class TaskSerializer extends BaseSerializer {
   @Expose() projectId: string;
   @Expose() parentTaskId: string | null;
@@ -117,6 +142,34 @@ export class TaskSerializer extends BaseSerializer {
   @Expose() weightPercent: number | null;
   @Expose() isManuallyScheduled: boolean;
   @Expose() manualScheduleReason: string | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.activitySchedule?.durationDays ?? null)
+  durationDays: number | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.activitySchedule?.plannedStartDate ?? null)
+  plannedStartDate: string | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.activitySchedule?.plannedEndDate ?? null)
+  plannedEndDate: string | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.activitySchedule?.actualStartDate ?? null)
+  actualStartDate: string | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.activitySchedule?.actualEndDate ?? null)
+  actualEndDate: string | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.activitySchedule?.totalFloatDays ?? null)
+  totalFloatDays: number | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.activitySchedule?.freeFloatDays ?? null)
+  freeFloatDays: number | null;
+  @Expose()
+  @Transform(({ obj }) => obj?.activitySchedule?.isCritical ?? false)
+  isCritical: boolean;
+  @Expose()
+  @Transform(({ obj }) => obj?.activitySchedule ?? null)
+  @Type(() => TaskActivityScheduleSerializer)
+  activitySchedule: TaskActivityScheduleSerializer | null;
   @Expose() rank: string | null;
   @Expose() createdByUserId: string;
   @Expose() deletedAt: Date | null;

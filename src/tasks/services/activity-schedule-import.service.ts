@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { inflateRawSync } from 'node:zlib';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import { Project } from 'src/projects/entities';
 import { User } from 'src/users/entities';
 import { ActivityScheduleImportDto, ActivityScheduleImportMode } from '../dtos';
 import {
@@ -47,17 +48,32 @@ type ImportActivityRow = {
   actualEndDate: string | null;
 };
 
+type ImportWbsTaskRow = {
+  rowNumber: number;
+  phaseCode: string;
+  phaseName: string | null;
+  stageCode: string;
+  stageName: string | null;
+  activityCode: string;
+  activityName: string | null;
+  taskCode: string;
+  taskName: string;
+};
+
 type ImportValidationReport = {
   mode: ActivityScheduleImportMode;
   valid: boolean;
   summary: {
     sheetName: string;
+    sourceType: 'activitySchedule' | 'wbs';
     parsedRows: number;
     activityRows: number;
     phaseCount: number;
     stageCount: number;
+    taskCount?: number;
     dependencyCount: number;
     duplicateActivityRowCount: number;
+    duplicateTaskRowCount?: number;
     negativeLagCount: number;
     milestoneCount: number;
     errorCount: number;
@@ -77,6 +93,15 @@ type ImportValidationReport = {
       | 'lagDays'
       | 'durationDays'
     >
+    | Pick<
+        ImportWbsTaskRow,
+        | 'rowNumber'
+        | 'phaseCode'
+        | 'stageCode'
+        | 'activityCode'
+        | 'taskCode'
+        | 'taskName'
+      >
   >;
 };
 
@@ -86,7 +111,7 @@ type ImportResult = ImportValidationReport & {
     updatedTasks: number;
     schedulesUpserted: number;
     dependenciesUpserted: number;
-    calculationRunId: string;
+    calculationRunId?: string;
   };
 };
 
@@ -115,6 +140,16 @@ export class ActivityScheduleImportService {
     dependencyType: 'H',
     lagDays: 'I',
     durationDays: 'J',
+  } as const;
+  private static readonly WBS_COLUMNS = {
+    phaseCode: 'A',
+    phaseName: 'B',
+    stageCode: 'C',
+    stageName: 'D',
+    activityCode: 'E',
+    activityName: 'F',
+    taskCode: 'G',
+    taskName: 'H',
   } as const;
 
   constructor(
@@ -154,15 +189,28 @@ export class ActivityScheduleImportService {
       });
     }
 
-    const rows = this.parseWorkbook(file.buffer);
-    const activityRows = this.toActivityRows(rows.rows).activities;
-    const upsert = await this.upsertByWbs(projectId, activityRows, actorUser);
-    const calculation = await this.calculationSvc.recalculateProject(
-      projectId,
-      {
+    const parsed = this.parseWorkbook(file.buffer);
+    if (this.detectWorkbookSource(parsed.rows) === 'wbs') {
+      const wbsRows = this.toWbsTaskRows(parsed.rows).tasks;
+      const upsert = await this.upsertWbsHierarchy(projectId, wbsRows, actorUser);
+      const calculation = await this.calculationSvc.recalculateProject(projectId, {
         triggerType: 'excel_import',
-      },
-    );
+      });
+      return {
+        ...validation,
+        upsert: {
+          ...upsert,
+          calculationRunId: calculation.calculationRunId,
+          dependenciesUpserted: 0,
+        },
+      };
+    }
+
+    const activityRows = this.toActivityRows(parsed.rows).activities;
+    const upsert = await this.upsertByWbs(projectId, activityRows, actorUser);
+    const calculation = await this.calculationSvc.recalculateProject(projectId, {
+      triggerType: 'excel_import',
+    });
 
     return {
       ...validation,
@@ -178,6 +226,10 @@ export class ActivityScheduleImportService {
     mode: ActivityScheduleImportMode,
   ): ImportValidationReport {
     const parsed = this.parseWorkbook(workbook);
+    if (this.detectWorkbookSource(parsed.rows) === 'wbs') {
+      return this.validateWbsWorkbook(parsed, mode);
+    }
+
     const { activities, issues } = this.toActivityRows(parsed.rows);
     const codes = new Set(activities.map((row) => row.activityCode));
     const firstByCode = new Map<string, ImportActivityRow>();
@@ -232,6 +284,7 @@ export class ActivityScheduleImportService {
       valid: errorCount === 0,
       summary: {
         sheetName: parsed.sheetName,
+        sourceType: 'activitySchedule',
         parsedRows: parsed.rows.length,
         activityRows: activities.length,
         phaseCount: phases.size,
@@ -259,6 +312,82 @@ export class ActivityScheduleImportService {
     };
   }
 
+  private validateWbsWorkbook(
+    parsed: { sheetName: string; rows: ParsedXlsxRow[] },
+    mode: ActivityScheduleImportMode,
+  ): ImportValidationReport {
+    const { tasks, issues } = this.toWbsTaskRows(parsed.rows);
+    const phases = new Set<string>();
+    const stages = new Set<string>();
+    const activities = new Set<string>();
+    const taskCodes = new Map<string, ImportWbsTaskRow>();
+    let duplicateTaskRowCount = 0;
+
+    for (const row of tasks) {
+      phases.add(row.phaseCode);
+      stages.add(row.stageCode);
+      activities.add(row.activityCode);
+
+      const first = taskCodes.get(row.taskCode);
+      if (first) {
+        duplicateTaskRowCount += 1;
+        const conflicts =
+          first.phaseCode !== row.phaseCode ||
+          first.stageCode !== row.stageCode ||
+          first.activityCode !== row.activityCode ||
+          first.taskName !== row.taskName;
+        issues.push({
+          row: row.rowNumber,
+          severity: conflicts ? 'error' : 'warning',
+          field: 'taskCode',
+          message: conflicts
+            ? `Duplicate task WBS code "${row.taskCode}" has conflicting hierarchy or description`
+            : `Duplicate task WBS code "${row.taskCode}" will be merged into one task`,
+          value: row.taskCode,
+        });
+      } else {
+        taskCodes.set(row.taskCode, row);
+      }
+    }
+
+    const errorCount = issues.filter(
+      (issue) => issue.severity === 'error',
+    ).length;
+    const warningCount = issues.filter(
+      (issue) => issue.severity === 'warning',
+    ).length;
+
+    return {
+      mode,
+      valid: errorCount === 0,
+      summary: {
+        sheetName: parsed.sheetName,
+        sourceType: 'wbs',
+        parsedRows: parsed.rows.length,
+        activityRows: activities.size,
+        phaseCount: phases.size,
+        stageCount: stages.size,
+        taskCount: taskCodes.size,
+        dependencyCount: 0,
+        duplicateActivityRowCount: 0,
+        duplicateTaskRowCount,
+        negativeLagCount: 0,
+        milestoneCount: 0,
+        errorCount,
+        warningCount,
+      },
+      issues,
+      preview: tasks.slice(0, 20).map((row) => ({
+        rowNumber: row.rowNumber,
+        phaseCode: row.phaseCode,
+        stageCode: row.stageCode,
+        activityCode: row.activityCode,
+        taskCode: row.taskCode,
+        taskName: row.taskName,
+      })),
+    };
+  }
+
   private async upsertByWbs(
     projectId: string,
     rows: ImportActivityRow[],
@@ -277,6 +406,9 @@ export class ActivityScheduleImportService {
       where: { projectId, isDefault: true, isActive: true },
       order: { createdAt: 'ASC' },
     });
+    const project = await this.taskRepo.manager
+      .getRepository(Project)
+      .findOneOrFail({ where: { id: projectId } });
 
     if (!defaultStatus || !defaultTaskType) {
       throw new BadRequestException(
@@ -310,48 +442,59 @@ export class ActivityScheduleImportService {
       for (const phase of phases) {
         const result = await this.upsertTask(tx, taskByWbs, {
           projectId,
+          projectPkid: project.pkid,
           code: phase.code,
           title: phase.name || `Phase ${phase.code}`,
           scheduleType: ScheduleType.PHASE,
           parentTaskId: null,
+          parentTaskPkid: null,
           defaultStatusId: defaultStatus.id,
           defaultTaskTypeId: defaultTaskType.id,
           actorUserId: actorUser.id,
+          actorUserPkid: actorUser.pkid,
         });
         createdTasks += result.created ? 1 : 0;
         updatedTasks += result.created ? 0 : 1;
       }
 
       for (const stage of stages) {
+        const stageParent = stage.parentCode
+          ? (taskByWbs.get(stage.parentCode) ?? null)
+          : null;
         const result = await this.upsertTask(tx, taskByWbs, {
           projectId,
+          projectPkid: project.pkid,
           code: stage.code,
           title: stage.name || `Stage ${stage.code}`,
           scheduleType: ScheduleType.STAGE,
-          parentTaskId: stage.parentCode
-            ? (taskByWbs.get(stage.parentCode)?.id ?? null)
-            : null,
+          parentTaskId: stageParent?.id ?? null,
+          parentTaskPkid: stageParent?.pkid ?? null,
           defaultStatusId: defaultStatus.id,
           defaultTaskTypeId: defaultTaskType.id,
           actorUserId: actorUser.id,
+          actorUserPkid: actorUser.pkid,
         });
         createdTasks += result.created ? 1 : 0;
         updatedTasks += result.created ? 0 : 1;
       }
 
       for (const row of uniqueActivityRows) {
+        const activityParent = taskByWbs.get(row.stageCode) ?? null;
         const result = await this.upsertTask(tx, taskByWbs, {
           projectId,
+          projectPkid: project.pkid,
           code: row.activityCode,
           title: row.activityName || `Activity ${row.activityCode}`,
           scheduleType:
             row.durationDays === 0
               ? ScheduleType.MILESTONE
               : ScheduleType.ACTIVITY,
-          parentTaskId: taskByWbs.get(row.stageCode)?.id ?? null,
+          parentTaskId: activityParent?.id ?? null,
+          parentTaskPkid: activityParent?.pkid ?? null,
           defaultStatusId: defaultStatus.id,
           defaultTaskTypeId: defaultTaskType.id,
           actorUserId: actorUser.id,
+          actorUserPkid: actorUser.pkid,
         });
         createdTasks += result.created ? 1 : 0;
         updatedTasks += result.created ? 0 : 1;
@@ -457,18 +600,226 @@ export class ActivityScheduleImportService {
     );
   }
 
+  private uniqueWbsTaskRows(rows: ImportWbsTaskRow[]): ImportWbsTaskRow[] {
+    const byCode = new Map<string, ImportWbsTaskRow>();
+    for (const row of rows) {
+      if (!byCode.has(row.taskCode)) {
+        byCode.set(row.taskCode, row);
+      }
+    }
+    return [...byCode.values()].sort((a, b) =>
+      this.toWbsSortKey(a.taskCode).localeCompare(
+        this.toWbsSortKey(b.taskCode),
+      ),
+    );
+  }
+
+  private async upsertWbsHierarchy(
+    projectId: string,
+    rows: ImportWbsTaskRow[],
+    actorUser: User,
+  ): Promise<{
+    createdTasks: number;
+    updatedTasks: number;
+    schedulesUpserted: number;
+  }> {
+    const defaultStatus = await this.statusRepo.findOne({
+      where: { projectId, isDefault: true, isActive: true },
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+    });
+    const defaultTaskType = await this.taskTypeRepo.findOne({
+      where: { projectId, isDefault: true, isActive: true },
+      order: { createdAt: 'ASC' },
+    });
+    const project = await this.taskRepo.manager
+      .getRepository(Project)
+      .findOneOrFail({ where: { id: projectId } });
+
+    if (!defaultStatus || !defaultTaskType) {
+      throw new BadRequestException(
+        'Project must have a default active status and task type before importing WBS tasks',
+      );
+    }
+
+    const uniqueTaskRows = this.uniqueWbsTaskRows(rows);
+    const phases = this.uniqueWbsSummaryRows(rows, 'phase');
+    const stages = this.uniqueWbsSummaryRows(rows, 'stage');
+    const activities = this.uniqueWbsSummaryRows(rows, 'activity');
+    const allCodes = [
+      ...phases.map((row) => row.code),
+      ...stages.map((row) => row.code),
+      ...activities.map((row) => row.code),
+      ...uniqueTaskRows.map((row) => row.taskCode),
+    ];
+
+    const existing = await this.taskRepo.find({
+      where: { projectId, wbsCode: In(allCodes), deletedAt: IsNull() },
+    });
+    const taskByWbs = new Map(
+      existing
+        .filter((task) => task.wbsCode)
+        .map((task) => [task.wbsCode as string, task]),
+    );
+
+    let createdTasks = 0;
+    let updatedTasks = 0;
+    let schedulesUpserted = 0;
+
+    await this.taskRepo.manager.transaction(async (tx) => {
+      for (const phase of phases) {
+        const result = await this.upsertTask(tx, taskByWbs, {
+          projectId,
+          projectPkid: project.pkid,
+          code: phase.code,
+          title: phase.name || `Phase ${phase.code}`,
+          scheduleType: ScheduleType.PHASE,
+          parentTaskId: null,
+          parentTaskPkid: null,
+          defaultStatusId: defaultStatus.id,
+          defaultTaskTypeId: defaultTaskType.id,
+          actorUserId: actorUser.id,
+          actorUserPkid: actorUser.pkid,
+        });
+        createdTasks += result.created ? 1 : 0;
+        updatedTasks += result.created ? 0 : 1;
+      }
+
+      for (const stage of stages) {
+        const stageParent = stage.parentCode
+          ? (taskByWbs.get(stage.parentCode) ?? null)
+          : null;
+        const result = await this.upsertTask(tx, taskByWbs, {
+          projectId,
+          projectPkid: project.pkid,
+          code: stage.code,
+          title: stage.name || `Stage ${stage.code}`,
+          scheduleType: ScheduleType.STAGE,
+          parentTaskId: stageParent?.id ?? null,
+          parentTaskPkid: stageParent?.pkid ?? null,
+          defaultStatusId: defaultStatus.id,
+          defaultTaskTypeId: defaultTaskType.id,
+          actorUserId: actorUser.id,
+          actorUserPkid: actorUser.pkid,
+        });
+        createdTasks += result.created ? 1 : 0;
+        updatedTasks += result.created ? 0 : 1;
+      }
+
+      for (const activity of activities) {
+        const activityParent = activity.parentCode
+          ? (taskByWbs.get(activity.parentCode) ?? null)
+          : null;
+        const result = await this.upsertTask(tx, taskByWbs, {
+          projectId,
+          projectPkid: project.pkid,
+          code: activity.code,
+          title: activity.name || `Activity ${activity.code}`,
+          scheduleType: ScheduleType.ACTIVITY,
+          parentTaskId: activityParent?.id ?? null,
+          parentTaskPkid: activityParent?.pkid ?? null,
+          defaultStatusId: defaultStatus.id,
+          defaultTaskTypeId: defaultTaskType.id,
+          actorUserId: actorUser.id,
+          actorUserPkid: actorUser.pkid,
+        });
+        createdTasks += result.created ? 1 : 0;
+        updatedTasks += result.created ? 0 : 1;
+      }
+
+      for (const row of uniqueTaskRows) {
+        const taskParent = taskByWbs.get(row.activityCode) ?? null;
+        const result = await this.upsertTask(tx, taskByWbs, {
+          projectId,
+          projectPkid: project.pkid,
+          code: row.taskCode,
+          title: row.taskName,
+          scheduleType: ScheduleType.TASK,
+          parentTaskId: taskParent?.id ?? null,
+          parentTaskPkid: taskParent?.pkid ?? null,
+          defaultStatusId: defaultStatus.id,
+          defaultTaskTypeId: defaultTaskType.id,
+          actorUserId: actorUser.id,
+          actorUserPkid: actorUser.pkid,
+        });
+        createdTasks += result.created ? 1 : 0;
+        updatedTasks += result.created ? 0 : 1;
+      }
+
+      const scheduleTargets = [
+        ...phases.map((row) => ({
+          code: row.code,
+          defaultDurationDays: 0,
+        })),
+        ...stages.map((row) => ({
+          code: row.code,
+          defaultDurationDays: 0,
+        })),
+        ...activities.map((row) => ({
+          code: row.code,
+          defaultDurationDays: 0,
+        })),
+        ...uniqueTaskRows.map((row) => ({
+          code: row.taskCode,
+          defaultDurationDays: 1,
+        })),
+      ];
+      const taskIds = scheduleTargets
+        .map((target) => taskByWbs.get(target.code)?.id)
+        .filter((id): id is string => Boolean(id));
+      const existingSchedules = taskIds.length
+        ? await tx.find(TaskActivitySchedule, {
+            where: { taskId: In(taskIds) },
+          })
+        : [];
+      const scheduleByTaskId = new Map(
+        existingSchedules.map((schedule) => [schedule.taskId, schedule]),
+      );
+      const schedules = scheduleTargets
+        .map((target) => {
+          const taskId = taskByWbs.get(target.code)?.id;
+          if (!taskId) {
+            return null;
+          }
+          const schedule =
+            scheduleByTaskId.get(taskId) ??
+            tx.create(TaskActivitySchedule, { taskId });
+          schedule.durationDays =
+            schedule.durationDays ?? target.defaultDurationDays;
+          schedule.plannedStartDate = schedule.plannedStartDate ?? null;
+          schedule.plannedEndDate = schedule.plannedEndDate ?? null;
+          schedule.actualStartDate = schedule.actualStartDate ?? null;
+          schedule.actualEndDate = schedule.actualEndDate ?? null;
+          schedule.isManuallyScheduled = schedule.isManuallyScheduled ?? false;
+          schedule.manualReason = schedule.manualReason ?? null;
+          return schedule;
+        })
+        .filter(
+          (schedule): schedule is TaskActivitySchedule => schedule !== null,
+        );
+      if (schedules.length) {
+        await tx.save(TaskActivitySchedule, schedules);
+      }
+      schedulesUpserted = schedules.length;
+    });
+
+    return { createdTasks, updatedTasks, schedulesUpserted };
+  }
+
   private async upsertTask(
     tx: EntityManager,
     taskByWbs: Map<string, Task>,
     input: {
       projectId: string;
+      projectPkid: number;
       code: string;
       title: string;
       scheduleType: ScheduleType;
       parentTaskId: string | null;
+      parentTaskPkid: number | null;
       defaultStatusId: string;
       defaultTaskTypeId: string;
       actorUserId: string;
+      actorUserPkid: number;
     },
   ): Promise<{ task: Task; created: boolean }> {
     const existing = taskByWbs.get(input.code);
@@ -476,6 +827,9 @@ export class ActivityScheduleImportService {
       existing.title = input.title;
       existing.scheduleType = input.scheduleType;
       existing.parentTaskId = input.parentTaskId;
+      existing.parent = input.parentTaskPkid
+        ? ({ pkid: input.parentTaskPkid } as Task)
+        : null;
       existing.wbsSortKey = this.toWbsSortKey(input.code);
       const saved = await tx.save(Task, existing);
       taskByWbs.set(input.code, saved);
@@ -483,6 +837,7 @@ export class ActivityScheduleImportService {
     }
 
     const task = tx.create(Task, {
+      project: { pkid: input.projectPkid } as Project,
       projectId: input.projectId,
       title: input.title,
       description: null,
@@ -501,8 +856,13 @@ export class ActivityScheduleImportService {
       isManuallyScheduled: false,
       manualScheduleReason: null,
       rank: null,
+      parent: input.parentTaskPkid
+        ? ({ pkid: input.parentTaskPkid } as Task)
+        : null,
       parentTaskId: input.parentTaskId,
+      createdByUser: { pkid: input.actorUserPkid } as User,
       createdByUserId: input.actorUserId,
+      reporteeUser: null,
       reporteeUserId: null,
     });
     const saved = await tx.save(Task, task);
@@ -534,6 +894,44 @@ export class ActivityScheduleImportService {
           code: row.stageCode,
           name: row.stageName,
           parentCode: row.phaseCode,
+        });
+      }
+    }
+    return [...summaries.values()].sort((a, b) =>
+      this.toWbsSortKey(a.code).localeCompare(this.toWbsSortKey(b.code)),
+    );
+  }
+
+  private uniqueWbsSummaryRows(
+    rows: ImportWbsTaskRow[],
+    level: 'phase' | 'stage' | 'activity',
+  ): Array<{
+    code: string;
+    name: string | null;
+    parentCode: string | null;
+  }> {
+    const summaries = new Map<
+      string,
+      { code: string; name: string | null; parentCode: string | null }
+    >();
+    for (const row of rows) {
+      if (level === 'phase') {
+        summaries.set(row.phaseCode, {
+          code: row.phaseCode,
+          name: row.phaseName,
+          parentCode: null,
+        });
+      } else if (level === 'stage') {
+        summaries.set(row.stageCode, {
+          code: row.stageCode,
+          name: row.stageName,
+          parentCode: row.phaseCode,
+        });
+      } else {
+        summaries.set(row.activityCode, {
+          code: row.activityCode,
+          name: row.activityName,
+          parentCode: row.stageCode,
         });
       }
     }
@@ -667,6 +1065,141 @@ export class ActivityScheduleImportService {
     return { activities, issues };
   }
 
+  private toWbsTaskRows(rows: ParsedXlsxRow[]): {
+    tasks: ImportWbsTaskRow[];
+    issues: ImportIssue[];
+  } {
+    const issues: ImportIssue[] = [];
+    const tasks: ImportWbsTaskRow[] = [];
+
+    for (const row of rows) {
+      if (this.isHeaderRow(row)) {
+        continue;
+      }
+
+      const phaseCode = this.normalizeCode(
+        row.cells[ActivityScheduleImportService.WBS_COLUMNS.phaseCode],
+      );
+      const stageCode = this.normalizeCode(
+        row.cells[ActivityScheduleImportService.WBS_COLUMNS.stageCode],
+      );
+      const activityCode = this.normalizeCode(
+        row.cells[ActivityScheduleImportService.WBS_COLUMNS.activityCode],
+      );
+      const taskCode = this.normalizeCode(
+        row.cells[ActivityScheduleImportService.WBS_COLUMNS.taskCode],
+      );
+      const taskName = this.clean(
+        row.cells[ActivityScheduleImportService.WBS_COLUMNS.taskName],
+      );
+
+      if (!phaseCode && !stageCode && !activityCode && !taskCode && !taskName) {
+        continue;
+      }
+
+      if (!phaseCode) {
+        issues.push(
+          this.error(row.rowNumber, 'phaseCode', 'Phase WBS code is required'),
+        );
+      }
+      if (!stageCode) {
+        issues.push(
+          this.error(row.rowNumber, 'stageCode', 'Stage WBS code is required'),
+        );
+      }
+      if (!activityCode) {
+        issues.push(
+          this.error(
+            row.rowNumber,
+            'activityCode',
+            'Activity WBS code is required',
+          ),
+        );
+      }
+      if (!taskCode) {
+        issues.push(
+          this.error(row.rowNumber, 'taskCode', 'Task WBS code is required'),
+        );
+      }
+      if (!taskName) {
+        issues.push(
+          this.error(
+            row.rowNumber,
+            'taskName',
+            'Task description is required',
+          ),
+        );
+      }
+
+      if (phaseCode && stageCode && !stageCode.startsWith(`${phaseCode}.`)) {
+        issues.push(
+          this.error(
+            row.rowNumber,
+            'stageCode',
+            `Stage WBS code "${stageCode}" must be under phase "${phaseCode}"`,
+            stageCode,
+          ),
+        );
+      }
+      if (
+        stageCode &&
+        activityCode &&
+        !activityCode.startsWith(`${stageCode}.`)
+      ) {
+        issues.push(
+          this.error(
+            row.rowNumber,
+            'activityCode',
+            `Activity WBS code "${activityCode}" must be under stage "${stageCode}"`,
+            activityCode,
+          ),
+        );
+      }
+      if (activityCode && taskCode && !taskCode.startsWith(`${activityCode}.`)) {
+        issues.push(
+          this.error(
+            row.rowNumber,
+            'taskCode',
+            `Task WBS code "${taskCode}" must be under activity "${activityCode}"`,
+            taskCode,
+          ),
+        );
+      }
+
+      if (phaseCode && stageCode && activityCode && taskCode && taskName) {
+        tasks.push({
+          rowNumber: row.rowNumber,
+          phaseCode,
+          phaseName: this.clean(
+            row.cells[ActivityScheduleImportService.WBS_COLUMNS.phaseName],
+          ),
+          stageCode,
+          stageName: this.clean(
+            row.cells[ActivityScheduleImportService.WBS_COLUMNS.stageName],
+          ),
+          activityCode,
+          activityName: this.clean(
+            row.cells[ActivityScheduleImportService.WBS_COLUMNS.activityName],
+          ),
+          taskCode,
+          taskName,
+        });
+      }
+    }
+
+    if (!tasks.length) {
+      issues.push({
+        row: null,
+        severity: 'error',
+        field: 'taskCode',
+        message:
+          'No WBS task rows found. Expected task WBS codes in column G and task descriptions in column H.',
+      });
+    }
+
+    return { tasks, issues };
+  }
+
   private parseWorkbook(workbook: Buffer): {
     sheetName: string;
     rows: ParsedXlsxRow[];
@@ -687,6 +1220,45 @@ export class ActivityScheduleImportService {
       sheetName: ActivityScheduleImportService.SHEET_NAME,
       rows: this.parseSheet(sheet.data.toString('utf8'), sharedStrings),
     };
+  }
+
+  private detectWorkbookSource(
+    rows: ParsedXlsxRow[],
+  ): 'activitySchedule' | 'wbs' {
+    const headerRow = rows.find((row) => this.isHeaderRow(row));
+    if (!headerRow) {
+      return 'activitySchedule';
+    }
+
+    const taskIdHeader = this.clean(
+      headerRow.cells[ActivityScheduleImportService.WBS_COLUMNS.taskCode],
+    )?.toLowerCase();
+    const taskDescriptionHeader = this.clean(
+      headerRow.cells[ActivityScheduleImportService.WBS_COLUMNS.taskName],
+    )?.toLowerCase();
+
+    return taskIdHeader === 'task id' &&
+      taskDescriptionHeader === 'task description'
+      ? 'wbs'
+      : 'activitySchedule';
+  }
+
+  private isHeaderRow(row: ParsedXlsxRow): boolean {
+    const phaseHeader = this.clean(
+      row.cells[ActivityScheduleImportService.WBS_COLUMNS.phaseCode],
+    )?.toLowerCase();
+    const stageHeader = this.clean(
+      row.cells[ActivityScheduleImportService.WBS_COLUMNS.stageCode],
+    )?.toLowerCase();
+    const activityHeader = this.clean(
+      row.cells[ActivityScheduleImportService.WBS_COLUMNS.activityCode],
+    )?.toLowerCase();
+
+    return (
+      phaseHeader === 'phase id' &&
+      stageHeader === 'stage id' &&
+      activityHeader === 'activity id'
+    );
   }
 
   private readZipEntries(buffer: Buffer): ZipEntry[] {

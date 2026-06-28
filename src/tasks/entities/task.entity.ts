@@ -1,4 +1,11 @@
-import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  OneToOne,
+} from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { Project } from 'src/projects/entities';
 import { User } from 'src/users/entities';
@@ -9,12 +16,16 @@ import {
   ProjectTaskType,
 } from '../project-config';
 import { TaskAssignee } from './task-assignee.entity';
+import { TaskActivitySchedule } from './task-activity-schedule.entity';
 import { TaskChecklist } from './task-checklist.entity';
 import { TaskChecklistItem } from './task-checklist-item.entity';
 import { TaskComment } from './task-comment.entity';
 import { TaskDependency } from './task-dependency.entity';
+import { TaskDocument } from './task-document.entity';
 import { TaskLabel } from './task-label.entity';
+import { TaskMaterial } from './task-material.entity';
 import { TaskRelation } from './task-relation.entity';
+import { TaskResourceAllocation } from './task-resource-allocation.entity';
 import { TaskViewMetadata } from './task-view-metadata.entity';
 import { TaskWatcher } from './task-watcher.entity';
 
@@ -162,6 +173,9 @@ export class Task extends AppBaseEntity {
   @OneToMany(() => TaskAssignee, (assignee) => assignee.task)
   assignees: TaskAssignee[];
 
+  @OneToOne(() => TaskActivitySchedule, (schedule) => schedule.task)
+  activitySchedule: TaskActivitySchedule | null;
+
   @OneToMany(() => TaskChecklist, (group) => group.task)
   checklistGroups: TaskChecklist[];
 
@@ -185,6 +199,15 @@ export class Task extends AppBaseEntity {
 
   @OneToMany(() => TaskRelation, (relation) => relation.relatedTask)
   incomingRelations: TaskRelation[];
+
+  @OneToMany(() => TaskResourceAllocation, (allocation) => allocation.task)
+  resourceAllocations: TaskResourceAllocation[];
+
+  @OneToMany(() => TaskMaterial, (material) => material.task)
+  materials: TaskMaterial[];
+
+  @OneToMany(() => TaskDocument, (document) => document.task)
+  documents: TaskDocument[];
 
   @OneToMany(() => TaskViewMetadata, (metadata) => metadata.task)
   viewMetadataEntries: TaskViewMetadata[];

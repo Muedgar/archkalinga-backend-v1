@@ -395,3 +395,360 @@ Both flags default to `false` (opt-in model). Use `excludeProjectId` on the sear
 10. Backend: creates membership, returns { projectId, membership }
 11. Frontend: redirect Jane into the project with projectId
 ```
+
+---
+
+# Task Documents Frontend Contract
+
+Base route:
+
+```http
+/projects/:projectId/tasks/:taskId/documents
+```
+
+Auth: JWT + `X-Workspace-Id`
+
+Permissions:
+
+| Operation | Project permission |
+|-----------|--------------------|
+| List, read, download/open file | `taskManagement.view` |
+| Create, update, delete, create starter from deliverable | `taskManagement.update` |
+
+## Domain Types
+
+```ts
+export type TaskDocumentType = 'STARTER' | 'DELIVERABLE';
+
+export type TaskDocumentUserRelation = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  userName: string | null;
+  email: string;
+  title: string | null;
+};
+
+export type TaskDocumentTaskRelation = {
+  id: string;
+  title: string;
+  wbsCode: string | null;
+  scheduleType: string | null;
+};
+
+export type TaskDocumentSourceDocumentRelation = {
+  id: string;
+  name: string;
+  description: string | null;
+  type: TaskDocumentType;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TaskDocumentSourceAttachmentRelation = {
+  id: string;
+  filename: string;
+  bucketName: string;
+  notes: string | null;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export type TaskDocumentAttachment = {
+  id: string;
+  documentId: string | null;
+  sourceAttachmentId: string | null;
+  sourceAttachment: TaskDocumentSourceAttachmentRelation | null;
+  filename: string;
+  bucketName: string;
+  notes: string | null;
+  isActive: boolean;
+  createdAt: string;
+  createdById: string | null;
+  createdBy: TaskDocumentUserRelation | null;
+  downloadUrl: string | null;
+};
+
+export type TaskDocument = {
+  id: string;
+  taskId: string | null;
+  sourceTaskId: string | null;
+  sourceDocumentId: string | null;
+  task: TaskDocumentTaskRelation | null;
+  sourceTask: TaskDocumentTaskRelation | null;
+  sourceDocument: TaskDocumentSourceDocumentRelation | null;
+  createdById: string | null;
+  createdBy: TaskDocumentUserRelation | null;
+  createdAt: string;
+  updatedById: string | null;
+  updatedBy: TaskDocumentUserRelation | null;
+  updatedAt: string;
+  name: string;
+  description: string | null;
+  type: TaskDocumentType;
+  attachments: TaskDocumentAttachment[];
+};
+```
+
+Traceability relation fields are nullable. `sourceTask`, `sourceDocument`, and `attachment.sourceAttachment` are populated when a target `STARTER` document is created from another task's `DELIVERABLE`. The scalar `*Id` fields remain available for route calls and backwards-compatible frontend state keys, but the UI should prefer relation objects for display.
+
+## List Task Documents
+
+```http
+GET /projects/:projectId/tasks/:taskId/documents
+```
+
+Query params:
+
+| Param | Type | Notes |
+|-------|------|-------|
+| `type` | `STARTER \| DELIVERABLE` | Optional tab filter |
+| `name` | string | Optional document-name search |
+| `page` | number | Optional pagination |
+| `limit` | number | Optional pagination |
+
+Response `200`:
+
+```ts
+{
+  data: {
+    items: TaskDocument[];
+    count: number;
+    pages: number;
+    previousPage: number | null;
+    page: number;
+    nextPage: number | null;
+    limit: number;
+  };
+  message: 'Task documents fetched';
+}
+```
+
+Recommended frontend usage:
+
+```ts
+fetchTaskDocuments({
+  projectId,
+  taskId,
+  query: { type: 'STARTER', page: 1, limit: 50 }
+});
+```
+
+## Get One Task Document
+
+```http
+GET /projects/:projectId/tasks/:taskId/documents/:documentId
+```
+
+Response `200`:
+
+```ts
+{
+  data: TaskDocument;
+  message: 'Task document fetched';
+}
+```
+
+## Create Task Document By Upload
+
+```http
+POST /projects/:projectId/tasks/:taskId/documents
+Content-Type: multipart/form-data
+```
+
+Form fields:
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `name` | Yes | string | 1-255 chars |
+| `type` | Yes | `STARTER \| DELIVERABLE` | Enum only |
+| `file` | Yes | binary | File is required on create |
+| `description` | No | string \| null | 1-4000 chars when present |
+| `bucketName` | No | string | Defaults to backend task-documents bucket |
+| `attachmentNotes` | No | string \| null | Notes for the uploaded active attachment |
+
+Response `201`:
+
+```ts
+{
+  data: TaskDocument;
+  message: 'Task document created';
+}
+```
+
+Behavior:
+
+- The uploaded file becomes the only active attachment for the new document.
+- `createdAt`, `createdBy`, `updatedAt`, and `updatedBy` are returned on the document.
+- Attachment history fields `createdAt` and `createdBy` are returned on the attachment.
+
+## Update Task Document
+
+```http
+PATCH /projects/:projectId/tasks/:taskId/documents/:documentId
+Content-Type: multipart/form-data
+```
+
+Form fields are all optional:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `name` | string | 1-255 chars |
+| `type` | `STARTER \| DELIVERABLE` | Enum only |
+| `description` | string \| null | 1-4000 chars when present |
+| `bucketName` | string | Used only when `file` is present |
+| `attachmentNotes` | string \| null | Used for the new active attachment when `file` is present |
+| `file` | binary | Optional on update |
+
+Response `200`:
+
+```ts
+{
+  data: TaskDocument;
+  message: 'Task document updated';
+}
+```
+
+Behavior:
+
+- Metadata-only edits are allowed.
+- If `file` is provided, the previous active attachment is marked inactive and the new upload becomes the only active attachment.
+- The document always returns at most one active attachment.
+
+## Delete Task Document
+
+```http
+DELETE /projects/:projectId/tasks/:taskId/documents/:documentId
+```
+
+Response `200`:
+
+```ts
+{
+  data: {
+    deleted: true;
+    id: string;
+  };
+  message: 'Task document deleted';
+}
+```
+
+## Download Or Open Attachment
+
+```http
+GET /projects/:projectId/tasks/:taskId/documents/:documentId/attachments/:attachmentId/download-url
+```
+
+Response `200`:
+
+```ts
+{
+  data: {
+    downloadUrl: string;
+  };
+  message: 'Task document attachment download URL fetched';
+}
+```
+
+Notes:
+
+- `TaskDocumentAttachment.downloadUrl` is also included in list/get responses when the backend can generate it.
+- Frontend can use `window.open(downloadUrl, '_blank')` for open/preview behavior, or an anchor download flow for file download.
+- If a `downloadUrl` is missing or expired, call this endpoint for a fresh URL.
+
+## Create Starter From Deliverable
+
+```http
+POST /projects/:projectId/tasks/:targetTaskId/documents/from-deliverable
+Content-Type: application/json
+```
+
+Request body:
+
+```ts
+{
+  sourceTaskId: string;
+  sourceDocumentId: string;
+  name?: string;
+  description?: string | null;
+  attachmentNotes?: string | null;
+}
+```
+
+Response `201`:
+
+```ts
+{
+  data: TaskDocument;
+  message: 'Starter document created from deliverable';
+}
+```
+
+Response behavior:
+
+- `data.type` is always `STARTER`.
+- `data.task` is the target task relation.
+- `data.sourceTask` is the source task relation.
+- `data.sourceDocument` is the deliverable document relation.
+- The returned active attachment has `sourceAttachment` set to the source deliverable's active attachment relation.
+- The returned active attachment reuses the source attachment `filename` and `bucketName`.
+- No file upload is required for this endpoint.
+
+Backend validation:
+
+| Rule | Frontend handling |
+|------|-------------------|
+| Target task must belong to `projectId` | Use the currently focused task route context |
+| Source task must belong to same `projectId` | Only show source tasks from the same project board |
+| Source task cannot be the target task | Exclude the focused task from the picker |
+| Source document must belong to `sourceTaskId` | Fetch deliverables through the selected source task |
+| Source document must have `type = DELIVERABLE` | Query with `type=DELIVERABLE` |
+| Source document must have exactly one active attachment | Disable source rows without an active attachment |
+
+Recommended frontend helper:
+
+```ts
+export function createStarterFromDeliverable(
+  projectId: string,
+  targetTaskId: string,
+  payload: {
+    sourceTaskId: string;
+    sourceDocumentId: string;
+    name?: string;
+    description?: string | null;
+    attachmentNotes?: string | null;
+  },
+) {
+  return api.post(
+    `/projects/${projectId}/tasks/${targetTaskId}/documents/from-deliverable`,
+    payload,
+  );
+}
+```
+
+Recommended UI flow:
+
+1. On starter tab, offer `Upload starter file` and `Select deliverable from another task`.
+2. For selection, list other tasks in the same project and exclude the focused task.
+3. Fetch source deliverables with:
+
+```ts
+fetchTaskDocuments({
+  projectId,
+  taskId: sourceTaskId,
+  query: { type: 'DELIVERABLE', page: 1, limit: 50 }
+});
+```
+
+4. Show each deliverable with `name`, `description`, `updatedAt`, and active attachment filename.
+5. Submit `createStarterFromDeliverable`.
+6. After success, refetch the target task's `STARTER` list so sorting, traceability, and active attachment state come from the backend.
+
+## Frontend Cache And Sorting Notes
+
+- Sort document rows by `updatedAt` descending unless the screen has a stronger product-specific order.
+- Use `createdAt`/`createdBy` on attachments as file history metadata.
+- Prefer relation objects (`createdBy`, `updatedBy`, `sourceTask`, `sourceDocument`, `sourceAttachment`) for display instead of resolving names from raw ids.
+- Treat `attachments.find((attachment) => attachment.isActive)` as the current file.
+- Never assume more than one active attachment per document.
+- After create, update, delete, or create-from-deliverable, refetch the affected task/type list instead of mutating nested attachment state by hand.

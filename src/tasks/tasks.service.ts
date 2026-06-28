@@ -21,6 +21,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
+import type { UploadableFile } from 'src/common/services';
 import { ProjectMembership } from 'src/projects/entities';
 import { User } from 'src/users/entities';
 import {
@@ -34,12 +35,25 @@ import {
   ActivityScheduleGanttQueryDto,
   ActivityScheduleImportDto,
   BulkUpdateTasksDto,
+  CreateStarterFromDeliverableDto,
+  CreateTaskMaterialDto,
+  CreateTaskDocumentDto,
+  CreateTaskResourceAllocationDto,
   CreateProjectCalendarExceptionDto,
   CreateChecklistGroupDto,
   CreateTaskDto,
+  MaterialsReportFiltersDto,
+  MaterialsReportImportDto,
   MoveTaskDto,
   RecalculateActivityScheduleDto,
+  ResourceReportFiltersDto,
+  ResourceReportImportDto,
+  TaskDocumentFiltersDto,
+  TaskMaterialFiltersDto,
   TaskFiltersDto,
+  UpdateTaskDocumentDto,
+  UpdateTaskMaterialDto,
+  UpdateTaskResourceAllocationDto,
   UpdateActivityScheduleDto,
   UpdateProjectCalendarExceptionDto,
   UpdateChecklistGroupDto,
@@ -50,6 +64,7 @@ import {
   UpdateTaskDto,
 } from './dtos';
 import { Task } from './entities';
+import { TaskDocumentSerializer } from './serializers';
 import {
   ActivityScheduleGanttService,
   ActivityScheduleImportService,
@@ -63,10 +78,17 @@ import {
   TaskChecklistService,
   TaskCommentsService,
   TaskCrudService,
+  TaskDocumentsService,
   TaskMembersService,
+  TaskMaterialsReportImportService,
+  TaskMaterialsReportService,
+  TaskMaterialsService,
   TaskQueryService,
   TaskRankingService,
   TaskRelationsService,
+  TaskResourceAllocationService,
+  TaskResourceReportImportService,
+  TaskResourceReportService,
 } from './services';
 
 @Injectable()
@@ -90,6 +112,13 @@ export class TasksService {
     private readonly checklistSvc: TaskChecklistService,
     private readonly relationsSvc: TaskRelationsService,
     private readonly membersSvc: TaskMembersService,
+    private readonly materialsSvc: TaskMaterialsService,
+    private readonly documentsSvc: TaskDocumentsService,
+    private readonly materialsReportImportSvc: TaskMaterialsReportImportService,
+    private readonly materialsReportSvc: TaskMaterialsReportService,
+    private readonly resourceAllocationSvc: TaskResourceAllocationService,
+    private readonly resourceReportImportSvc: TaskResourceReportImportService,
+    private readonly resourceReportSvc: TaskResourceReportService,
   ) {}
 
   // ── Convenience: auth (used externally by e.g. ProjectsService) ───────────
@@ -206,6 +235,18 @@ export class TasksService {
     );
   }
 
+  async exportProjectActivitySchedule(
+    projectId: string,
+    filters: ActivityScheduleFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.activityScheduleQuerySvc.exportProjectScheduleWorkbook(
+      projectId,
+      filters,
+    );
+  }
+
   async getProjectCriticalPath(
     projectId: string,
     filters: ActivityScheduleFiltersDto,
@@ -213,6 +254,99 @@ export class TasksService {
   ) {
     await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
     return this.activityScheduleQuerySvc.listCriticalPath(projectId, filters);
+  }
+
+  async exportProjectCriticalPath(
+    projectId: string,
+    filters: ActivityScheduleFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.activityScheduleQuerySvc.exportCriticalPathWorkbook(
+      projectId,
+      filters,
+    );
+  }
+
+  async getProjectResourceReport(
+    projectId: string,
+    filters: ResourceReportFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.resourceReportSvc.listProjectResourceReport(projectId, filters);
+  }
+
+  async exportProjectResourceReport(
+    projectId: string,
+    filters: ResourceReportFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.resourceReportSvc.exportProjectResourceReportWorkbook(
+      projectId,
+      filters,
+    );
+  }
+
+  async importProjectResourceReport(
+    projectId: string,
+    file: ActivityScheduleUploadFile | undefined,
+    dto: ResourceReportImportDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    return this.resourceReportImportSvc.importProjectResourceReport(
+      projectId,
+      file,
+      dto,
+    );
+  }
+
+  async getProjectMaterialsReport(
+    projectId: string,
+    filters: MaterialsReportFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.materialsReportSvc.listProjectMaterialsReport(
+      projectId,
+      filters,
+    );
+  }
+
+  async exportProjectMaterialsReport(
+    projectId: string,
+    filters: MaterialsReportFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
+    return this.materialsReportSvc.exportProjectMaterialsReportWorkbook(
+      projectId,
+      filters,
+    );
+  }
+
+  async importProjectMaterialsReport(
+    projectId: string,
+    file: ActivityScheduleUploadFile | undefined,
+    dto: MaterialsReportImportDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    return this.materialsReportImportSvc.importProjectMaterialsReport(
+      projectId,
+      file,
+      dto,
+    );
   }
 
   async getProjectActivityScheduleGantt(
@@ -368,6 +502,372 @@ export class TasksService {
       this.actor(requestUser),
     ]);
     return this.activityScheduleSvc.upsertForTask(task, actorUser, dto);
+  }
+
+  async listTaskResourceAllocations(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.resourceAllocationSvc.listForTask(taskId);
+  }
+
+  async getTaskResourceAllocation(
+    projectId: string,
+    taskId: string,
+    allocationId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.resourceAllocationSvc.getForTask(taskId, allocationId);
+  }
+
+  async createTaskResourceAllocation(
+    projectId: string,
+    taskId: string,
+    dto: CreateTaskResourceAllocationDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      {
+        requestUser,
+        membership,
+      },
+    );
+    return this.resourceAllocationSvc.createForTask(task, dto);
+  }
+
+  async updateTaskResourceAllocation(
+    projectId: string,
+    taskId: string,
+    allocationId: string,
+    dto: UpdateTaskResourceAllocationDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.resourceAllocationSvc.updateForTask(taskId, allocationId, dto);
+  }
+
+  async deleteTaskResourceAllocation(
+    projectId: string,
+    taskId: string,
+    allocationId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.resourceAllocationSvc.deleteForTask(taskId, allocationId);
+  }
+
+  async listTaskMaterials(
+    projectId: string,
+    taskId: string,
+    filters: TaskMaterialFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.materialsSvc.listTaskMaterials(taskId, filters);
+  }
+
+  async getTaskMaterial(
+    projectId: string,
+    taskId: string,
+    materialId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.materialsSvc.getTaskMaterial(taskId, materialId);
+  }
+
+  async createTaskMaterial(
+    projectId: string,
+    taskId: string,
+    dto: CreateTaskMaterialDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.materialsSvc.createTaskMaterial(task, actorUser, dto);
+  }
+
+  async updateTaskMaterial(
+    projectId: string,
+    taskId: string,
+    materialId: string,
+    dto: UpdateTaskMaterialDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.materialsSvc.updateTaskMaterial(
+      task,
+      materialId,
+      actorUser,
+      dto,
+    );
+  }
+
+  async deleteTaskMaterial(
+    projectId: string,
+    taskId: string,
+    materialId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.materialsSvc.deleteTaskMaterial(task, materialId, actorUser);
+  }
+
+  async listTaskDocuments(
+    projectId: string,
+    taskId: string,
+    filters: TaskDocumentFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.documentsSvc.listTaskDocuments(taskId, filters);
+  }
+
+  async getTaskDocument(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.documentsSvc.getTaskDocument(taskId, documentId);
+  }
+
+  async getTaskDocumentAttachmentDownloadUrl(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    attachmentId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.documentsSvc.getTaskDocumentAttachmentDownloadUrl(
+      taskId,
+      documentId,
+      attachmentId,
+    );
+  }
+
+  async createTaskDocument(
+    projectId: string,
+    taskId: string,
+    dto: CreateTaskDocumentDto,
+    requestUser: RequestUser,
+    file?: UploadableFile,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.documentsSvc.createTaskDocument(task, actorUser, dto, file);
+  }
+
+  async createStarterDocumentFromDeliverable(
+    projectId: string,
+    taskId: string,
+    dto: CreateStarterFromDeliverableDto,
+    requestUser: RequestUser,
+  ): Promise<TaskDocumentSerializer> {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [targetTask, sourceTask, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.authSvc.ensureTaskForSubresource(projectId, dto.sourceTaskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    const sourceDocument = await this.documentsSvc.getTaskDocumentEntityOrFail(
+      sourceTask.id,
+      dto.sourceDocumentId,
+    );
+
+    return this.documentsSvc.createStarterFromDeliverable(
+      targetTask,
+      sourceTask,
+      sourceDocument,
+      actorUser,
+      dto,
+    );
+  }
+
+  async updateTaskDocument(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    dto: UpdateTaskDocumentDto,
+    requestUser: RequestUser,
+    file?: UploadableFile,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.documentsSvc.updateTaskDocument(
+      task,
+      documentId,
+      actorUser,
+      dto,
+      file,
+    );
+  }
+
+  async deleteTaskDocument(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.documentsSvc.deleteTaskDocument(task, documentId, actorUser);
   }
 
   async recalculateActivitySchedule(
