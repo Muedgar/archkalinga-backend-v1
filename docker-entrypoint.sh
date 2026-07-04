@@ -2,7 +2,7 @@
 set -e
 
 echo "▶ Running database migrations..."
-node ./node_modules/.bin/typeorm -d ./dist/config/db/db.config.js migration:run
+npm run migration:run
 
 echo "▶ Starting ArchKalinga API..."
-exec node dist/main
+exec npm run start:prod
