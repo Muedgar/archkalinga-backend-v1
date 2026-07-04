@@ -3,21 +3,25 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import ExcelJS from 'exceljs';
 import { Repository } from 'typeorm';
+import type { RequestUser } from 'src/auth/types';
 import { FilterResponse } from 'src/common/interfaces';
 import { ActivityScheduleFiltersDto } from '../dtos';
 import { ScheduleType, TaskActivitySchedule } from '../entities';
 import { ActivityScheduleRowSerializer } from '../serializers';
+import { TaskAuthService } from './task-auth.service';
 
 @Injectable()
 export class ActivityScheduleQueryService {
   constructor(
     @InjectRepository(TaskActivitySchedule)
     private readonly scheduleRepo: Repository<TaskActivitySchedule>,
+    private readonly authSvc: TaskAuthService,
   ) {}
 
   async listProjectSchedule(
     projectId: string,
     filters: ActivityScheduleFiltersDto,
+    requestUser: RequestUser,
   ): Promise<
     FilterResponse<ActivityScheduleRowSerializer> & {
       meta: {
@@ -32,7 +36,11 @@ export class ActivityScheduleQueryService {
     const limit = filters.limit ?? 100;
     const includeSummaryRows = filters.includeSummaryRows === true;
     const criticalOnly = filters.criticalOnly === true;
-    const qb = this.buildProjectScheduleQuery(projectId, filters);
+    const qb = await this.buildProjectScheduleQuery(
+      projectId,
+      filters,
+      requestUser,
+    );
 
     qb.skip((page - 1) * limit).take(limit);
 
@@ -53,11 +61,11 @@ export class ActivityScheduleQueryService {
   async exportProjectScheduleWorkbook(
     projectId: string,
     filters: ActivityScheduleFiltersDto,
+    requestUser: RequestUser,
     options: { sheetName?: string } = {},
   ): Promise<Buffer> {
-    const rows = await this.buildProjectScheduleQuery(
-      projectId,
-      filters,
+    const rows = await (
+      await this.buildProjectScheduleQuery(projectId, filters, requestUser)
     ).getMany();
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Archkalinga';
@@ -153,16 +161,22 @@ export class ActivityScheduleQueryService {
   async listCriticalPath(
     projectId: string,
     filters: ActivityScheduleFiltersDto,
+    requestUser: RequestUser,
   ) {
-    return this.listProjectSchedule(projectId, {
-      ...filters,
-      criticalOnly: true,
-    });
+    return this.listProjectSchedule(
+      projectId,
+      {
+        ...filters,
+        criticalOnly: true,
+      },
+      requestUser,
+    );
   }
 
   async exportCriticalPathWorkbook(
     projectId: string,
     filters: ActivityScheduleFiltersDto,
+    requestUser: RequestUser,
   ) {
     return this.exportProjectScheduleWorkbook(
       projectId,
@@ -170,13 +184,15 @@ export class ActivityScheduleQueryService {
         ...filters,
         criticalOnly: true,
       },
+      requestUser,
       { sheetName: 'Critical Path' },
     );
   }
 
-  private buildProjectScheduleQuery(
+  private async buildProjectScheduleQuery(
     projectId: string,
     filters: ActivityScheduleFiltersDto,
+    requestUser: RequestUser,
   ) {
     const includeSummaryRows = filters.includeSummaryRows === true;
     const criticalOnly = filters.criticalOnly === true;
@@ -188,6 +204,16 @@ export class ActivityScheduleQueryService {
       .leftJoinAndSelect('dependencyEdges.dependsOnTask', 'predecessorTask')
       .where('task.projectId = :projectId', { projectId })
       .andWhere('task.deletedAt IS NULL');
+
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
 
     if (!includeSummaryRows) {
       qb.andWhere('task.scheduleType NOT IN (:...summaryTypes)', {

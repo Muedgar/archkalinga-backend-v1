@@ -178,12 +178,13 @@ export class TaskCrudService {
 
       if (assignedUsers.length) {
         await tx.save(
-          assignedUsers.map(({ user }) =>
+          assignedUsers.map(({ user, projectRoleId }) =>
             tx.create(TaskAssignee, {
               task: saved,
               taskId: saved.id,
               user,
               userId: user.id,
+              projectRoleId,
             }),
           ),
         );
@@ -396,12 +397,13 @@ export class TaskCrudService {
           await tx.delete(TaskAssignee, { id: In(toRemove) });
         if (toAdd.length)
           await tx.save(
-            toAdd.map(({ user }) =>
+            toAdd.map(({ user, projectRoleId }) =>
               tx.create(TaskAssignee, {
                 task,
                 taskId: task.id,
                 user,
                 userId: user.id,
+                projectRoleId,
               }),
             ),
           );

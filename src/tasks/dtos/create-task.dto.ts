@@ -75,9 +75,14 @@ class TaskAssignedMemberDto {
   @IsUUID()
   userId: string;
 
-  @ApiProperty({ example: 'd0a81cc2-3f86-4eb2-b4db-f4adb6152d63' })
+  @ApiPropertyOptional({
+    example: 'd0a81cc2-3f86-4eb2-b4db-f4adb6152d63',
+    description:
+      'Optional for active project members. Required only when assigning a non-member so the backend can create a project invite with that role.',
+  })
+  @IsOptional()
   @IsUUID()
-  projectRoleId: string;
+  projectRoleId?: string;
 }
 
 class TaskReporteeDto {
@@ -85,9 +90,14 @@ class TaskReporteeDto {
   @IsUUID()
   userId: string;
 
-  @ApiProperty({ example: 'd0a81cc2-3f86-4eb2-b4db-f4adb6152d63' })
+  @ApiPropertyOptional({
+    example: 'd0a81cc2-3f86-4eb2-b4db-f4adb6152d63',
+    description:
+      'Deprecated for active members. The backend derives the reportee project role from membership.',
+  })
+  @IsOptional()
   @IsUUID()
-  projectRoleId: string;
+  projectRoleId?: string;
 }
 
 export class CreateTaskDto {
@@ -259,7 +269,7 @@ export class CreateTaskDto {
   @ApiPropertyOptional({
     type: () => [TaskAssignedMemberDto],
     description:
-      'Assigned project members with their active project-role linkage. Optional at initial creation.',
+      'Assigned users. Active project members only need userId; projectRoleId is required only when assigning a non-member and creating an invite.',
   })
   @IsOptional()
   @IsArray()
@@ -271,7 +281,7 @@ export class CreateTaskDto {
   @ApiPropertyOptional({
     type: () => TaskReporteeDto,
     description:
-      'Reportee member with project-role context. Optional at initial creation.',
+      'Active project reportee. The backend derives projectRoleId from membership.',
   })
   @IsOptional()
   @ValidateNested()
