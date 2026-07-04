@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import ExcelJS from 'exceljs';
 import { Brackets, Repository, SelectQueryBuilder } from 'typeorm';
+import type { RequestUser } from 'src/auth/types';
 import { FilterResponse } from 'src/common/interfaces';
 import { ResourceReportFiltersDto } from '../dtos';
 import { TaskResourceAllocation } from '../entities';
@@ -10,6 +11,7 @@ import {
   TaskResourceReportRowSerializer,
   TaskResourceReportSummaryRowSerializer,
 } from '../serializers';
+import { TaskAuthService } from './task-auth.service';
 
 type ResourceReportSummaryLevel = 'activity' | 'stage' | 'phase' | 'grand';
 
@@ -49,21 +51,27 @@ export class TaskResourceReportService {
   constructor(
     @InjectRepository(TaskResourceAllocation)
     private readonly allocationRepo: Repository<TaskResourceAllocation>,
+    private readonly authSvc: TaskAuthService,
   ) {}
 
   async listProjectResourceReport(
     projectId: string,
     filters: ResourceReportFiltersDto,
+    requestUser: RequestUser,
   ): Promise<ResourceReportResponse> {
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 100;
     const includeSummaryRows = filters.includeSummaryRows === true;
-    const qb = this.buildProjectReportQuery(projectId, filters);
+    const qb = await this.buildProjectReportQuery(
+      projectId,
+      filters,
+      requestUser,
+    );
 
     qb.skip((page - 1) * limit).take(limit);
 
     const [rows, count] = await qb.getManyAndCount();
-    const totals = await this.calculateTotals(projectId, filters);
+    const totals = await this.calculateTotals(projectId, filters, requestUser);
     const summaryRows = includeSummaryRows
       ? this.serializeSummaryRows([
           ...totals.byActivity,
@@ -104,9 +112,12 @@ export class TaskResourceReportService {
   async exportProjectResourceReportWorkbook(
     projectId: string,
     filters: ResourceReportFiltersDto,
+    requestUser: RequestUser,
   ): Promise<Buffer> {
-    const rows = await this.buildProjectReportQuery(projectId, filters).getMany();
-    const totals = await this.calculateTotals(projectId, filters);
+    const rows = await (
+      await this.buildProjectReportQuery(projectId, filters, requestUser)
+    ).getMany();
+    const totals = await this.calculateTotals(projectId, filters, requestUser);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Archkalinga';
     workbook.created = new Date();
@@ -185,15 +196,26 @@ export class TaskResourceReportService {
     return Buffer.from(buffer);
   }
 
-  buildProjectReportQuery(
+  async buildProjectReportQuery(
     projectId: string,
     filters: ResourceReportFiltersDto,
-  ): SelectQueryBuilder<TaskResourceAllocation> {
+    requestUser: RequestUser,
+  ): Promise<SelectQueryBuilder<TaskResourceAllocation>> {
     const qb = this.allocationRepo
       .createQueryBuilder('allocation')
       .innerJoin('allocation.task', 'task')
       .where('task.projectId = :projectId', { projectId })
       .andWhere('task.deletedAt IS NULL');
+
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
 
     if (filters.taskId) {
       qb.andWhere('allocation.taskId = :taskId', { taskId: filters.taskId });
@@ -262,8 +284,13 @@ export class TaskResourceReportService {
   private async calculateTotals(
     projectId: string,
     filters: ResourceReportFiltersDto,
+    requestUser: RequestUser,
   ): Promise<ResourceReportTotals> {
-    const baseQb = this.buildProjectReportQuery(projectId, filters);
+    const baseQb = await this.buildProjectReportQuery(
+      projectId,
+      filters,
+      requestUser,
+    );
     const [grandRows, phaseRows, stageRows, activityRows] = await Promise.all([
       this.getGroupedTotals(baseQb, 'grand'),
       this.getGroupedTotals(baseQb, 'phase'),
@@ -289,7 +316,10 @@ export class TaskResourceReportService {
 
     totalQb
       .select('COALESCE(SUM(allocation.costAmount), 0)', 'totalCostAmount')
-      .addSelect('COALESCE(MAX(allocation.currency), :defaultCurrency)', 'currency')
+      .addSelect(
+        'COALESCE(MAX(allocation.currency), :defaultCurrency)',
+        'currency',
+      )
       .setParameter('defaultCurrency', 'RWF')
       .orderBy();
 

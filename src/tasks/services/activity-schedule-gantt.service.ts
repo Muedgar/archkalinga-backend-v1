@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
+import type { RequestUser } from 'src/auth/types';
 import { Project } from 'src/projects/entities';
 import {
   ActivityScheduleGanttQueryDto,
@@ -16,6 +17,7 @@ import {
   TaskScheduleCalculationRun,
   TaskScheduleExplanation,
 } from '../entities';
+import { TaskAuthService } from './task-auth.service';
 
 type GanttBucketStatus = 'complete' | 'active' | 'overdue' | 'planned';
 type ProgressStatus = 'Completed' | 'In Progress' | 'Not Started';
@@ -53,10 +55,19 @@ export class ActivityScheduleGanttService {
     private readonly runRepo: Repository<TaskScheduleCalculationRun>,
     @InjectRepository(TaskScheduleExplanation)
     private readonly explanationRepo: Repository<TaskScheduleExplanation>,
+    private readonly authSvc: TaskAuthService,
   ) {}
 
-  async getGantt(projectId: string, filters: ActivityScheduleGanttQueryDto) {
-    const schedules = await this.loadScheduleRows(projectId, filters);
+  async getGantt(
+    projectId: string,
+    filters: ActivityScheduleGanttQueryDto,
+    requestUser: RequestUser,
+  ) {
+    const schedules = await this.loadScheduleRows(
+      projectId,
+      filters,
+      requestUser,
+    );
     const project = await this.projectRepo.findOne({
       where: { id: projectId },
       select: ['id', 'startDate'],
@@ -144,10 +155,14 @@ export class ActivityScheduleGanttService {
     };
   }
 
-  async getProgressTracker(projectId: string) {
-    const schedules = await this.loadScheduleRows(projectId, {
-      includeSummaryRows: true,
-    });
+  async getProgressTracker(projectId: string, requestUser: RequestUser) {
+    const schedules = await this.loadScheduleRows(
+      projectId,
+      {
+        includeSummaryRows: true,
+      },
+      requestUser,
+    );
     const rows = schedules.map((schedule) => {
       const started = this.isStarted(schedule);
       const done = this.isDone(schedule);
@@ -185,10 +200,14 @@ export class ActivityScheduleGanttService {
     };
   }
 
-  async getSummary(projectId: string) {
-    const schedules = await this.loadScheduleRows(projectId, {
-      includeSummaryRows: false,
-    });
+  async getSummary(projectId: string, requestUser: RequestUser) {
+    const schedules = await this.loadScheduleRows(
+      projectId,
+      {
+        includeSummaryRows: false,
+      },
+      requestUser,
+    );
     return {
       projectId,
       generatedAt: new Date().toISOString(),
@@ -196,12 +215,32 @@ export class ActivityScheduleGanttService {
     };
   }
 
-  async getChecks(projectId: string) {
+  async getChecks(projectId: string, requestUser: RequestUser) {
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+    const taskQb = this.taskRepo
+      .createQueryBuilder('task')
+      .where('task.projectId = :projectId', { projectId })
+      .andWhere('task.deletedAt IS NULL')
+      .select([
+        'task.id',
+        'task.parentTaskId',
+        'task.title',
+        'task.scheduleType',
+        'task.wbsCode',
+        'task.createdByUserId',
+        'task.reporteeUserId',
+      ]);
+    this.authSvc.applyTaskVisibilityScope(
+      taskQb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
+
     const [tasks, schedules, dependencies, calendar] = await Promise.all([
-      this.taskRepo.find({
-        where: { projectId, deletedAt: IsNull() },
-        select: ['id', 'parentTaskId', 'title', 'scheduleType', 'wbsCode'],
-      }),
+      taskQb.getMany(),
       this.scheduleRepo.find({ relations: ['task'] }),
       this.dependencyRepo.find(),
       this.calendarRepo.findOne({ where: { projectId } }),
@@ -408,12 +447,23 @@ export class ActivityScheduleGanttService {
       ActivityScheduleGanttQueryDto,
       'includeSummaryRows' | 'criticalOnly'
     >,
+    requestUser: RequestUser,
   ): Promise<ScheduleWithTask[]> {
     const qb = this.scheduleRepo
       .createQueryBuilder('schedule')
       .innerJoinAndSelect('schedule.task', 'task')
       .where('task.projectId = :projectId', { projectId })
       .andWhere('task.deletedAt IS NULL');
+
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
 
     if (!filters.includeSummaryRows) {
       qb.andWhere('task.scheduleType NOT IN (:...summaryTypes)', {

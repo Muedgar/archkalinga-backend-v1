@@ -12,6 +12,7 @@ import {
   ProjectRole,
 } from 'src/projects/entities';
 import { User } from 'src/users/entities';
+import { WorkspaceMember } from 'src/workspaces/entities';
 import {
   ProjectLabel,
   ProjectPriority,
@@ -129,6 +130,7 @@ const SUB_SERVICES = [
       ProjectSeverity,
       ProjectTaskType,
       ProjectLabel,
+      WorkspaceMember,
     ]),
     CommonModule,
     NotificationsModule,

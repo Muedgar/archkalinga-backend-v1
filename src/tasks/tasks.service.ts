@@ -232,6 +232,7 @@ export class TasksService {
     return this.activityScheduleQuerySvc.listProjectSchedule(
       projectId,
       filters,
+      requestUser,
     );
   }
 
@@ -244,6 +245,7 @@ export class TasksService {
     return this.activityScheduleQuerySvc.exportProjectScheduleWorkbook(
       projectId,
       filters,
+      requestUser,
     );
   }
 
@@ -253,7 +255,11 @@ export class TasksService {
     requestUser: RequestUser,
   ) {
     await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    return this.activityScheduleQuerySvc.listCriticalPath(projectId, filters);
+    return this.activityScheduleQuerySvc.listCriticalPath(
+      projectId,
+      filters,
+      requestUser,
+    );
   }
 
   async exportProjectCriticalPath(
@@ -265,6 +271,7 @@ export class TasksService {
     return this.activityScheduleQuerySvc.exportCriticalPathWorkbook(
       projectId,
       filters,
+      requestUser,
     );
   }
 
@@ -274,7 +281,11 @@ export class TasksService {
     requestUser: RequestUser,
   ) {
     await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    return this.resourceReportSvc.listProjectResourceReport(projectId, filters);
+    return this.resourceReportSvc.listProjectResourceReport(
+      projectId,
+      filters,
+      requestUser,
+    );
   }
 
   async exportProjectResourceReport(
@@ -286,6 +297,7 @@ export class TasksService {
     return this.resourceReportSvc.exportProjectResourceReportWorkbook(
       projectId,
       filters,
+      requestUser,
     );
   }
 
@@ -316,6 +328,7 @@ export class TasksService {
     return this.materialsReportSvc.listProjectMaterialsReport(
       projectId,
       filters,
+      requestUser,
     );
   }
 
@@ -328,6 +341,7 @@ export class TasksService {
     return this.materialsReportSvc.exportProjectMaterialsReportWorkbook(
       projectId,
       filters,
+      requestUser,
     );
   }
 
@@ -355,7 +369,11 @@ export class TasksService {
     requestUser: RequestUser,
   ) {
     await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    return this.activityScheduleGanttSvc.getGantt(projectId, filters);
+    return this.activityScheduleGanttSvc.getGantt(
+      projectId,
+      filters,
+      requestUser,
+    );
   }
 
   async getProjectActivityScheduleProgressTracker(
@@ -363,7 +381,10 @@ export class TasksService {
     requestUser: RequestUser,
   ) {
     await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    return this.activityScheduleGanttSvc.getProgressTracker(projectId);
+    return this.activityScheduleGanttSvc.getProgressTracker(
+      projectId,
+      requestUser,
+    );
   }
 
   async getProjectActivityScheduleSummary(
@@ -371,7 +392,7 @@ export class TasksService {
     requestUser: RequestUser,
   ) {
     await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    return this.activityScheduleGanttSvc.getSummary(projectId);
+    return this.activityScheduleGanttSvc.getSummary(projectId, requestUser);
   }
 
   async getProjectActivityScheduleChecks(
@@ -379,7 +400,7 @@ export class TasksService {
     requestUser: RequestUser,
   ) {
     await this.authSvc.verifyProjectPermission(projectId, requestUser, 'view');
-    return this.activityScheduleGanttSvc.getChecks(projectId);
+    return this.activityScheduleGanttSvc.getChecks(projectId, requestUser);
   }
 
   async getProjectActivityScheduleExplanation(

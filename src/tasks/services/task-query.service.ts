@@ -42,7 +42,7 @@ export class TaskQueryService {
     // - childCount only needs taskId (known from the URL), so it fires alongside the task load.
     //
     // Net effect: the entire task fetch + child count completes in ONE DB round-trip wave.
-    const [{ membership }, task, childCount] = await Promise.all([
+    const [, task, childCount] = await Promise.all([
       prefetchedMembership !== undefined
         ? Promise.resolve({
             project: null as any,
@@ -55,17 +55,8 @@ export class TaskQueryService {
       }),
     ]);
 
-    const viewScope =
-      (membership?.projectRole?.permissions?.taskManagement as any)
-        ?.viewScope ?? 'all';
-    if (viewScope === 'assigned') {
-      const isAssignee = (task.assignees ?? []).some(
-        (a) => a.userId === requestUser.id,
-      );
-      const isReportee = task.reporteeUserId === requestUser.id;
-      if (!isAssignee && !isReportee)
-        throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
-    }
+    const canView = await this.authSvc.canViewTask(task, requestUser);
+    if (!canView) throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
 
     const userIds = [
       task.reporteeUserId,
@@ -103,20 +94,13 @@ export class TaskQueryService {
     // prefetchedMembership comes from ProjectPermissionGuard (already ran) via
     // req.projectMembership, so Promise.resolve() costs zero DB queries.
     // Without prefetching this would be 2 sequential queries (project + membership).
-    const { membership } =
-      prefetchedMembership !== undefined
-        ? { membership: prefetchedMembership }
-        : await this.authSvc.verifyProjectPermission(
-            projectId,
-            requestUser,
-            'view',
-          );
-
-    const viewScope =
-      (membership?.projectRole?.permissions?.taskManagement as any)
-        ?.viewScope ?? 'all';
-    if (viewScope === 'assigned')
-      filters = { ...filters, assignedUserId: requestUser.id };
+    if (prefetchedMembership === undefined) {
+      await this.authSvc.verifyProjectPermission(
+        projectId,
+        requestUser,
+        'view',
+      );
+    }
 
     const includes = this.authSvc.parseIncludes(filters.include);
     const page = filters.page ?? 1;
@@ -128,6 +112,16 @@ export class TaskQueryService {
       .createQueryBuilder('task')
       .where('task.projectId = :projectId', { projectId });
     if (!includeDeleted) qb.andWhere('task.deletedAt IS NULL');
+
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
 
     // ── Hierarchy filter ──────────────────────────────────────────────────
     if (filters.parentTaskId === 'root')

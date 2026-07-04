@@ -79,12 +79,18 @@ export class TaskMembersService {
 
   // ── Serializers ───────────────────────────────────────────────────────────
 
-  private serializeWatcher(w: Partial<TaskWatcher>): TaskWatcherDetailSerializer {
-    return plainToInstance(TaskWatcherDetailSerializer, w, { excludeExtraneousValues: true });
+  private serializeWatcher(
+    w: Partial<TaskWatcher>,
+  ): TaskWatcherDetailSerializer {
+    return plainToInstance(TaskWatcherDetailSerializer, w, {
+      excludeExtraneousValues: true,
+    });
   }
 
   private serializeLabel(l: Partial<TaskLabel>): TaskLabelDetailSerializer {
-    return plainToInstance(TaskLabelDetailSerializer, l, { excludeExtraneousValues: true });
+    return plainToInstance(TaskLabelDetailSerializer, l, {
+      excludeExtraneousValues: true,
+    });
   }
 
   // ── Private invite helpers ────────────────────────────────────────────────
@@ -99,11 +105,18 @@ export class TaskMembersService {
 
   // ── Member validation ─────────────────────────────────────────────────────
 
-  async ensureAssigneeUsers(projectId: string, userIds: string[]): Promise<User[]> {
+  async ensureAssigneeUsers(
+    projectId: string,
+    userIds: string[],
+  ): Promise<User[]> {
     if (!userIds.length) return [];
 
     const memberships = await this.membershipRepo.find({
-      where: { projectId, status: MembershipStatus.ACTIVE, userId: In(userIds) },
+      where: {
+        projectId,
+        status: MembershipStatus.ACTIVE,
+        userId: In(userIds),
+      },
       relations: ['user'],
     });
 
@@ -121,34 +134,51 @@ export class TaskMembersService {
 
   async ensureAssignedMembers(
     projectId: string,
-    assignedMembers: Array<{ userId: string; projectRoleId: string }>,
+    assignedMembers: Array<{ userId: string; projectRoleId?: string }>,
     tx: import('typeorm').EntityManager,
     actorUser: User,
-  ): Promise<{ user: User; userId: string }[]> {
-    if (!assignedMembers.length) throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
+  ): Promise<{ user: User; userId: string; projectRoleId: string }[]> {
+    if (!assignedMembers.length)
+      throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
 
     const uniqueUserIds = [...new Set(assignedMembers.map((m) => m.userId))];
     if (uniqueUserIds.length !== assignedMembers.length) {
       throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
     }
 
-    const uniqueRoleIds = [...new Set(assignedMembers.map((m) => m.projectRoleId))];
-    const roles = await tx.find(ProjectRole, { where: { id: In(uniqueRoleIds), projectId } });
-    const roleMap = new Map(roles.map((r) => [r.id, r]));
-    for (const member of assignedMembers) {
-      if (!roleMap.has(member.projectRoleId)) throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
-    }
-
     const [memberships, users] = await Promise.all([
-      tx.find(ProjectMembership, { where: { projectId, userId: In(uniqueUserIds) }, relations: ['user'] }),
+      tx.find(ProjectMembership, {
+        where: { projectId, userId: In(uniqueUserIds) },
+        relations: ['user'],
+      }),
       tx.find(User, { where: { id: In(uniqueUserIds) } }),
     ]);
 
     const membershipMap = new Map(memberships.map((m) => [m.userId, m]));
     const userMap = new Map(users.map((u) => [u.id, u]));
-    const project = await tx.findOneOrFail(Project, { where: { id: projectId } });
+    const project = await tx.findOneOrFail(Project, {
+      where: { id: projectId },
+    });
 
-    const result: { user: User; userId: string }[] = [];
+    const pendingInviteRoleIds = [
+      ...new Set(
+        assignedMembers
+          .filter((member) => {
+            const membership = membershipMap.get(member.userId);
+            return membership?.status !== MembershipStatus.ACTIVE;
+          })
+          .map((member) => member.projectRoleId)
+          .filter((roleId): roleId is string => Boolean(roleId)),
+      ),
+    ];
+    const roles = pendingInviteRoleIds.length
+      ? await tx.find(ProjectRole, {
+          where: { id: In(pendingInviteRoleIds), projectId, status: true },
+        })
+      : [];
+    const roleMap = new Map(roles.map((r) => [r.id, r]));
+
+    const result: { user: User; userId: string; projectRoleId: string }[] = [];
 
     for (const member of assignedMembers) {
       const user = userMap.get(member.userId);
@@ -157,19 +187,35 @@ export class TaskMembersService {
       const membership = membershipMap.get(member.userId);
 
       if (membership && membership.status === MembershipStatus.ACTIVE) {
-        if (membership.projectRoleId !== member.projectRoleId) {
-          throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
-        }
-        result.push({ user, userId: user.id });
+        result.push({
+          user,
+          userId: user.id,
+          projectRoleId: membership.projectRoleId,
+        });
         continue;
       }
 
       const existingPendingInvite = await tx.findOne(ProjectInvite, {
-        where: { projectId, inviteeUserId: user.id, status: InviteStatus.PENDING },
+        where: {
+          projectId,
+          inviteeUserId: user.id,
+          status: InviteStatus.PENDING,
+        },
       });
+      const effectiveRoleId =
+        existingPendingInvite?.projectRoleId ?? member.projectRoleId;
+      if (!effectiveRoleId)
+        throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
+
+      let role: ProjectRole | null | undefined = roleMap.get(effectiveRoleId);
+      if (!role) {
+        role = await tx.findOne(ProjectRole, {
+          where: { id: effectiveRoleId, projectId, status: true },
+        });
+      }
+      if (!role) throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
 
       if (!existingPendingInvite) {
-        const role = roleMap.get(member.projectRoleId)!;
         await tx.save(
           tx.create(ProjectInvite, {
             project,
@@ -194,12 +240,12 @@ export class TaskMembersService {
             type: NotificationType.INVITE_RECEIVED,
             title: `You've been invited to join a project`,
             body: `${actorUser.firstName} ${actorUser.lastName} assigned you to a task and invited you to join the project.`,
-            meta: { projectId, projectRoleId: member.projectRoleId },
+            meta: { projectId, projectRoleId: role.id },
           })
           .catch(() => void 0);
       }
 
-      result.push({ user, userId: user.id });
+      result.push({ user, userId: user.id, projectRoleId: role.id });
     }
 
     return result;
@@ -207,16 +253,18 @@ export class TaskMembersService {
 
   async ensureReporteeMember(
     projectId: string,
-    reportee: { userId: string; projectRoleId: string },
+    reportee: { userId: string; projectRoleId?: string },
   ): Promise<ProjectMembership> {
     const membership = await this.membershipRepo.findOne({
-      where: { projectId, userId: reportee.userId, status: MembershipStatus.ACTIVE },
+      where: {
+        projectId,
+        userId: reportee.userId,
+        status: MembershipStatus.ACTIVE,
+      },
       relations: ['user', 'projectRole'],
     });
 
-    if (!membership || membership.projectRoleId !== reportee.projectRoleId) {
-      throw new BadRequestException(INVALID_TASK_REPORTEE);
-    }
+    if (!membership) throw new BadRequestException(INVALID_TASK_REPORTEE);
 
     return membership;
   }
@@ -231,7 +279,11 @@ export class TaskMembersService {
     if (!uniqueIds.length) return new Map();
 
     const memberships = await this.membershipRepo.find({
-      where: { projectId, status: MembershipStatus.ACTIVE, userId: In(uniqueIds) },
+      where: {
+        projectId,
+        status: MembershipStatus.ACTIVE,
+        userId: In(uniqueIds),
+      },
       relations: ['projectRole'],
     });
 
@@ -241,7 +293,13 @@ export class TaskMembersService {
         {
           projectRoleId: m.projectRoleId ?? null,
           projectRole: m.projectRole
-            ? { id: m.projectRole.id, name: m.projectRole.name, slug: m.projectRole.slug, status: m.projectRole.status, permissions: m.projectRole.permissions }
+            ? {
+                id: m.projectRole.id,
+                name: m.projectRole.name,
+                slug: m.projectRole.slug,
+                status: m.projectRole.status,
+                permissions: m.projectRole.permissions,
+              }
             : null,
         },
       ]),
@@ -268,7 +326,9 @@ export class TaskMembersService {
     });
 
     const reporteeUser = task.reporteeUser ?? null;
-    const reporteeRoleContext = reporteeUser ? membershipRoleContext.get(reporteeUser.id) : undefined;
+    const reporteeRoleContext = reporteeUser
+      ? membershipRoleContext.get(reporteeUser.id)
+      : undefined;
 
     return {
       ...task,
@@ -295,7 +355,9 @@ export class TaskMembersService {
     taskCommentRepo: Repository<import('../entities').TaskComment>,
   ): Promise<TaskCounts> {
     const [childCount, commentCount] = await Promise.all([
-      this.taskRepo.count({ where: { parentTaskId: taskId, deletedAt: IsNull() } }),
+      this.taskRepo.count({
+        where: { parentTaskId: taskId, deletedAt: IsNull() },
+      }),
       taskCommentRepo.count({ where: { taskId, deletedAt: IsNull() } }),
     ]);
     return { childCount, commentCount };
@@ -332,13 +394,17 @@ export class TaskMembersService {
         .getRawMany<{ taskId: string; cnt: string }>(),
     ]);
 
-    const childCountMap   = new Map(childRows.map((r)   => [r.parentTaskId, Number(r.cnt)]));
-    const commentCountMap = new Map(commentRows.map((r) => [r.taskId,       Number(r.cnt)]));
+    const childCountMap = new Map(
+      childRows.map((r) => [r.parentTaskId, Number(r.cnt)]),
+    );
+    const commentCountMap = new Map(
+      commentRows.map((r) => [r.taskId, Number(r.cnt)]),
+    );
 
     const result = new Map<string, TaskCounts>();
     for (const id of taskIds) {
       result.set(id, {
-        childCount:   childCountMap.get(id)   ?? 0,
+        childCount: childCountMap.get(id) ?? 0,
         commentCount: commentCountMap.get(id) ?? 0,
       });
     }
@@ -356,25 +422,42 @@ export class TaskMembersService {
     return watchers.map((w) => this.serializeWatcher(w));
   }
 
-  async addWatcher(task: Task, dto: AddWatcherDto, projectId: string): Promise<TaskWatcherDetailSerializer> {
+  async addWatcher(
+    task: Task,
+    dto: AddWatcherDto,
+    projectId: string,
+  ): Promise<TaskWatcherDetailSerializer> {
     const membership = await this.membershipRepo.findOne({
       where: { projectId, userId: dto.userId, status: MembershipStatus.ACTIVE },
       relations: ['user'],
     });
     if (!membership) throw new BadRequestException(INVALID_TASK_WATCHER);
 
-    const existing = await this.taskWatcherRepo.findOne({ where: { taskId: task.id, userId: dto.userId } });
+    const existing = await this.taskWatcherRepo.findOne({
+      where: { taskId: task.id, userId: dto.userId },
+    });
     if (existing) throw new BadRequestException(TASK_WATCHER_ALREADY_WATCHING);
 
     const watcher = await this.taskWatcherRepo.save(
-      this.taskWatcherRepo.create({ task, taskId: task.id, user: membership.user, userId: dto.userId }),
+      this.taskWatcherRepo.create({
+        task,
+        taskId: task.id,
+        user: membership.user,
+        userId: dto.userId,
+      }),
     );
 
     return this.serializeWatcher({ ...watcher, user: membership.user });
   }
 
-  async removeWatcher(taskId: string, watcherId: string): Promise<{ id: string; success: true }> {
-    const w = await this.taskWatcherRepo.findOne({ where: { id: watcherId, taskId }, relations: ['user'] });
+  async removeWatcher(
+    taskId: string,
+    watcherId: string,
+  ): Promise<{ id: string; success: true }> {
+    const w = await this.taskWatcherRepo.findOne({
+      where: { id: watcherId, taskId },
+      relations: ['user'],
+    });
     if (!w) throw new NotFoundException(TASK_WATCHER_NOT_FOUND);
     await this.taskWatcherRepo.remove(w);
     return { id: watcherId, success: true };
@@ -391,22 +474,42 @@ export class TaskMembersService {
     return labels.map((l) => this.serializeLabel(l));
   }
 
-  async addLabel(task: Task, dto: AddLabelDto, projectId: string): Promise<TaskLabelDetailSerializer> {
-    const projectLabel = await this.projectLabelRepo.findOne({ where: { id: dto.labelId, projectId } });
+  async addLabel(
+    task: Task,
+    dto: AddLabelDto,
+    projectId: string,
+  ): Promise<TaskLabelDetailSerializer> {
+    const projectLabel = await this.projectLabelRepo.findOne({
+      where: { id: dto.labelId, projectId },
+    });
     if (!projectLabel) throw new BadRequestException(INVALID_TASK_LABEL);
 
-    const existing = await this.taskLabelRepo.findOne({ where: { taskId: task.id, labelId: dto.labelId }, relations: ['label'] });
+    const existing = await this.taskLabelRepo.findOne({
+      where: { taskId: task.id, labelId: dto.labelId },
+      relations: ['label'],
+    });
     if (existing) throw new BadRequestException(TASK_LABEL_ALREADY_ADDED);
 
     const tl = await this.taskLabelRepo.save(
-      this.taskLabelRepo.create({ task, taskId: task.id, label: projectLabel, labelId: projectLabel.id }),
+      this.taskLabelRepo.create({
+        task,
+        taskId: task.id,
+        label: projectLabel,
+        labelId: projectLabel.id,
+      }),
     );
 
     return this.serializeLabel({ ...tl, label: projectLabel });
   }
 
-  async removeLabel(taskId: string, taskLabelId: string): Promise<{ id: string; success: true }> {
-    const tl = await this.taskLabelRepo.findOne({ where: { id: taskLabelId, taskId }, relations: ['label'] });
+  async removeLabel(
+    taskId: string,
+    taskLabelId: string,
+  ): Promise<{ id: string; success: true }> {
+    const tl = await this.taskLabelRepo.findOne({
+      where: { id: taskLabelId, taskId },
+      relations: ['label'],
+    });
     if (!tl) throw new NotFoundException(INVALID_TASK_LABEL);
     await this.taskLabelRepo.remove(tl);
     return { id: taskLabelId, success: true };

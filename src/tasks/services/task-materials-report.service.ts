@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import ExcelJS from 'exceljs';
 import { Brackets, Repository, SelectQueryBuilder } from 'typeorm';
+import type { RequestUser } from 'src/auth/types';
 import { FilterResponse } from 'src/common/interfaces';
 import { MaterialsReportFiltersDto } from '../dtos';
 import { TaskMaterial } from '../entities';
@@ -11,6 +12,7 @@ import {
   TaskMaterialReportRowSerializer,
   TaskMaterialReportSummaryRowSerializer,
 } from '../serializers';
+import { TaskAuthService } from './task-auth.service';
 
 type MaterialReportTotalRow = {
   level: MaterialReportSummaryLevel;
@@ -51,21 +53,27 @@ export class TaskMaterialsReportService {
   constructor(
     @InjectRepository(TaskMaterial)
     private readonly materialRepo: Repository<TaskMaterial>,
+    private readonly authSvc: TaskAuthService,
   ) {}
 
   async listProjectMaterialsReport(
     projectId: string,
     filters: MaterialsReportFiltersDto,
+    requestUser: RequestUser,
   ): Promise<MaterialReportResponse> {
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 100;
     const includeSummaryRows = filters.includeSummaryRows === true;
-    const qb = this.buildProjectReportQuery(projectId, filters);
+    const qb = await this.buildProjectReportQuery(
+      projectId,
+      filters,
+      requestUser,
+    );
 
     qb.skip((page - 1) * limit).take(limit);
 
     const [rows, count] = await qb.getManyAndCount();
-    const totals = await this.calculateTotals(projectId, filters);
+    const totals = await this.calculateTotals(projectId, filters, requestUser);
     const summaryRows = includeSummaryRows
       ? this.serializeSummaryRows([
           ...totals.byTask,
@@ -109,9 +117,12 @@ export class TaskMaterialsReportService {
   async exportProjectMaterialsReportWorkbook(
     projectId: string,
     filters: MaterialsReportFiltersDto,
+    requestUser: RequestUser,
   ): Promise<Buffer> {
-    const rows = await this.buildProjectReportQuery(projectId, filters).getMany();
-    const totals = await this.calculateTotals(projectId, filters);
+    const rows = await (
+      await this.buildProjectReportQuery(projectId, filters, requestUser)
+    ).getMany();
+    const totals = await this.calculateTotals(projectId, filters, requestUser);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Archkalinga';
     workbook.created = new Date();
@@ -191,15 +202,26 @@ export class TaskMaterialsReportService {
     return Buffer.from(buffer);
   }
 
-  buildProjectReportQuery(
+  async buildProjectReportQuery(
     projectId: string,
     filters: MaterialsReportFiltersDto,
-  ): SelectQueryBuilder<TaskMaterial> {
+    requestUser: RequestUser,
+  ): Promise<SelectQueryBuilder<TaskMaterial>> {
     const qb = this.materialRepo
       .createQueryBuilder('material')
       .innerJoin('material.task', 'task')
       .where('task.projectId = :projectId', { projectId })
       .andWhere('task.deletedAt IS NULL');
+
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
 
     if (filters.taskId) {
       qb.andWhere('material.taskId = :taskId', { taskId: filters.taskId });
@@ -278,8 +300,13 @@ export class TaskMaterialsReportService {
   private async calculateTotals(
     projectId: string,
     filters: MaterialsReportFiltersDto,
+    requestUser: RequestUser,
   ): Promise<MaterialReportTotals> {
-    const baseQb = this.buildProjectReportQuery(projectId, filters);
+    const baseQb = await this.buildProjectReportQuery(
+      projectId,
+      filters,
+      requestUser,
+    );
     const [
       grandRows,
       phaseRows,
@@ -316,7 +343,10 @@ export class TaskMaterialsReportService {
 
     totalQb
       .select('COALESCE(SUM(material.materialCost), 0)', 'totalMaterialCost')
-      .addSelect('COALESCE(MAX(material.currency), :defaultCurrency)', 'currency')
+      .addSelect(
+        'COALESCE(MAX(material.currency), :defaultCurrency)',
+        'currency',
+      )
       .setParameter('defaultCurrency', 'RWF')
       .orderBy();
 

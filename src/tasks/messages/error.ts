@@ -10,9 +10,9 @@ export const INVALID_TASK_PARENT =
 export const INVALID_TASK_ASSIGNEES =
   'All assignees must be active members of the project';
 export const INVALID_TASK_ASSIGNED_MEMBERS =
-  'Assigned members must be active project members and match their current project roles';
+  'Assigned users must be project members, or include projectRoleId when inviting non-members';
 export const INVALID_TASK_REPORTEE =
-  'Reportee must be an active project member and match the submitted project role';
+  'Reportee must be an active project member';
 export const INVALID_TASK_DEPENDENCY =
   'Dependencies must reference other active tasks in the same project without cycles';
 export const INVALID_TASK_MOVE_TARGET =

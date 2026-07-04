@@ -5,12 +5,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import {
+  EntityManager,
+  In,
+  IsNull,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
 import { Project, ProjectMembership } from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
 import type { ProjectPermissionAction } from 'src/projects/types/project-permission-matrix.type';
 import { User } from 'src/users/entities';
+import {
+  WorkspaceMember,
+  WorkspaceMemberStatus,
+} from 'src/workspaces/entities';
 import {
   Task,
   TaskActivitySchedule,
@@ -58,6 +68,8 @@ export class TaskAuthService {
     private readonly projectRepo: Repository<Project>,
     @InjectRepository(ProjectMembership)
     private readonly membershipRepo: Repository<ProjectMembership>,
+    @InjectRepository(WorkspaceMember)
+    private readonly workspaceMemberRepo: Repository<WorkspaceMember>,
     @InjectRepository(ProjectStatus)
     private readonly projectStatusRepo: Repository<ProjectStatus>,
     @InjectRepository(TaskComment)
@@ -172,6 +184,72 @@ export class TaskAuthService {
     );
   }
 
+  async canViewAllProjectTasks(
+    projectId: string,
+    requestUser: RequestUser,
+    project?: Project | null,
+  ): Promise<boolean> {
+    const resolvedProject =
+      project ??
+      (await this.projectRepo.findOne({
+        where: { id: projectId },
+        select: ['id', 'workspaceId', 'createdByUserId'],
+      }));
+
+    if (!resolvedProject) throw new NotFoundException(TASK_PROJECT_NOT_FOUND);
+    if (resolvedProject.createdByUserId === requestUser.id) return true;
+
+    const workspaceMember = await this.workspaceMemberRepo.findOne({
+      where: {
+        workspaceId: resolvedProject.workspaceId,
+        userId: requestUser.id,
+        status: WorkspaceMemberStatus.ACTIVE,
+      },
+      relations: ['workspaceRole'],
+    });
+
+    return (
+      workspaceMember?.workspaceRole?.status === true &&
+      workspaceMember.workspaceRole.slug === 'admin'
+    );
+  }
+
+  async canViewTask(
+    task: Pick<
+      Task,
+      'id' | 'projectId' | 'createdByUserId' | 'reporteeUserId' | 'assignees'
+    >,
+    requestUser: RequestUser,
+    project?: Project | null,
+  ): Promise<boolean> {
+    if (task.createdByUserId === requestUser.id) return true;
+    if ((task.assignees ?? []).some((a) => a.userId === requestUser.id))
+      return true;
+    if (task.reporteeUserId === requestUser.id) return true;
+
+    return this.canViewAllProjectTasks(task.projectId, requestUser, project);
+  }
+
+  applyTaskVisibilityScope(
+    qb: SelectQueryBuilder<any>,
+    requestUser: RequestUser,
+    canViewAllProjectTasks: boolean,
+  ): void {
+    if (canViewAllProjectTasks) return;
+
+    qb.andWhere(
+      `(task.createdByUserId = :visibilityUserId
+        OR task.reporteeUserId = :visibilityUserId
+        OR EXISTS (
+          SELECT 1
+          FROM "task_assignees" "ta_visibility"
+          WHERE "ta_visibility"."taskId" = task.id
+            AND "ta_visibility"."userId" = :visibilityUserId
+        ))`,
+      { visibilityUserId: requestUser.id },
+    );
+  }
+
   async verifyProjectPermission(
     projectId: string,
     requestUser: RequestUser,
@@ -179,7 +257,10 @@ export class TaskAuthService {
   ): Promise<{ project: Project; membership: ProjectMembership | null }> {
     // Load project and membership in parallel — both are independent queries
     const [project, membership] = await Promise.all([
-      this.projectRepo.findOne({ where: { id: projectId } }),
+      this.projectRepo.findOne({
+        where: { id: projectId },
+        select: ['id', 'workspaceId', 'createdByUserId'],
+      }),
       this.membershipRepo.findOne({
         where: {
           projectId,
@@ -207,23 +288,14 @@ export class TaskAuthService {
   ): Promise<Task> {
     const task = await this.taskRepo.findOne({
       where: { id: taskId, projectId, deletedAt: IsNull() },
-      relations: ['project', 'assignees'],
+      relations: ['assignees'],
     });
 
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
 
     if (opts?.requestUser && opts?.membership !== undefined) {
-      const viewScope =
-        (opts.membership?.projectRole?.permissions?.taskManagement as any)
-          ?.viewScope ?? 'all';
-      if (viewScope === 'assigned') {
-        const isAssignee = (task.assignees ?? []).some(
-          (a) => a.userId === opts.requestUser!.id,
-        );
-        const isReportee = task.reporteeUserId === opts.requestUser!.id;
-        if (!isAssignee && !isReportee)
-          throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
-      }
+      const canView = await this.canViewTask(task, opts.requestUser);
+      if (!canView) throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
     }
 
     return task;
