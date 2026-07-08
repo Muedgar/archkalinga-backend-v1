@@ -17,6 +17,7 @@ import {
 } from '../project-config';
 import { TaskAssignee } from './task-assignee.entity';
 import { TaskActivitySchedule } from './task-activity-schedule.entity';
+import { ChangeRequest } from './change-request.entity';
 import { TaskChecklist } from './task-checklist.entity';
 import { TaskChecklistItem } from './task-checklist-item.entity';
 import { TaskComment } from './task-comment.entity';
@@ -208,6 +209,9 @@ export class Task extends AppBaseEntity {
 
   @OneToMany(() => TaskDocument, (document) => document.task)
   documents: TaskDocument[];
+
+  @OneToMany(() => ChangeRequest, (changeRequest) => changeRequest.task)
+  changeRequests: ChangeRequest[];
 
   @OneToMany(() => TaskViewMetadata, (metadata) => metadata.task)
   viewMetadataEntries: TaskViewMetadata[];

@@ -27,6 +27,27 @@ export const TASK_MATERIAL_NOT_FOUND = 'Task material not found';
 export const TASK_DOCUMENT_NOT_FOUND = 'Task document not found';
 export const TASK_DOCUMENT_ATTACHMENT_NOT_FOUND =
   'Task document attachment not found';
+export const TASK_CHANGE_REQUEST_NOT_FOUND = 'Task change request not found';
+export const TASK_CHANGE_REQUEST_THREAD_NOT_FOUND =
+  'Task change request thread not found';
+export const TASK_CHANGE_REQUEST_ATTACHMENT_NOT_FOUND =
+  'Task change request attachment not found';
+export const INVALID_CHANGE_REQUEST_CREATE_ACTOR =
+  'Only the task assignee or reportee can create a change request';
+export const INVALID_CHANGE_REQUEST_MESSAGE_EMPTY =
+  'A change request message must include text or an attachment';
+export const INVALID_CHANGE_REQUEST_ESCALATION_ACTOR =
+  'Only the task assignee or reportee can escalate a change request';
+export const INVALID_CHANGE_REQUEST_ESCALATION_ROOT_TASK =
+  'A root task change request cannot be escalated';
+export const INVALID_CHANGE_REQUEST_ESCALATION_PARENT_REPORTEE =
+  'The parent task must have a reportee before this change request can be escalated';
+export const INVALID_CHANGE_REQUEST_RESOLUTION_ACTOR =
+  'Only the task reportee can resolve a change request';
+export const INVALID_CHANGE_REQUEST_ALREADY_RESOLVED =
+  'This change request is already resolved';
+export const TASK_CHANGE_REQUEST_ACCESS_DENIED =
+  'You do not have access to this change request thread';
 export const INVALID_TASK_DOCUMENT_ATTACHMENTS =
   'A task document can only have one active attachment';
 export const INVALID_TASK_DOCUMENT_FILE_REQUIRED =

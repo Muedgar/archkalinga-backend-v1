@@ -43,6 +43,9 @@ import {
   ActivityScheduleImportDto,
   ActivityScheduleImportMode,
   BulkUpdateTasksDto,
+  ChangeRequestFiltersDto,
+  CreateChangeRequestDto,
+  CreateChangeRequestMessageDto,
   CreateStarterFromDeliverableDto,
   CreateTaskDocumentDto,
   CreateTaskMaterialDto,
@@ -58,6 +61,8 @@ import {
   ResourceReportFiltersDto,
   ResourceReportImportDto,
   ResourceReportImportMode,
+  EscalateChangeRequestDto,
+  ResolveChangeRequestDto,
   TaskDocumentFiltersDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
@@ -127,6 +132,13 @@ import {
   TASK_DOCUMENT_FETCHED,
   TASK_DOCUMENTS_FETCHED,
   TASK_DOCUMENT_UPDATED,
+  TASK_CHANGE_REQUEST_ATTACHMENT_DOWNLOAD_URL_FETCHED,
+  TASK_CHANGE_REQUEST_CREATED,
+  TASK_CHANGE_REQUEST_ESCALATED,
+  TASK_CHANGE_REQUEST_FETCHED,
+  TASK_CHANGE_REQUEST_MESSAGE_CREATED,
+  TASK_CHANGE_REQUEST_RESOLVED,
+  TASK_CHANGE_REQUESTS_FETCHED,
   TASK_STARTER_DOCUMENT_CREATED_FROM_DELIVERABLE,
   TASK_RELATION_ADDED,
   TASK_RELATION_DELETED,
@@ -1181,6 +1193,288 @@ export class TasksController {
       taskId,
       materialId,
       user,
+    );
+  }
+
+  @Get('tasks/:taskId/change-requests')
+  @ApiOperation({ summary: 'List task change requests' })
+  @ApiResponse({ status: 200, description: 'Task change requests fetched' })
+  @ResponseMessage(TASK_CHANGE_REQUESTS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
+  listTaskChangeRequests(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() filters: ChangeRequestFiltersDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.listTaskChangeRequests(
+      projectId,
+      taskId,
+      filters,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/change-requests/:changeRequestId')
+  @ApiOperation({ summary: 'Get task change request' })
+  @ApiResponse({ status: 200, description: 'Task change request fetched' })
+  @ResponseMessage(TASK_CHANGE_REQUEST_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
+  getTaskChangeRequest(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('changeRequestId', ParseUUIDPipe) changeRequestId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskChangeRequest(
+      projectId,
+      taskId,
+      changeRequestId,
+      user,
+    );
+  }
+
+  @Get(
+    'tasks/:taskId/change-requests/:changeRequestId/messages/:messageId/attachments/:attachmentId/download-url',
+  )
+  @ApiOperation({
+    summary: 'Get task change request attachment download URL',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Task change request attachment download URL fetched',
+  })
+  @ResponseMessage(TASK_CHANGE_REQUEST_ATTACHMENT_DOWNLOAD_URL_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
+  getTaskChangeRequestAttachmentDownloadUrl(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('changeRequestId', ParseUUIDPipe) changeRequestId: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskChangeRequestAttachmentDownloadUrl(
+      projectId,
+      taskId,
+      changeRequestId,
+      messageId,
+      attachmentId,
+      user,
+    );
+  }
+
+  @Post('tasks/:taskId/change-requests')
+  @ApiOperation({ summary: 'Create task change request' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['title'],
+      properties: {
+        title: {
+          type: 'string',
+          example: 'Revise window schedule for level 2',
+        },
+        description: {
+          type: 'string',
+          nullable: true,
+          example:
+            'The client requested a different window specification after site review.',
+        },
+        message: {
+          type: 'string',
+          nullable: true,
+          example:
+            'Please review this change before I proceed with the updated drawings.',
+        },
+        attachmentNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Client markups from the site meeting.',
+        },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Task change request created' })
+  @ResponseMessage(TASK_CHANGE_REQUEST_CREATED)
+  @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'create')
+  @LogActivity({
+    action: 'create:task-change-request',
+    resource: 'task-change-request',
+    includeBody: true,
+  })
+  createTaskChangeRequest(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateChangeRequestDto,
+    @UploadedFile() file: UploadableFile,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.createTaskChangeRequest(
+      projectId,
+      taskId,
+      dto,
+      user,
+      file,
+    );
+  }
+
+  @Post('tasks/:taskId/change-requests/:changeRequestId/messages')
+  @ApiOperation({ summary: 'Add task change request message' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        body: {
+          type: 'string',
+          nullable: true,
+          example: 'I have attached the latest marked-up drawing for review.',
+        },
+        attachmentNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Updated markup shared by the consultant.',
+        },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Task change request message added',
+  })
+  @ResponseMessage(TASK_CHANGE_REQUEST_MESSAGE_CREATED)
+  @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
+  @LogActivity({
+    action: 'create:task-change-request-message',
+    resource: 'task-change-request-message',
+    includeBody: true,
+  })
+  addTaskChangeRequestMessage(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('changeRequestId', ParseUUIDPipe) changeRequestId: string,
+    @Body() dto: CreateChangeRequestMessageDto,
+    @UploadedFile() file: UploadableFile,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.addTaskChangeRequestMessage(
+      projectId,
+      taskId,
+      changeRequestId,
+      dto,
+      user,
+      file,
+    );
+  }
+
+  @Post('tasks/:taskId/change-requests/:changeRequestId/escalate')
+  @ApiOperation({ summary: 'Escalate task change request' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['message'],
+      properties: {
+        message: {
+          type: 'string',
+          example:
+            'This change affects the parent task scope and needs higher-level review.',
+        },
+        attachmentNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Supporting cost/scope note for escalation.',
+        },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Task change request escalated' })
+  @ResponseMessage(TASK_CHANGE_REQUEST_ESCALATED)
+  @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'update')
+  @LogActivity({
+    action: 'escalate:task-change-request',
+    resource: 'task-change-request',
+    includeBody: true,
+  })
+  escalateTaskChangeRequest(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('changeRequestId', ParseUUIDPipe) changeRequestId: string,
+    @Body() dto: EscalateChangeRequestDto,
+    @UploadedFile() file: UploadableFile,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.escalateTaskChangeRequest(
+      projectId,
+      taskId,
+      changeRequestId,
+      dto,
+      user,
+      file,
+    );
+  }
+
+  @Post('tasks/:taskId/change-requests/:changeRequestId/resolve')
+  @ApiOperation({ summary: 'Resolve task change request' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['resolution'],
+      properties: {
+        resolution: {
+          type: 'string',
+          example:
+            'Approved. Proceed with the revised specification and update the deliverable.',
+        },
+        attachmentNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Final approval note.',
+        },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Task change request resolved' })
+  @ResponseMessage(TASK_CHANGE_REQUEST_RESOLVED)
+  @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'update')
+  @LogActivity({
+    action: 'resolve:task-change-request',
+    resource: 'task-change-request',
+    includeBody: true,
+  })
+  resolveTaskChangeRequest(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('changeRequestId', ParseUUIDPipe) changeRequestId: string,
+    @Body() dto: ResolveChangeRequestDto,
+    @UploadedFile() file: UploadableFile,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.resolveTaskChangeRequest(
+      projectId,
+      taskId,
+      changeRequestId,
+      dto,
+      user,
+      file,
     );
   }
 
