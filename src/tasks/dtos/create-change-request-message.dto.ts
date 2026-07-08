@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsOptional, IsString, Length } from 'class-validator';
+import { IsOptional, IsString, Length, ValidateIf } from 'class-validator';
 
 export class CreateChangeRequestMessageDto {
   @ApiPropertyOptional({
@@ -19,6 +19,7 @@ export class CreateChangeRequestMessageDto {
     nullable: true,
   })
   @IsOptional()
+  @ValidateIf((_, value) => value !== '')
   @IsString()
   @Length(1, 2000)
   @Type(() => String)

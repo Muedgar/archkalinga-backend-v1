@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsOptional, IsString, Length } from 'class-validator';
+import { IsOptional, IsString, Length, ValidateIf } from 'class-validator';
 
 export class CreateChangeRequestDto {
   @ApiProperty({ example: 'Revise window schedule for level 2' })
@@ -37,6 +37,7 @@ export class CreateChangeRequestDto {
     nullable: true,
   })
   @IsOptional()
+  @ValidateIf((_, value) => value !== '')
   @IsString()
   @Length(1, 2000)
   @Type(() => String)

@@ -426,7 +426,7 @@ export class TaskAuthService {
   ): Promise<Task> {
     const task = await this.taskRepo.findOne({
       where: { id: taskId, projectId, deletedAt: IsNull() },
-      relations: ['assignees'],
+      relations: ['assignees', 'project'],
     });
 
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);

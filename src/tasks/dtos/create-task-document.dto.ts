@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   Length,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { TaskDocumentType } from '../entities';
@@ -50,6 +51,7 @@ export class CreateTaskDocumentDto {
     nullable: true,
   })
   @IsOptional()
+  @ValidateIf((_, value) => value !== '')
   @IsString()
   @Length(1, 2000)
   @Type(() => String)

@@ -47,6 +47,10 @@ import {
 import { TaskActivityService } from './task-activity.service';
 import { TaskAuthService } from './task-auth.service';
 
+// TEMP: testing-only bypass requested while validating the change request UI.
+// Restore to false before shipping.
+const CHANGE_REQUEST_TESTING_BYPASS_PERMISSIONS = true;
+
 @Injectable()
 export class TaskChangeRequestsService {
   constructor(
@@ -125,11 +129,13 @@ export class TaskChangeRequestsService {
       );
     }
 
-    this.authSvc.applyChangeRequestVisibilityScope(
-      qb,
-      requestUser,
-      canViewAllProjectTasks,
-    );
+    if (!CHANGE_REQUEST_TESTING_BYPASS_PERMISSIONS) {
+      this.authSvc.applyChangeRequestVisibilityScope(
+        qb,
+        requestUser,
+        canViewAllProjectTasks,
+      );
+    }
 
     qb.orderBy('changeRequest.updatedAt', 'DESC');
 
@@ -182,7 +188,9 @@ export class TaskChangeRequestsService {
     dto: CreateChangeRequestDto,
     file?: UploadableFile,
   ): Promise<ChangeRequestSerializer> {
-    this.authSvc.ensureChangeRequestTaskParticipant(task, actorUser);
+    if (!CHANGE_REQUEST_TESTING_BYPASS_PERMISSIONS) {
+      this.authSvc.ensureChangeRequestTaskParticipant(task, actorUser);
+    }
     this.assertMessageContent(dto.message, file);
 
     const uploadedAttachment = file
@@ -316,7 +324,10 @@ export class TaskChangeRequestsService {
     dto: EscalateChangeRequestDto,
     file?: UploadableFile,
   ): Promise<ChangeRequestSerializer> {
-    if (!this.authSvc.canEscalateChangeRequest(task, actorUser)) {
+    if (
+      !CHANGE_REQUEST_TESTING_BYPASS_PERMISSIONS &&
+      !this.authSvc.canEscalateChangeRequest(task, actorUser)
+    ) {
       throw new ForbiddenException(INVALID_CHANGE_REQUEST_ESCALATION_ACTOR);
     }
 
@@ -385,7 +396,10 @@ export class TaskChangeRequestsService {
     dto: ResolveChangeRequestDto,
     file?: UploadableFile,
   ): Promise<ChangeRequestSerializer> {
-    if (!this.authSvc.canResolveChangeRequest(task, actorUser)) {
+    if (
+      !CHANGE_REQUEST_TESTING_BYPASS_PERMISSIONS &&
+      !this.authSvc.canResolveChangeRequest(task, actorUser)
+    ) {
       throw new ForbiddenException(INVALID_CHANGE_REQUEST_RESOLUTION_ACTOR);
     }
 
@@ -596,6 +610,7 @@ export class TaskChangeRequestsService {
     requestUser: User,
     canViewAllProjectTasks = false,
   ): void {
+    if (CHANGE_REQUEST_TESTING_BYPASS_PERMISSIONS) return;
     if (canViewAllProjectTasks) return;
 
     const accessTask = changeRequest.task ?? task;

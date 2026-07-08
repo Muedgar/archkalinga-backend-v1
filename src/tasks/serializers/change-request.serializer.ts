@@ -8,6 +8,17 @@ class ChangeRequestUserRelationSerializer extends BaseSerializer {
   @Expose() userName: string | null;
   @Expose() email: string;
   @Expose() title: string | null;
+
+  @Expose()
+  @Transform(({ obj }) => {
+    const fullName = [obj?.firstName, obj?.lastName]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    return fullName || obj?.userName || obj?.email || null;
+  })
+  displayName: string | null;
 }
 
 class ChangeRequestTaskRelationSerializer extends BaseSerializer {
@@ -71,9 +82,28 @@ export class ChangeRequestMessageSerializer extends BaseSerializer {
   authorId: string | null;
 
   @Expose()
+  @Transform(({ obj }) => obj?.authorUserId ?? obj?.authorUser?.id ?? null)
+  createdById: string | null;
+
+  @Expose()
   @Transform(({ obj }) => obj?.authorUser ?? null)
   @Type(() => ChangeRequestUserRelationSerializer)
   author: ChangeRequestUserRelationSerializer | null;
+
+  @Expose()
+  @Transform(({ obj }) => obj?.authorUser ?? null)
+  @Type(() => ChangeRequestUserRelationSerializer)
+  createdBy: ChangeRequestUserRelationSerializer | null;
+
+  @Expose()
+  @Transform(({ obj }) => obj?.authorUser ?? null)
+  @Type(() => ChangeRequestUserRelationSerializer)
+  createdByUser: ChangeRequestUserRelationSerializer | null;
+
+  @Expose()
+  @Transform(({ obj }) => obj?.authorUser ?? null)
+  @Type(() => ChangeRequestUserRelationSerializer)
+  authorUser: ChangeRequestUserRelationSerializer | null;
 
   @Expose()
   @Type(() => ChangeRequestAttachmentSerializer)
