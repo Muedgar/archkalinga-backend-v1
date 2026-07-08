@@ -21,6 +21,10 @@ import {
   ProjectTaskType,
 } from './project-config';
 import {
+  ChangeRequest,
+  ChangeRequestMessageAttachment,
+  ChangeRequestThread,
+  ChangeRequestThreadMessage,
   ProjectCalendar,
   ProjectCalendarException,
   Task,
@@ -55,6 +59,7 @@ import {
   TaskActivityService,
   TaskAuthService,
   TaskChecklistService,
+  TaskChangeRequestsService,
   TaskCommentsService,
   TaskCrudService,
   TaskDocumentsService,
@@ -80,6 +85,7 @@ const SUB_SERVICES = [
   TaskActivityScheduleService,
   TaskActivityService,
   TaskRankingService,
+  TaskChangeRequestsService,
   TaskCommentsService,
   TaskChecklistService,
   TaskRelationsService,
@@ -98,6 +104,10 @@ const SUB_SERVICES = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      ChangeRequest,
+      ChangeRequestThread,
+      ChangeRequestThreadMessage,
+      ChangeRequestMessageAttachment,
       ProjectCalendar,
       ProjectCalendarException,
       Task,

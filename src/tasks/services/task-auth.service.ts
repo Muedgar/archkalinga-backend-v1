@@ -16,12 +16,14 @@ import type { RequestUser } from 'src/auth/types';
 import { Project, ProjectMembership } from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
 import type { ProjectPermissionAction } from 'src/projects/types/project-permission-matrix.type';
+import type { ProjectPermissionDomain } from 'src/projects/types/project-permission-matrix.type';
 import { User } from 'src/users/entities';
 import {
   WorkspaceMember,
   WorkspaceMemberStatus,
 } from 'src/workspaces/entities';
 import {
+  ChangeRequest,
   Task,
   TaskActivitySchedule,
   TaskAssignee,
@@ -33,6 +35,9 @@ import {
 } from '../entities';
 import { ProjectStatus } from '../project-config';
 import {
+  INVALID_CHANGE_REQUEST_ESCALATION_PARENT_REPORTEE,
+  INVALID_CHANGE_REQUEST_ESCALATION_ROOT_TASK,
+  TASK_CHANGE_REQUEST_ACCESS_DENIED,
   INVALID_TASK_DATE_RANGE,
   INVALID_TASK_INCLUDE,
   INVALID_TASK_PARENT,
@@ -58,6 +63,16 @@ export const TASK_INCLUDE_KEYS = new Set([
   'activitySchedule',
 ]);
 export const MAX_TASK_LIST_INCLUDES = 6;
+
+type ChangeRequestTaskAccess = Pick<
+  Task,
+  'id' | 'projectId' | 'parentTaskId' | 'reporteeUserId' | 'assignees'
+>;
+
+type ChangeRequestAccess = Pick<
+  ChangeRequest,
+  'createdByUserId' | 'escalatedToUserId'
+>;
 
 @Injectable()
 export class TaskAuthService {
@@ -176,11 +191,12 @@ export class TaskAuthService {
   membershipHasTaskPermission(
     membership: ProjectMembership | null | undefined,
     action: ProjectPermissionAction,
+    domain: ProjectPermissionDomain = 'taskManagement',
   ): boolean {
     return (
       membership?.status === MembershipStatus.ACTIVE &&
       membership.projectRole?.status === true &&
-      membership.projectRole.permissions?.taskManagement?.[action] === true
+      membership.projectRole.permissions?.[domain]?.[action] === true
     );
   }
 
@@ -193,7 +209,7 @@ export class TaskAuthService {
       project ??
       (await this.projectRepo.findOne({
         where: { id: projectId },
-        select: ['id', 'workspaceId', 'createdByUserId'],
+        select: ['pkid', 'id', 'workspaceId', 'createdByUserId'],
       }));
 
     if (!resolvedProject) throw new NotFoundException(TASK_PROJECT_NOT_FOUND);
@@ -230,6 +246,100 @@ export class TaskAuthService {
     return this.canViewAllProjectTasks(task.projectId, requestUser, project);
   }
 
+  private isTaskAssignee(
+    task: Pick<Task, 'assignees'>,
+    userId: string,
+  ): boolean {
+    return (task.assignees ?? []).some(
+      (assignee) => assignee.userId === userId,
+    );
+  }
+
+  private isTaskReportee(
+    task: Pick<Task, 'reporteeUserId'>,
+    userId: string,
+  ): boolean {
+    return task.reporteeUserId === userId;
+  }
+
+  canCreateChangeRequest(
+    task: ChangeRequestTaskAccess,
+    requestUser: RequestUser,
+  ): boolean {
+    return (
+      this.isTaskAssignee(task, requestUser.id) ||
+      this.isTaskReportee(task, requestUser.id)
+    );
+  }
+
+  canEscalateChangeRequest(
+    task: ChangeRequestTaskAccess,
+    requestUser: RequestUser,
+  ): boolean {
+    return this.canCreateChangeRequest(task, requestUser);
+  }
+
+  canResolveChangeRequest(
+    task: ChangeRequestTaskAccess,
+    requestUser: RequestUser,
+  ): boolean {
+    return this.isTaskReportee(task, requestUser.id);
+  }
+
+  canAccessChangeRequest(
+    changeRequest: ChangeRequestAccess,
+    task: ChangeRequestTaskAccess,
+    requestUser: RequestUser,
+  ): boolean {
+    return (
+      changeRequest.createdByUserId === requestUser.id ||
+      changeRequest.escalatedToUserId === requestUser.id ||
+      this.isTaskAssignee(task, requestUser.id) ||
+      this.isTaskReportee(task, requestUser.id)
+    );
+  }
+
+  ensureChangeRequestTaskParticipant(
+    task: ChangeRequestTaskAccess,
+    requestUser: RequestUser,
+  ): void {
+    if (!this.canCreateChangeRequest(task, requestUser)) {
+      throw new ForbiddenException(TASK_CHANGE_REQUEST_ACCESS_DENIED);
+    }
+  }
+
+  async ensureParentTaskReportee(task: ChangeRequestTaskAccess): Promise<Task> {
+    if (!task.parentTaskId) {
+      throw new BadRequestException(
+        INVALID_CHANGE_REQUEST_ESCALATION_ROOT_TASK,
+      );
+    }
+
+    const parentTask = await this.taskRepo.findOne({
+      where: {
+        id: task.parentTaskId,
+        projectId: task.projectId,
+        deletedAt: IsNull(),
+      },
+      select: [
+        'pkid',
+        'id',
+        'projectId',
+        'parentTaskId',
+        'createdByUserId',
+        'reporteeUserId',
+      ],
+    });
+
+    if (!parentTask?.reporteeUserId) {
+      throw new BadRequestException(
+        INVALID_CHANGE_REQUEST_ESCALATION_PARENT_REPORTEE,
+      );
+    }
+
+    return parentTask;
+  }
+
   applyTaskVisibilityScope(
     qb: SelectQueryBuilder<any>,
     requestUser: RequestUser,
@@ -250,16 +360,44 @@ export class TaskAuthService {
     );
   }
 
+  applyChangeRequestVisibilityScope(
+    qb: SelectQueryBuilder<any>,
+    requestUser: RequestUser,
+    canViewAllProjectTasks: boolean,
+    alias = 'changeRequest',
+  ): void {
+    if (canViewAllProjectTasks) return;
+
+    qb.andWhere(
+      `("${alias}"."created_by_user_id" = :visibilityUserId
+        OR "${alias}"."escalated_to_user_id" = :visibilityUserId
+        OR EXISTS (
+          SELECT 1
+          FROM "tasks" "task_visibility"
+          WHERE "task_visibility"."id" = "${alias}"."task_id"
+            AND "task_visibility"."reporteeUserId" = :visibilityUserId
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM "task_assignees" "ta_change_request_visibility"
+          WHERE "ta_change_request_visibility"."taskId" = "${alias}"."task_id"
+            AND "ta_change_request_visibility"."userId" = :visibilityUserId
+        ))`,
+      { visibilityUserId: requestUser.id },
+    );
+  }
+
   async verifyProjectPermission(
     projectId: string,
     requestUser: RequestUser,
     action: ProjectPermissionAction,
+    domain: ProjectPermissionDomain = 'taskManagement',
   ): Promise<{ project: Project; membership: ProjectMembership | null }> {
     // Load project and membership in parallel — both are independent queries
     const [project, membership] = await Promise.all([
       this.projectRepo.findOne({
         where: { id: projectId },
-        select: ['id', 'workspaceId', 'createdByUserId'],
+        select: ['pkid', 'id', 'workspaceId', 'createdByUserId'],
       }),
       this.membershipRepo.findOne({
         where: {
@@ -274,7 +412,7 @@ export class TaskAuthService {
     if (!project) throw new NotFoundException(TASK_PROJECT_NOT_FOUND);
     if (this.isAdmin(requestUser)) return { project, membership: null };
 
-    if (!this.membershipHasTaskPermission(membership, action)) {
+    if (!this.membershipHasTaskPermission(membership, action, domain)) {
       throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
     }
 

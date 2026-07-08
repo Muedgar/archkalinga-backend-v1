@@ -103,6 +103,28 @@ export class TaskMembersService {
     return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   }
 
+  private async notifyAssignmentInvite(params: {
+    invite: ProjectInvite;
+    projectId: string;
+    projectRole: ProjectRole;
+    inviteeUser: User;
+    actorUser: User;
+  }): Promise<void> {
+    const { invite, projectId, projectRole, inviteeUser, actorUser } = params;
+    await this.notificationsService.createNotification({
+      userId: inviteeUser.id,
+      type: NotificationType.INVITE_RECEIVED,
+      title: `You've been invited to join a project`,
+      body: `${actorUser.firstName} ${actorUser.lastName} assigned you to a task and invited you to join the project as ${projectRole.name}.`,
+      meta: {
+        inviteId: invite.id,
+        projectId,
+        projectRoleId: projectRole.id,
+        projectRoleName: projectRole.name,
+      },
+    });
+  }
+
   // ── Member validation ─────────────────────────────────────────────────────
 
   async ensureAssigneeUsers(
@@ -216,7 +238,7 @@ export class TaskMembersService {
       if (!role) throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
 
       if (!existingPendingInvite) {
-        await tx.save(
+        const invite = await tx.save(
           tx.create(ProjectInvite, {
             project,
             projectId,
@@ -239,10 +261,23 @@ export class TaskMembersService {
             userId: user.id,
             type: NotificationType.INVITE_RECEIVED,
             title: `You've been invited to join a project`,
-            body: `${actorUser.firstName} ${actorUser.lastName} assigned you to a task and invited you to join the project.`,
-            meta: { projectId, projectRoleId: role.id },
+            body: `${actorUser.firstName} ${actorUser.lastName} assigned you to a task and invited you to join the project as ${role.name}.`,
+            meta: {
+              inviteId: invite.id,
+              projectId,
+              projectRoleId: role.id,
+              projectRoleName: role.name,
+            },
           })
           .catch(() => void 0);
+      } else {
+        void this.notifyAssignmentInvite({
+          invite: existingPendingInvite,
+          projectId,
+          projectRole: role,
+          inviteeUser: user,
+          actorUser,
+        }).catch(() => void 0);
       }
 
       result.push({ user, userId: user.id, projectRoleId: role.id });

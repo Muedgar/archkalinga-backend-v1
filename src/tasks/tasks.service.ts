@@ -36,6 +36,8 @@ import {
   ActivityScheduleImportDto,
   BulkUpdateTasksDto,
   CreateStarterFromDeliverableDto,
+  CreateChangeRequestDto,
+  CreateChangeRequestMessageDto,
   CreateTaskMaterialDto,
   CreateTaskDocumentDto,
   CreateTaskResourceAllocationDto,
@@ -49,6 +51,7 @@ import {
   ResourceReportFiltersDto,
   ResourceReportImportDto,
   TaskDocumentFiltersDto,
+  ChangeRequestFiltersDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
   UpdateTaskDocumentDto,
@@ -62,6 +65,8 @@ import {
   UpdateDependencyDto,
   UpsertProjectCalendarDto,
   UpdateTaskDto,
+  EscalateChangeRequestDto,
+  ResolveChangeRequestDto,
 } from './dtos';
 import { Task } from './entities';
 import { TaskDocumentSerializer } from './serializers';
@@ -76,6 +81,7 @@ import {
   TaskActivityService,
   TaskAuthService,
   TaskChecklistService,
+  TaskChangeRequestsService,
   TaskCommentsService,
   TaskCrudService,
   TaskDocumentsService,
@@ -109,6 +115,7 @@ export class TasksService {
     private readonly activitySvc: TaskActivityService,
     private readonly rankingSvc: TaskRankingService,
     private readonly commentsSvc: TaskCommentsService,
+    private readonly changeRequestsSvc: TaskChangeRequestsService,
     private readonly checklistSvc: TaskChecklistService,
     private readonly relationsSvc: TaskRelationsService,
     private readonly membersSvc: TaskMembersService,
@@ -935,6 +942,221 @@ export class TasksService {
 
   private actor(requestUser: RequestUser) {
     return this.userRepo.findOneOrFail({ where: { id: requestUser.id } });
+  }
+
+  // ── Change requests ──────────────────────────────────────────────────────
+
+  async listTaskChangeRequests(
+    projectId: string,
+    taskId: string,
+    filters: ChangeRequestFiltersDto,
+    requestUser: RequestUser,
+  ) {
+    const { project, membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+      'changeRequestManagement',
+    );
+    const [task, actorUser, canViewAllProjectTasks] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+      this.authSvc.canViewAllProjectTasks(projectId, requestUser, project),
+    ]);
+
+    return this.changeRequestsSvc.listTaskChangeRequests(
+      task,
+      filters,
+      actorUser,
+      canViewAllProjectTasks,
+    );
+  }
+
+  async getTaskChangeRequest(
+    projectId: string,
+    taskId: string,
+    changeRequestId: string,
+    requestUser: RequestUser,
+  ) {
+    const { project, membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+      'changeRequestManagement',
+    );
+    const [task, actorUser, canViewAllProjectTasks] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+      this.authSvc.canViewAllProjectTasks(projectId, requestUser, project),
+    ]);
+
+    return this.changeRequestsSvc.getTaskChangeRequest(
+      task,
+      changeRequestId,
+      actorUser,
+      canViewAllProjectTasks,
+    );
+  }
+
+  async createTaskChangeRequest(
+    projectId: string,
+    taskId: string,
+    dto: CreateChangeRequestDto,
+    requestUser: RequestUser,
+    file?: UploadableFile,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'create',
+      'changeRequestManagement',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+
+    return this.changeRequestsSvc.createTaskChangeRequest(
+      task,
+      actorUser,
+      dto,
+      file,
+    );
+  }
+
+  async addTaskChangeRequestMessage(
+    projectId: string,
+    taskId: string,
+    changeRequestId: string,
+    dto: CreateChangeRequestMessageDto,
+    requestUser: RequestUser,
+    file?: UploadableFile,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+      'changeRequestManagement',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+
+    return this.changeRequestsSvc.addTaskChangeRequestMessage(
+      task,
+      changeRequestId,
+      actorUser,
+      dto,
+      file,
+    );
+  }
+
+  async escalateTaskChangeRequest(
+    projectId: string,
+    taskId: string,
+    changeRequestId: string,
+    dto: EscalateChangeRequestDto,
+    requestUser: RequestUser,
+    file?: UploadableFile,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+      'changeRequestManagement',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+
+    return this.changeRequestsSvc.escalateTaskChangeRequest(
+      task,
+      changeRequestId,
+      actorUser,
+      dto,
+      file,
+    );
+  }
+
+  async resolveTaskChangeRequest(
+    projectId: string,
+    taskId: string,
+    changeRequestId: string,
+    dto: ResolveChangeRequestDto,
+    requestUser: RequestUser,
+    file?: UploadableFile,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+      'changeRequestManagement',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+
+    return this.changeRequestsSvc.resolveTaskChangeRequest(
+      task,
+      changeRequestId,
+      actorUser,
+      dto,
+      file,
+    );
+  }
+
+  async getTaskChangeRequestAttachmentDownloadUrl(
+    projectId: string,
+    taskId: string,
+    changeRequestId: string,
+    messageId: string,
+    attachmentId: string,
+    requestUser: RequestUser,
+  ) {
+    const { project, membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+      'changeRequestManagement',
+    );
+    const [task, actorUser, canViewAllProjectTasks] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+      this.authSvc.canViewAllProjectTasks(projectId, requestUser, project),
+    ]);
+
+    return this.changeRequestsSvc.getTaskChangeRequestAttachmentDownloadUrl(
+      task,
+      changeRequestId,
+      messageId,
+      attachmentId,
+      actorUser,
+      canViewAllProjectTasks,
+    );
   }
 
   // ── Comments ──────────────────────────────────────────────────────────────

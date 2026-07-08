@@ -10,6 +10,7 @@ export { TaskAuthService } from './task-auth.service';
 export { TaskChecklistService } from './task-checklist.service';
 export { TaskCommentsService } from './task-comments.service';
 export { TaskCrudService } from './task-crud.service';
+export { TaskChangeRequestsService } from './task-change-requests.service';
 export { TaskDocumentsService } from './task-documents.service';
 export { TaskMembersService } from './task-members.service';
 export { TaskMaterialsReportImportService } from './task-materials-report-import.service';

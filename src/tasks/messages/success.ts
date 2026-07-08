@@ -69,6 +69,20 @@ export const TASK_STARTER_DOCUMENT_CREATED_FROM_DELIVERABLE =
   'Starter document created from deliverable successfully';
 export const TASK_DOCUMENT_UPDATED = 'Task document updated successfully';
 export const TASK_DOCUMENT_DELETED = 'Task document deleted successfully';
+export const TASK_CHANGE_REQUESTS_FETCHED =
+  'Task change requests fetched successfully';
+export const TASK_CHANGE_REQUEST_FETCHED =
+  'Task change request fetched successfully';
+export const TASK_CHANGE_REQUEST_CREATED =
+  'Task change request created successfully';
+export const TASK_CHANGE_REQUEST_MESSAGE_CREATED =
+  'Task change request message created successfully';
+export const TASK_CHANGE_REQUEST_ESCALATED =
+  'Task change request escalated successfully';
+export const TASK_CHANGE_REQUEST_RESOLVED =
+  'Task change request resolved successfully';
+export const TASK_CHANGE_REQUEST_ATTACHMENT_DOWNLOAD_URL_FETCHED =
+  'Task change request attachment download URL fetched successfully';
 export const TASK_ACTIVITY_SCHEDULE_RECALCULATED =
   'Task activity schedule recalculated successfully';
 export const TASK_ACTIVITY_SCHEDULE_IMPORTED =
