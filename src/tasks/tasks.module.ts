@@ -22,7 +22,9 @@ import {
 } from './project-config';
 import {
   ChangeRequest,
+  ChangeRequestAuditEntry,
   ChangeRequestMessageAttachment,
+  ChangeRequestReview,
   ChangeRequestThread,
   ChangeRequestThreadMessage,
   ProjectCalendar,
@@ -105,6 +107,8 @@ const SUB_SERVICES = [
   imports: [
     TypeOrmModule.forFeature([
       ChangeRequest,
+      ChangeRequestAuditEntry,
+      ChangeRequestReview,
       ChangeRequestThread,
       ChangeRequestThreadMessage,
       ChangeRequestMessageAttachment,

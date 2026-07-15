@@ -1,6 +1,14 @@
 import { Expose, Transform, Type } from 'class-transformer';
 import { BaseSerializer } from 'src/common/serializers';
-import { ChangeRequestMessageType, ChangeRequestStatus } from '../entities';
+import {
+  ChangeRequestAuditAction,
+  ChangeRequestImpactType,
+  ChangeRequestMessageType,
+  ChangeRequestPriority,
+  ChangeRequestReviewStatus,
+  ChangeRequestStatus,
+  TaskDocumentType,
+} from '../entities';
 
 class ChangeRequestUserRelationSerializer extends BaseSerializer {
   @Expose() firstName: string;
@@ -29,6 +37,18 @@ class ChangeRequestTaskRelationSerializer extends BaseSerializer {
   @Expose()
   @Transform(({ obj }) => obj?.parentTaskId ?? obj?.parent?.id ?? null)
   parentTaskId: string | null;
+}
+
+class ChangeRequestDocumentRelationSerializer extends BaseSerializer {
+  @Expose()
+  @Transform(({ obj }) => obj?.taskId ?? obj?.task?.id ?? null)
+  taskId: string | null;
+
+  @Expose() name: string;
+  @Expose() description: string | null;
+  @Expose() type: TaskDocumentType;
+  @Expose() declare createdAt: Date;
+  @Expose() declare updatedAt: Date;
 }
 
 export class ChangeRequestAttachmentSerializer extends BaseSerializer {
@@ -144,6 +164,67 @@ export class ChangeRequestThreadSerializer extends BaseSerializer {
   messages: ChangeRequestMessageSerializer[];
 }
 
+export class ChangeRequestReviewSerializer extends BaseSerializer {
+  @Expose()
+  @Transform(
+    ({ obj }) => obj?.changeRequestId ?? obj?.changeRequest?.id ?? null,
+  )
+  changeRequestId: string | null;
+
+  @Expose()
+  @Transform(({ obj }) => obj?.reviewerUserId ?? obj?.reviewerUser?.id ?? null)
+  reviewerId: string | null;
+
+  @Expose()
+  @Transform(({ obj }) => obj?.reviewerUser ?? null)
+  @Type(() => ChangeRequestUserRelationSerializer)
+  reviewer: ChangeRequestUserRelationSerializer | null;
+
+  @Expose()
+  @Transform(
+    ({ obj }) => obj?.assignedByUserId ?? obj?.assignedByUser?.id ?? null,
+  )
+  assignedById: string | null;
+
+  @Expose()
+  @Transform(({ obj }) => obj?.assignedByUser ?? null)
+  @Type(() => ChangeRequestUserRelationSerializer)
+  assignedBy: ChangeRequestUserRelationSerializer | null;
+
+  @Expose() role: string | null;
+  @Expose() status: ChangeRequestReviewStatus;
+  @Expose() notes: string | null;
+  @Expose() decisionNotes: string | null;
+  @Expose() decidedAt: Date | null;
+  @Expose() declare createdAt: Date;
+  @Expose() declare updatedAt: Date;
+}
+
+export class ChangeRequestAuditEntrySerializer extends BaseSerializer {
+  @Expose()
+  @Transform(
+    ({ obj }) => obj?.changeRequestId ?? obj?.changeRequest?.id ?? null,
+  )
+  changeRequestId: string | null;
+
+  @Expose()
+  @Transform(({ obj }) => obj?.actorUserId ?? obj?.actorUser?.id ?? null)
+  actorId: string | null;
+
+  @Expose()
+  @Transform(({ obj }) => obj?.actorUser ?? null)
+  @Type(() => ChangeRequestUserRelationSerializer)
+  actor: ChangeRequestUserRelationSerializer | null;
+
+  @Expose() action: ChangeRequestAuditAction;
+  @Expose() fromStatus: ChangeRequestStatus | null;
+  @Expose() toStatus: ChangeRequestStatus | null;
+  @Expose() reviewId: string | null;
+  @Expose() messageId: string | null;
+  @Expose() metadata: Record<string, unknown> | null;
+  @Expose() declare createdAt: Date;
+}
+
 export class ChangeRequestSerializer extends BaseSerializer {
   @Expose()
   @Transform(({ obj }) => obj?.projectId ?? obj?.project?.id ?? null)
@@ -172,6 +253,27 @@ export class ChangeRequestSerializer extends BaseSerializer {
   @Expose() status: ChangeRequestStatus;
   @Expose() title: string;
   @Expose() description: string | null;
+  @Expose() impactType: ChangeRequestImpactType | null;
+  @Expose() priority: ChangeRequestPriority | null;
+  @Expose() reasonCategory: string | null;
+  @Expose() costImpactAmount: number | null;
+  @Expose() scheduleImpactDays: number | null;
+  @Expose() requestedDueDate: string | null;
+  @Expose() proposedTaskChanges: Record<string, unknown> | null;
+
+  @Expose()
+  @Transform(
+    ({ obj }) =>
+      obj?.affectedDocumentIds ??
+      (obj?.affectedDocuments ?? []).map((document) => document.id),
+  )
+  affectedDocumentIds: string[];
+
+  @Expose()
+  @Transform(({ obj }) => obj?.affectedDocuments ?? [])
+  @Type(() => ChangeRequestDocumentRelationSerializer)
+  affectedDocuments: ChangeRequestDocumentRelationSerializer[];
+
   @Expose() declare createdAt: Date;
   @Expose() declare updatedAt: Date;
 
@@ -200,6 +302,14 @@ export class ChangeRequestSerializer extends BaseSerializer {
   resolvedBy: ChangeRequestUserRelationSerializer | null;
 
   @Expose() resolvedAt: Date | null;
+
+  @Expose()
+  @Type(() => ChangeRequestReviewSerializer)
+  reviews: ChangeRequestReviewSerializer[];
+
+  @Expose()
+  @Type(() => ChangeRequestAuditEntrySerializer)
+  auditEntries: ChangeRequestAuditEntrySerializer[];
 
   @Expose()
   @Transform(({ obj }) => obj?.thread ?? null)

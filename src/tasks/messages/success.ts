@@ -79,8 +79,16 @@ export const TASK_CHANGE_REQUEST_MESSAGE_CREATED =
   'Task change request message created successfully';
 export const TASK_CHANGE_REQUEST_ESCALATED =
   'Task change request escalated successfully';
+export const TASK_CHANGE_REQUEST_REVIEW_ASSIGNED =
+  'Task change request review assigned successfully';
+export const TASK_CHANGE_REQUEST_REVIEW_DECIDED =
+  'Task change request review decision recorded successfully';
+export const TASK_CHANGE_REQUEST_REVISION_SUBMITTED =
+  'Task change request revision submitted successfully';
+export const TASK_CHANGE_REQUEST_REOPENED =
+  'Task change request reopened successfully';
 export const TASK_CHANGE_REQUEST_RESOLVED =
-  'Task change request resolved successfully';
+  'Task change request decision recorded successfully';
 export const TASK_CHANGE_REQUEST_ATTACHMENT_DOWNLOAD_URL_FETCHED =
   'Task change request attachment download URL fetched successfully';
 export const TASK_ACTIVITY_SCHEDULE_RECALCULATED =

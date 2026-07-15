@@ -62,7 +62,7 @@ Escalation is blocked when:
 
 - the task has no parent task
 - the parent task has no reportee
-- the request is already resolved
+- the request has a final decision
 - the current user is not the task assignee or task reportee
 
 When escalation succeeds:
@@ -80,45 +80,93 @@ Only the change request's task reportee can resolve the request.
 Resolution is blocked when:
 
 - the current user is not the task reportee
-- the request is already resolved
+- the request has a final decision
 - required resolution text is missing
 
 When resolution succeeds:
 
-- status becomes `RESOLVED`
+- status becomes the selected decision outcome: `APPROVED`, `REJECTED`, `RETURNED_FOR_REVISION`, or `CANCELLED`
 - `resolvedByUserId` is set to the task reportee
 - `resolvedAt` is set
 - a resolution message is inserted in the same thread
 
+### 2.7 Who Can Submit a Revision
+
+A revision can be submitted by:
+
+- the change request creator
+- task assignee
+- task reportee
+
+Revision submission is only for `RETURNED_FOR_REVISION` requests. Final decisions must be reopened by the task reportee before any new review pass continues.
+
+When revision succeeds:
+
+- status becomes `UNDER_REVIEW`
+- `resolvedByUserId` is cleared
+- `resolvedAt` is cleared
+- a revision message is inserted in the same thread
+- a formal audit entry is recorded separately from chat
+
+### 2.8 Who Can Reopen
+
+Only the task reportee can reopen a change request after a final decision.
+
+When reopening succeeds:
+
+- status becomes `UNDER_REVIEW`
+- `resolvedByUserId` is cleared
+- `resolvedAt` is cleared
+- a system message records the reopening reason
+- a formal audit entry is recorded separately from chat
+
 ## 3. Status Model
 
-Use a small workflow first:
+Use an explicit workflow state model:
 
 - `NEW`
+- `UNDER_REVIEW`
 - `ESCALATED`
-- `RESOLVED`
+- `APPROVED`
+- `REJECTED`
+- `RETURNED_FOR_REVISION`
+- `CANCELLED`
 
 Recommended enum:
 
 ```ts
 export enum ChangeRequestStatus {
   NEW = 'NEW',
+  UNDER_REVIEW = 'UNDER_REVIEW',
   ESCALATED = 'ESCALATED',
-  RESOLVED = 'RESOLVED',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  RETURNED_FOR_REVISION = 'RETURNED_FOR_REVISION',
+  CANCELLED = 'CANCELLED',
 }
 ```
 
 Allowed transitions:
 
-| From | Action | To | Actor |
-| --- | --- | --- | --- |
-| none | create | `NEW` | task assignee or task reportee |
-| `NEW` | escalate | `ESCALATED` | task assignee or task reportee |
-| `ESCALATED` | escalate | `ESCALATED` | task assignee or task reportee |
-| `NEW` | resolve | `RESOLVED` | task reportee |
-| `ESCALATED` | resolve | `RESOLVED` | task reportee |
+| From                    | Action          | To                                                              | Actor                                    |
+| ----------------------- | --------------- | --------------------------------------------------------------- | ---------------------------------------- |
+| none                    | create          | `NEW`                                                           | task assignee or task reportee           |
+| `NEW`                   | start review    | `UNDER_REVIEW`                                                  | task reportee                            |
+| `NEW`                   | escalate        | `ESCALATED`                                                     | task assignee or task reportee           |
+| `UNDER_REVIEW`          | escalate        | `ESCALATED`                                                     | task assignee or task reportee           |
+| `ESCALATED`             | escalate        | `ESCALATED`                                                     | task assignee or task reportee           |
+| `NEW`                   | decide          | `APPROVED`, `REJECTED`, `RETURNED_FOR_REVISION`, or `CANCELLED` | task reportee                            |
+| `UNDER_REVIEW`          | decide          | `APPROVED`, `REJECTED`, `RETURNED_FOR_REVISION`, or `CANCELLED` | task reportee                            |
+| `ESCALATED`             | decide          | `APPROVED`, `REJECTED`, `RETURNED_FOR_REVISION`, or `CANCELLED` | task reportee                            |
+| `RETURNED_FOR_REVISION` | submit revision | `UNDER_REVIEW`                                                  | creator, task assignee, or task reportee |
+| `RETURNED_FOR_REVISION` | cancel          | `CANCELLED`                                                     | task reportee                            |
+| `APPROVED`              | reopen          | `UNDER_REVIEW`                                                  | task reportee                            |
+| `REJECTED`              | reopen          | `UNDER_REVIEW`                                                  | task reportee                            |
+| `CANCELLED`             | reopen          | `UNDER_REVIEW`                                                  | task reportee                            |
 
-Do not allow messages to change status by themselves. Status changes should happen through explicit create, escalate, and resolve actions.
+`APPROVED`, `REJECTED`, and `CANCELLED` are final decision states. `RETURNED_FOR_REVISION` is not final; it is the handoff state that waits for a revised submission.
+
+Do not allow messages to change status by themselves. Status changes should happen through explicit create, review, escalate, revision, reopen, and decision actions.
 
 ## 4. Data Model
 
@@ -137,6 +185,13 @@ Recommended columns:
 - `status` enum not null default `NEW`
 - `title` varchar(255) not null
 - `description` text nullable
+- `impact_type` enum nullable: `SCOPE`, `COST`, `SCHEDULE`, `QUALITY`, `SAFETY`, `DOCUMENTATION`, `OTHER`
+- `priority` enum nullable: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`
+- `reason_category` varchar(100) nullable
+- `cost_impact_amount` numeric(14,2) nullable
+- `schedule_impact_days` integer nullable
+- `requested_due_date` date nullable
+- `proposed_task_changes` jsonb nullable, structured requested task-field changes such as title, dates, status, priority, assignee, or schedule fields
 - `escalated_to_user_id` uuid nullable, FK `users(id)` on delete set null
 - `escalated_at` timestamptz nullable
 - `resolved_by_user_id` uuid nullable, FK `users(id)` on delete set null
@@ -152,7 +207,26 @@ Recommended indexes:
 - `idx_change_requests_escalated_to` on `(escalated_to_user_id)`
 - `idx_change_requests_resolved_by` on `(resolved_by_user_id)`
 
-### 4.2 `change_request_threads`
+### 4.2 `change_request_documents`
+
+Join table linking a change request to task documents affected by the requested change.
+
+Recommended columns:
+
+- `change_request_id` uuid not null, FK `change_requests(id)` on delete cascade
+- `document_id` uuid not null, FK `task_documents(id)` on delete cascade
+
+Constraints and indexes:
+
+- primary key on `(change_request_id, document_id)`
+- `idx_change_request_documents_document` on `(document_id)`
+
+Business rule:
+
+- affected documents must belong to the same task as the change request
+- document links provide traceability only; approving a change request does not automatically create, update, or replace task documents
+
+### 4.3 `change_request_threads`
 
 The conversation container for one change request.
 
@@ -173,7 +247,7 @@ Recommended indexes:
 - `idx_change_request_threads_project` on `(project_id)`
 - `idx_change_request_threads_task` on `(task_id)`
 
-### 4.3 `change_request_thread_messages`
+### 4.4 `change_request_thread_messages`
 
 Thread messages, including normal messages, escalation notes, and resolution notes.
 
@@ -214,7 +288,7 @@ Validation:
 - For `ESCALATION`, body is required.
 - For `RESOLUTION`, body is required.
 
-### 4.4 `change_request_message_attachments`
+### 4.5 `change_request_message_attachments`
 
 Files attached to individual messages.
 
@@ -241,19 +315,57 @@ Recommended indexes:
 - `idx_change_request_attachments_change_request` on `(change_request_id)`
 - `idx_change_request_attachments_created_by` on `(created_by_user_id)`
 
-### 4.5 Optional `change_request_audit_entries`
+### 4.6 `change_request_reviews`
 
-This can be deferred if `TaskActivityService` or `ProjectActivityLog` already captures enough action history.
+Structured review assignments for cost, technical, schedule, client, or other approval-chain checks.
 
-Recommended only if the frontend needs a dedicated timeline:
+Recommended columns:
 
-- `change_request_id`
-- `actor_user_id`
-- `action`
-- `from_status`
-- `to_status`
-- `metadata`
-- `created_at`
+- `pkid` serial primary key
+- `id` uuid unique default `uuid_generate_v4()`
+- `version` integer
+- `change_request_id` uuid not null, FK `change_requests(id)` on delete cascade
+- `reviewer_user_id` uuid not null, FK `users(id)` on delete restrict
+- `assigned_by_user_id` uuid not null, FK `users(id)` on delete restrict
+- `role` varchar(100) nullable
+- `status` enum not null default `PENDING`: `PENDING`, `APPROVED`, `REJECTED`, `RETURNED_FOR_REVISION`
+- `notes` text nullable
+- `decision_notes` text nullable
+- `decided_at` timestamptz nullable
+- `created_at` timestamptz
+
+Indexes:
+
+- `idx_change_request_reviews_change_request` on `(change_request_id)`
+- `idx_change_request_reviews_reviewer_status` on `(reviewer_user_id, status)`
+- `idx_change_request_reviews_assigned_by` on `(assigned_by_user_id)`
+
+### 4.7 `change_request_audit_entries`
+
+Formal lifecycle and decision ledger, stored separately from chat thread messages.
+
+Recommended columns:
+
+- `pkid` serial primary key
+- `id` uuid unique default `uuid_generate_v4()`
+- `version` integer
+- `change_request_id` uuid not null, FK `change_requests(id)` on delete cascade
+- `actor_user_id` uuid not null, FK `users(id)` on delete restrict
+- `action` enum not null: `CREATED`, `REVIEW_ASSIGNED`, `REVIEW_DECIDED`, `ESCALATED`, `DECISION_RECORDED`, `REVISION_SUBMITTED`, `REOPENED`
+- `from_status` change request status nullable
+- `to_status` change request status nullable
+- `review_id` uuid nullable, FK `change_request_reviews(id)` on delete set null
+- `message_id` uuid nullable, FK `change_request_thread_messages(id)` on delete set null
+- `metadata` jsonb nullable
+- `created_at` timestamptz
+
+Indexes:
+
+- `idx_change_request_audit_entries_change_request` on `(change_request_id)`
+- `idx_change_request_audit_entries_actor` on `(actor_user_id)`
+- `idx_change_request_audit_entries_action` on `(action)`
+
+Audit entries are required for lifecycle and decision events. Chat messages remain useful for conversation, but formal decision history must be reconstructable from this table without parsing message text.
 
 ## 5. Entity Placement
 
@@ -284,6 +396,14 @@ Add DTOs under `src/tasks/dtos`.
 
 - `title`: required string, max 255
 - `description`: optional string
+- `impactType`: optional enum, primary impact area
+- `priority`: optional enum
+- `reasonCategory`: optional string, max 100
+- `costImpactAmount`: optional number
+- `scheduleImpactDays`: optional integer
+- `requestedDueDate`: optional ISO date
+- `affectedDocumentIds`: optional uuid array; documents must belong to the same task
+- `proposedTaskChanges`: optional JSON object describing requested task-field changes
 - `message`: required unless attachments are present
 - `attachmentNotes`: optional string
 
@@ -310,17 +430,67 @@ For multipart create, the initial file can come from `FileInterceptor('file')` f
 - `resolution`: required string
 - `attachmentNotes`: optional string
 
-### 6.5 List Filters
+### 6.5 Assign Review
+
+`CreateChangeRequestReviewDto`
+
+- `reviewerUserId`: required uuid
+- `role`: optional string, max 100
+- `notes`: optional string
+
+### 6.6 Record Review Decision
+
+`DecideChangeRequestReviewDto`
+
+- `decision`: required enum: `APPROVED`, `REJECTED`, `RETURNED_FOR_REVISION`
+- `decisionNotes`: optional string
+
+### 6.7 Submit Revision
+
+`SubmitChangeRequestRevisionDto`
+
+- `message`: required unless an attachment is provided
+- `attachmentNotes`: optional string
+
+### 6.8 Reopen
+
+`ReopenChangeRequestDto`
+
+- `reason`: required string
+
+### 6.9 List Filters
+
+- `status`
+- `impactType`
+- `priority`
+- `taskId`
+- `createdByUserId`
+- `escalatedToUserId`
+- `reviewerUserId`
+- `documentId`
+- `hasAffectedDocuments`
+- `hasProposedTaskChanges`
+- `needsMyAttention`
+- `includeSummary`
+- `includeMessages`
 
 `ChangeRequestFiltersDto`
 
 - `page`
 - `limit`
 - `status`
+- `impactType`
+- `priority`
 - `taskId`
 - `createdByUserId`
 - `escalatedToUserId`
+- `reviewerUserId`
+- `documentId`
+- `hasAffectedDocuments`
+- `hasProposedTaskChanges`
+- `needsMyAttention`
 - `search`
+- `includeSummary`
 - `includeMessages`
 
 ## 7. Serializers
@@ -441,6 +611,8 @@ Rules:
 - message: creator, task assignee, task reportee, or escalated parent-task reportee
 - escalate: task assignee or task reportee
 - resolve: task reportee only
+- revise: creator, task assignee, or task reportee
+- reopen: task reportee only
 - escalated reportee can see full thread history
 
 ## 9. API Endpoints
@@ -467,6 +639,12 @@ Visibility:
 - include threads escalated to current user
 - project-level view-all users can see all if product wants admin oversight
 
+Dashboard support:
+
+- `includeSummary=true` returns summary counters computed from the same visible, filtered result set before pagination
+- summary includes total, open/final counts, pending review counts, current-user attention count, document-linked count, proposed-task-change count, and buckets by status, impact type, and priority
+- `needsMyAttention=true` filters to pending reviews assigned to the current user, returned-for-revision requests the current user can revise, and escalated requests assigned to the current user
+
 ### 9.2 Get Change Request Detail
 
 `GET /projects/:projectId/tasks/:taskId/change-requests/:changeRequestId`
@@ -478,6 +656,7 @@ Permission:
 Returns:
 
 - change request
+- `affectedDocumentIds`, `affectedDocuments`, and `proposedTaskChanges`
 - thread
 - messages
 - attachment metadata
@@ -497,10 +676,14 @@ Permission:
 Business rule:
 
 - actor must be task assignee or task reportee
+- every `affectedDocumentIds` entry must reference a document on the same task
+- `proposedTaskChanges` is traceability metadata; it does not automatically mutate the task
 
 Behavior:
 
 - create `change_requests`
+- store `proposedTaskChanges`
+- link affected task documents in `change_request_documents`
 - create `change_request_threads`
 - create initial `MESSAGE`
 - upload optional attachment
@@ -556,7 +739,102 @@ Behavior:
 - insert `ESCALATION` message
 - return full change request detail
 
-### 9.6 Resolve
+### 9.6 Assign Review
+
+`POST /projects/:projectId/tasks/:taskId/change-requests/:changeRequestId/reviews`
+
+Permission:
+
+- `changeRequestManagement.update`
+
+Business rule:
+
+- actor must have access to the thread
+- request must not be closed
+- reviewer must exist
+
+Behavior:
+
+- create `change_request_reviews` row with `PENDING` status
+- move `NEW` request to `UNDER_REVIEW`
+- insert `SYSTEM` message in the thread
+- notify reviewer
+- return full change request detail
+
+### 9.7 Record Review Decision
+
+`POST /projects/:projectId/tasks/:taskId/change-requests/:changeRequestId/reviews/:reviewId/decision`
+
+Permission:
+
+- `changeRequestManagement.view`
+
+Business rule:
+
+- only the assigned reviewer can decide their review
+- request must not be closed
+- review must still be `PENDING`
+
+Behavior:
+
+- set review status to `APPROVED`, `REJECTED`, or `RETURNED_FOR_REVISION`
+- set `decisionNotes`
+- set `decidedAt`
+- insert `SYSTEM` message in the thread
+- notify participants
+- return full change request detail
+
+### 9.8 Submit Revision
+
+`POST /projects/:projectId/tasks/:taskId/change-requests/:changeRequestId/revision`
+
+Consumes:
+
+- `multipart/form-data`
+
+Permission:
+
+- `changeRequestManagement.update`
+
+Business rule:
+
+- actor must be the creator, task assignee, or task reportee
+- current status must be `RETURNED_FOR_REVISION`
+
+Behavior:
+
+- set status to `UNDER_REVIEW`
+- clear `resolvedByUserId`
+- clear `resolvedAt`
+- insert `MESSAGE` in the thread
+- write `REVISION_SUBMITTED` audit entry
+- notify participants
+- return full change request detail
+
+### 9.9 Reopen
+
+`POST /projects/:projectId/tasks/:taskId/change-requests/:changeRequestId/reopen`
+
+Permission:
+
+- `changeRequestManagement.update`
+
+Business rule:
+
+- actor must be the task reportee
+- current status must allow transition back to `UNDER_REVIEW`
+
+Behavior:
+
+- set status to `UNDER_REVIEW`
+- clear `resolvedByUserId`
+- clear `resolvedAt`
+- insert `SYSTEM` message in the thread with the reopening reason
+- write `REOPENED` audit entry
+- notify participants
+- return full change request detail
+
+### 9.10 Resolve
 
 `POST /projects/:projectId/tasks/:taskId/change-requests/:changeRequestId/resolve`
 
@@ -571,17 +849,17 @@ Permission:
 Business rule:
 
 - actor must be the task reportee
-- request must not already be resolved
+- request must not already have a final decision
 
 Behavior:
 
-- set status `RESOLVED`
+- set status to the selected decision outcome
 - set `resolvedByUserId`
 - set `resolvedAt`
 - insert `RESOLUTION` message
 - return full change request detail
 
-### 9.7 Attachment Download URL
+### 9.11 Attachment Download URL
 
 `GET /projects/:projectId/tasks/:taskId/change-requests/:changeRequestId/messages/:messageId/attachments/:attachmentId/download-url`
 
@@ -619,7 +897,7 @@ Add success messages:
 - `TASK_CHANGE_REQUEST_CREATED`
 - `TASK_CHANGE_REQUEST_MESSAGE_CREATED`
 - `TASK_CHANGE_REQUEST_ESCALATED`
-- `TASK_CHANGE_REQUEST_RESOLVED`
+- `TASK_CHANGE_REQUEST_RESOLVED` for the decision endpoint
 - `TASK_CHANGE_REQUEST_ATTACHMENT_DOWNLOAD_URL_FETCHED`
 
 Add error messages:
@@ -633,7 +911,8 @@ Add error messages:
 - `INVALID_CHANGE_REQUEST_ESCALATION_ROOT_TASK`
 - `INVALID_CHANGE_REQUEST_ESCALATION_PARENT_REPORTEE`
 - `INVALID_CHANGE_REQUEST_RESOLUTION_ACTOR`
-- `INVALID_CHANGE_REQUEST_ALREADY_RESOLVED`
+- `INVALID_CHANGE_REQUEST_CLOSED`
+- `INVALID_CHANGE_REQUEST_STATUS_TRANSITION`
 - `TASK_CHANGE_REQUEST_ACCESS_DENIED`
 
 ## 12. Migration Requirements
@@ -741,7 +1020,7 @@ Deliverable:
 
 Deliverable:
 
-- full lifecycle works from `NEW` to `ESCALATED` to `RESOLVED`
+- full lifecycle works from `NEW` or `UNDER_REVIEW` to `ESCALATED` and a final decision outcome
 
 ### Phase 6: Facade And Controller
 
@@ -803,4 +1082,3 @@ The fastest useful slice is:
 7. resolve
 
 Defer multiple-file upload, notifications, and dedicated audit table until the core lifecycle is stable.
-
