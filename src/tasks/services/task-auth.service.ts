@@ -382,6 +382,12 @@ export class TaskAuthService {
           FROM "task_assignees" "ta_change_request_visibility"
           WHERE "ta_change_request_visibility"."taskId" = "${alias}"."task_id"
             AND "ta_change_request_visibility"."userId" = :visibilityUserId
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM "change_request_reviews" "cr_review_visibility"
+          WHERE "cr_review_visibility"."change_request_id" = "${alias}"."id"
+            AND "cr_review_visibility"."reviewer_user_id" = :visibilityUserId
         ))`,
       { visibilityUserId: requestUser.id },
     );

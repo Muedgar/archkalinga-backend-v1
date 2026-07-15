@@ -32,6 +32,12 @@ export const TASK_CHANGE_REQUEST_THREAD_NOT_FOUND =
   'Task change request thread not found';
 export const TASK_CHANGE_REQUEST_ATTACHMENT_NOT_FOUND =
   'Task change request attachment not found';
+export const TASK_CHANGE_REQUEST_REVIEW_NOT_FOUND =
+  'Task change request review not found';
+export const TASK_CHANGE_REQUEST_REVIEWER_NOT_FOUND =
+  'Change request reviewer not found';
+export const INVALID_CHANGE_REQUEST_DOCUMENTS =
+  'All affected documents must belong to this task';
 export const INVALID_CHANGE_REQUEST_CREATE_ACTOR =
   'Only the task assignee or reportee can create a change request';
 export const INVALID_CHANGE_REQUEST_MESSAGE_EMPTY =
@@ -44,8 +50,18 @@ export const INVALID_CHANGE_REQUEST_ESCALATION_PARENT_REPORTEE =
   'The parent task must have a reportee before this change request can be escalated';
 export const INVALID_CHANGE_REQUEST_RESOLUTION_ACTOR =
   'Only the task reportee can resolve a change request';
-export const INVALID_CHANGE_REQUEST_ALREADY_RESOLVED =
-  'This change request is already resolved';
+export const INVALID_CHANGE_REQUEST_CLOSED =
+  'This change request is already closed';
+export const INVALID_CHANGE_REQUEST_STATUS_TRANSITION =
+  'This change request cannot move to the requested status';
+export const INVALID_CHANGE_REQUEST_REVIEW_ACTOR =
+  'Only the assigned reviewer can record this review decision';
+export const INVALID_CHANGE_REQUEST_REVIEW_CLOSED =
+  'This change request review is already closed';
+export const INVALID_CHANGE_REQUEST_REVISE_ACTOR =
+  'Only the change request creator, task assignee, or task reportee can submit a revision';
+export const INVALID_CHANGE_REQUEST_REOPEN_ACTOR =
+  'Only the task reportee can reopen a change request';
 export const TASK_CHANGE_REQUEST_ACCESS_DENIED =
   'You do not have access to this change request thread';
 export const INVALID_TASK_DOCUMENT_ATTACHMENTS =

@@ -47,6 +47,8 @@ import {
   ChangeRequestFiltersDto,
   CreateChangeRequestDto,
   CreateChangeRequestMessageDto,
+  CreateChangeRequestReviewDto,
+  DecideChangeRequestReviewDto,
   CreateStarterFromDeliverableDto,
   CreateTaskDocumentDto,
   CreateTaskMaterialDto,
@@ -59,11 +61,13 @@ import {
   MaterialsReportImportMode,
   MoveTaskDto,
   RecalculateActivityScheduleDto,
+  ReopenChangeRequestDto,
   ResourceReportFiltersDto,
   ResourceReportImportDto,
   ResourceReportImportMode,
   EscalateChangeRequestDto,
   ResolveChangeRequestDto,
+  SubmitChangeRequestRevisionDto,
   TaskDocumentFiltersDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
@@ -138,6 +142,10 @@ import {
   TASK_CHANGE_REQUEST_ESCALATED,
   TASK_CHANGE_REQUEST_FETCHED,
   TASK_CHANGE_REQUEST_MESSAGE_CREATED,
+  TASK_CHANGE_REQUEST_REVIEW_ASSIGNED,
+  TASK_CHANGE_REQUEST_REVIEW_DECIDED,
+  TASK_CHANGE_REQUEST_REOPENED,
+  TASK_CHANGE_REQUEST_REVISION_SUBMITTED,
   TASK_CHANGE_REQUEST_RESOLVED,
   TASK_CHANGE_REQUESTS_FETCHED,
   TASK_STARTER_DOCUMENT_CREATED_FROM_DELIVERABLE,
@@ -1202,9 +1210,8 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task change requests fetched' })
   @ResponseMessage(TASK_CHANGE_REQUESTS_FETCHED)
   @Throttle({ default: { ttl: 60000, limit: 300 } })
-  // TEMP: permissions bypass for change request UI testing.
-  // @UseGuards(ProjectPermissionGuard)
-  // @RequireProjectPermission('changeRequestManagement', 'view')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
   listTaskChangeRequests(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -1223,9 +1230,8 @@ export class TasksController {
   @ApiOperation({ summary: 'Get task change request' })
   @ApiResponse({ status: 200, description: 'Task change request fetched' })
   @ResponseMessage(TASK_CHANGE_REQUEST_FETCHED)
-  // TEMP: permissions bypass for change request UI testing.
-  // @UseGuards(ProjectPermissionGuard)
-  // @RequireProjectPermission('changeRequestManagement', 'view')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
   getTaskChangeRequest(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -1251,9 +1257,8 @@ export class TasksController {
     description: 'Task change request attachment download URL fetched',
   })
   @ResponseMessage(TASK_CHANGE_REQUEST_ATTACHMENT_DOWNLOAD_URL_FETCHED)
-  // TEMP: permissions bypass for change request UI testing.
-  // @UseGuards(ProjectPermissionGuard)
-  // @RequireProjectPermission('changeRequestManagement', 'view')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
   getTaskChangeRequestAttachmentDownloadUrl(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -1290,6 +1295,67 @@ export class TasksController {
           example:
             'The client requested a different window specification after site review.',
         },
+        impactType: {
+          type: 'string',
+          enum: [
+            'SCOPE',
+            'COST',
+            'SCHEDULE',
+            'QUALITY',
+            'SAFETY',
+            'DOCUMENTATION',
+            'OTHER',
+          ],
+          nullable: true,
+          example: 'SCHEDULE',
+        },
+        priority: {
+          type: 'string',
+          enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'],
+          nullable: true,
+          example: 'HIGH',
+        },
+        reasonCategory: {
+          type: 'string',
+          nullable: true,
+          example: 'Client-requested design change',
+        },
+        costImpactAmount: {
+          type: 'number',
+          nullable: true,
+          example: 250000,
+        },
+        scheduleImpactDays: {
+          type: 'integer',
+          nullable: true,
+          example: 14,
+        },
+        requestedDueDate: {
+          type: 'string',
+          format: 'date',
+          nullable: true,
+          example: '2026-08-15',
+        },
+        affectedDocumentIds: {
+          type: 'array',
+          items: { type: 'string', format: 'uuid' },
+          nullable: true,
+          example: ['6cc7f54e-5d31-43c2-9d24-71a85a78b9ea'],
+        },
+        proposedTaskChanges: {
+          type: 'object',
+          nullable: true,
+          example: {
+            endDate: {
+              from: '2026-08-01',
+              to: '2026-08-15',
+            },
+            title: {
+              from: 'Install level 2 windows',
+              to: 'Install revised level 2 windows',
+            },
+          },
+        },
         message: {
           type: 'string',
           nullable: true,
@@ -1308,9 +1374,8 @@ export class TasksController {
   @ApiResponse({ status: 201, description: 'Task change request created' })
   @ResponseMessage(TASK_CHANGE_REQUEST_CREATED)
   @UseInterceptors(FileInterceptor('file'))
-  // TEMP: permissions bypass for change request UI testing.
-  // @UseGuards(ProjectPermissionGuard)
-  // @RequireProjectPermission('changeRequestManagement', 'create')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'create')
   @LogActivity({
     action: 'create:task-change-request',
     resource: 'task-change-request',
@@ -1359,9 +1424,8 @@ export class TasksController {
   })
   @ResponseMessage(TASK_CHANGE_REQUEST_MESSAGE_CREATED)
   @UseInterceptors(FileInterceptor('file'))
-  // TEMP: permissions bypass for change request UI testing.
-  // @UseGuards(ProjectPermissionGuard)
-  // @RequireProjectPermission('changeRequestManagement', 'view')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
   @LogActivity({
     action: 'create:task-change-request-message',
     resource: 'task-change-request-message',
@@ -1382,6 +1446,205 @@ export class TasksController {
       dto,
       user,
       file,
+    );
+  }
+
+  @Post('tasks/:taskId/change-requests/:changeRequestId/reviews')
+  @ApiOperation({ summary: 'Assign task change request reviewer' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['reviewerUserId'],
+      properties: {
+        reviewerUserId: {
+          type: 'string',
+          format: 'uuid',
+        },
+        role: {
+          type: 'string',
+          nullable: true,
+          example: 'Cost reviewer',
+        },
+        notes: {
+          type: 'string',
+          nullable: true,
+          example: 'Please validate budget and procurement impact.',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Task change request review assigned',
+  })
+  @ResponseMessage(TASK_CHANGE_REQUEST_REVIEW_ASSIGNED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'update')
+  @LogActivity({
+    action: 'assign:task-change-request-review',
+    resource: 'task-change-request-review',
+    includeBody: true,
+  })
+  assignTaskChangeRequestReview(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('changeRequestId', ParseUUIDPipe) changeRequestId: string,
+    @Body() dto: CreateChangeRequestReviewDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.assignTaskChangeRequestReview(
+      projectId,
+      taskId,
+      changeRequestId,
+      dto,
+      user,
+    );
+  }
+
+  @Post(
+    'tasks/:taskId/change-requests/:changeRequestId/reviews/:reviewId/decision',
+  )
+  @ApiOperation({ summary: 'Record task change request review decision' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['decision'],
+      properties: {
+        decision: {
+          type: 'string',
+          enum: ['APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION'],
+          example: 'APPROVED',
+        },
+        decisionNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Cost impact is acceptable with the attached estimate.',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Task change request review decision recorded',
+  })
+  @ResponseMessage(TASK_CHANGE_REQUEST_REVIEW_DECIDED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
+  @LogActivity({
+    action: 'decide:task-change-request-review',
+    resource: 'task-change-request-review',
+    includeBody: true,
+  })
+  decideTaskChangeRequestReview(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('changeRequestId', ParseUUIDPipe) changeRequestId: string,
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+    @Body() dto: DecideChangeRequestReviewDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.decideTaskChangeRequestReview(
+      projectId,
+      taskId,
+      changeRequestId,
+      reviewId,
+      dto,
+      user,
+    );
+  }
+
+  @Post('tasks/:taskId/change-requests/:changeRequestId/revision')
+  @ApiOperation({ summary: 'Submit task change request revision' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example:
+            'I revised the request based on the review comments and attached the updated details.',
+        },
+        attachmentNotes: {
+          type: 'string',
+          nullable: true,
+          example: 'Updated supporting note for the revised request.',
+        },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Task change request revision submitted',
+  })
+  @ResponseMessage(TASK_CHANGE_REQUEST_REVISION_SUBMITTED)
+  @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'update')
+  @LogActivity({
+    action: 'revise:task-change-request',
+    resource: 'task-change-request',
+    includeBody: true,
+  })
+  submitTaskChangeRequestRevision(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('changeRequestId', ParseUUIDPipe) changeRequestId: string,
+    @Body() dto: SubmitChangeRequestRevisionDto,
+    @UploadedFile() file: UploadableFile,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.submitTaskChangeRequestRevision(
+      projectId,
+      taskId,
+      changeRequestId,
+      dto,
+      user,
+      file,
+    );
+  }
+
+  @Post('tasks/:taskId/change-requests/:changeRequestId/reopen')
+  @ApiOperation({ summary: 'Reopen task change request' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['reason'],
+      properties: {
+        reason: {
+          type: 'string',
+          example:
+            'New information changes the earlier decision and this needs another review pass.',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Task change request reopened',
+  })
+  @ResponseMessage(TASK_CHANGE_REQUEST_REOPENED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'update')
+  @LogActivity({
+    action: 'reopen:task-change-request',
+    resource: 'task-change-request',
+    includeBody: true,
+  })
+  reopenTaskChangeRequest(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('changeRequestId', ParseUUIDPipe) changeRequestId: string,
+    @Body() dto: ReopenChangeRequestDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.reopenTaskChangeRequest(
+      projectId,
+      taskId,
+      changeRequestId,
+      dto,
+      user,
     );
   }
 
@@ -1410,9 +1673,8 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task change request escalated' })
   @ResponseMessage(TASK_CHANGE_REQUEST_ESCALATED)
   @UseInterceptors(FileInterceptor('file'))
-  // TEMP: permissions bypass for change request UI testing.
-  // @UseGuards(ProjectPermissionGuard)
-  // @RequireProjectPermission('changeRequestManagement', 'update')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'update')
   @LogActivity({
     action: 'escalate:task-change-request',
     resource: 'task-change-request',
@@ -1444,6 +1706,12 @@ export class TasksController {
       type: 'object',
       required: ['resolution'],
       properties: {
+        decision: {
+          type: 'string',
+          enum: ['APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION', 'CANCELLED'],
+          default: 'APPROVED',
+          example: 'APPROVED',
+        },
         resolution: {
           type: 'string',
           example:
@@ -1461,9 +1729,8 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task change request resolved' })
   @ResponseMessage(TASK_CHANGE_REQUEST_RESOLVED)
   @UseInterceptors(FileInterceptor('file'))
-  // TEMP: permissions bypass for change request UI testing.
-  // @UseGuards(ProjectPermissionGuard)
-  // @RequireProjectPermission('changeRequestManagement', 'update')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'update')
   @LogActivity({
     action: 'resolve:task-change-request',
     resource: 'task-change-request',

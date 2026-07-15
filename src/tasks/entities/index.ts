@@ -1,5 +1,7 @@
 export * from './task.entity';
+export * from './change-request-audit-entry.entity';
 export * from './change-request.entity';
+export * from './change-request-review.entity';
 export * from './change-request-thread.entity';
 export * from './change-request-thread-message.entity';
 export * from './change-request-message-attachment.entity';
