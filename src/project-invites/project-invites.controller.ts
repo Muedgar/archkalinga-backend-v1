@@ -42,7 +42,7 @@ export class ProjectInvitesController {
   @Post('project-invites')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('canManageProject', 'update')
   @ResponseMessage(INVITE_CREATED)
   @LogActivity({ action: 'create:invite', resource: 'project-invite', includeBody: true })
   @ApiOperation({ summary: 'Send a project invite' })
@@ -86,7 +86,7 @@ export class ProjectInvitesController {
   @Get('projects/:projectId/invites')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('canManageProject', 'view')
   @ResponseMessage(INVITES_FETCHED)
   @ApiOperation({ summary: 'List sent invites for a project (inviter perspective)' })
   @ApiQuery({ name: 'status', required: false, type: String })
@@ -106,7 +106,7 @@ export class ProjectInvitesController {
   @Post('project-invites/:inviteId/resend')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('canManageProject', 'update')
   @ResponseMessage(INVITE_RESENT)
   @LogActivity({ action: 'resend:invite', resource: 'project-invite' })
   @ApiOperation({ summary: 'Resend a pending invite (generates a fresh token)' })
@@ -124,7 +124,7 @@ export class ProjectInvitesController {
   @Post('project-invites/:inviteId/cancel')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('canManageProject', 'update')
   @ResponseMessage(INVITE_CANCELED)
   @LogActivity({ action: 'cancel:invite', resource: 'project-invite' })
   @ApiOperation({ summary: 'Cancel (revoke) a pending invite' })
@@ -151,7 +151,7 @@ export class ProjectInvitesController {
     summary: 'Accept a received invite (authenticated)',
     description:
       'The authenticated user must be the invitee. ' +
-      'Creates/reactivates project membership and triggers an INVITE_ACCEPTED notification to the inviter.',
+      'Creates/reactivates project membership and triggers a PROJECT_INVITE_ACCEPTED notification to the inviter.',
   })
   @ApiResponse({ status: 200, description: 'Invite accepted — returns membership context' })
   @ApiResponse({ status: 400, description: 'Invite not PENDING or expired' })

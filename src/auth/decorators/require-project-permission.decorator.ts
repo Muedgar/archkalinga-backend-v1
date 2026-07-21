@@ -17,8 +17,10 @@ export const REQUIRE_PROJECT_PERMISSION_KEY = 'require_project_permission';
  *   @RequireProjectPermission('taskManagement', 'update')
  *
  *   // Admin flag — gates project settings, invite, and role management actions.
- *   // `action` is omitted; the guard checks canManageProject === true.
+ *   // `action` is optional and is used only for equivalent workspace-level
+ *   // fallback checks against workspace projectManagement permissions.
  *   @RequireProjectPermission('canManageProject')
+ *   @RequireProjectPermission('canManageProject', 'view')
  */
 export const RequireProjectPermission = (
   domain: ProjectPermissionDomain | 'canManageProject',

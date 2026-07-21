@@ -1,4 +1,4 @@
-# ArchKalinga API Reference — Project Create, Invite & Discovery Flow
+# ArchKalinga API Reference — Project Create, Invites & Discovery Flow
 
 > Generated from the latest backend implementation.
 > Base URL: `/api` (or whatever prefix is configured).
@@ -13,6 +13,13 @@
 |--------|-------------|
 | `Authorization: Bearer <token>` | Every authenticated endpoint |
 | `X-Workspace-Id: <uuid>` | All `/users/*` endpoints (uses WorkspaceGuard) |
+
+Invite model summary:
+
+- **Workspace invites** add a user to a workspace and assign a selected `WorkspaceRole`.
+- **Project invites** add a user to a project and assign a selected `ProjectRole`.
+- Accepting a project invite also ensures the invitee has workspace access as a minimal workspace `Guest`, so project routes that require workspace context continue to work.
+- Accepting a workspace invite does **not** create project membership.
 
 ---
 
@@ -65,6 +72,7 @@ Finds users whose profile is publicly discoverable:
 |-------|------|----------|-------|
 | `q` | string (min 2, max 100) | ✅ | Searches first+last name, username, email, workspace name/slug |
 | `excludeProjectId` | UUID | ❌ | Omits users already active members of this project |
+| `excludeWorkspaceId` | UUID | ❌ | Omits users already active members of this workspace |
 | `page` | number | ❌ | Default `1` |
 | `limit` | number (max 50) | ❌ | Default `20` |
 
@@ -102,11 +110,13 @@ Finds users whose profile is publicly discoverable:
 
 ## 3. Project Invites
 
+Project invites are for adding someone to one project. The inviter selects a `ProjectRole`; on acceptance, the backend creates/reactivates `ProjectMembership` and ensures workspace `Guest` membership if the user was not already in that workspace.
+
 ### 3a. Send Invite
 
 **`POST /project-invites`**
-Auth: JWT + `X-Workspace-Id`
-Permission: `projectManagement.update` on the caller's **project** role
+Auth: JWT
+Permission: `canManageProject` on the caller's **project** role
 
 Invitee must already have an account — find them first via `GET /users/search`.
 
@@ -163,8 +173,8 @@ Invitee must already have an account — find them first via `GET /users/search`
 ### 3b. List Invites for a Project
 
 **`GET /projects/:projectId/invites`**
-Auth: JWT + `X-Workspace-Id`
-Permission: `projectManagement.view` on the caller's project role
+Auth: JWT
+Permission: `canManageProject` on the caller's project role
 
 #### Query params
 | Param | Type | Notes |
@@ -189,8 +199,8 @@ Permission: `projectManagement.view` on the caller's project role
 ### 3c. Resend Invite
 
 **`POST /project-invites/:inviteId/resend`**
-Auth: JWT + `X-Workspace-Id`
-Permission: `projectManagement.update` on caller's project role
+Auth: JWT
+Permission: `canManageProject` on caller's project role
 
 Generates a new token and extends expiry by 7 days. Only works on `PENDING` invites.
 
@@ -201,8 +211,8 @@ Generates a new token and extends expiry by 7 days. Only works on `PENDING` invi
 ### 3d. Cancel Invite
 
 **`POST /project-invites/:inviteId/cancel`**
-Auth: JWT + `X-Workspace-Id`
-Permission: `projectManagement.update` on caller's project role
+Auth: JWT
+Permission: `canManageProject` on caller's project role
 
 Sets status to `REVOKED`. Only works on `PENDING` invites.
 
@@ -256,11 +266,180 @@ The token arrives via out-of-band delivery (email, link, etc.). The frontend sho
 | 400 | Token not found, already used, or expired |
 | 404 | Invitee account no longer exists |
 
+## 4. Workspace Invites
+
+Workspace invites are for adding someone to the workspace without adding them to a project. The inviter selects a `WorkspaceRole`; on acceptance, the backend creates/reactivates only `WorkspaceMember`.
+
+### 4a. Send Workspace Invite
+
+**`POST /workspace-invites`**
+Auth: JWT + `X-Workspace-Id`
+Permission: `userManagement.create` on the caller's workspace role
+
+Use `GET /users/search?q=...&excludeWorkspaceId=<workspaceId>` before sending the invite.
+
+#### Request body
+```json
+{
+  "workspaceId": "uuid",
+  "inviteeUserId": "uuid",
+  "workspaceRoleId": "uuid",
+  "message": "Welcome to the workspace!"
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `workspaceId` | UUID | ✅ | Should match the active workspace context |
+| `inviteeUserId` | UUID | ✅ | Must be an existing user account |
+| `workspaceRoleId` | UUID | ✅ | Must belong to the workspace |
+| `message` | string | ❌ | Optional personal note |
+
+#### Response `201`
+```json
+{
+  "data": {
+    "id": "uuid",
+    "workspace": { "id": "uuid", "name": "BuildCorp", "slug": "buildcorp" },
+    "inviter": { "id": "uuid", "firstName": "John", "lastName": "Smith", "email": "john@example.com", "title": "PM" },
+    "invitee": { "id": "uuid", "firstName": "Jane", "lastName": "Doe", "email": "jane@example.com", "title": "Engineer" },
+    "role": { "id": "uuid", "name": "Member", "slug": "member", "permissions": {} },
+    "status": "PENDING",
+    "expiresAt": "2026-04-22T00:00:00.000Z",
+    "acceptedAt": null,
+    "message": "Welcome to the workspace!",
+    "createdAt": "2026-04-15T10:00:00.000Z",
+    "updatedAt": "2026-04-15T10:00:00.000Z"
+  },
+  "message": "Workspace invite sent successfully"
+}
+```
+
+#### Error cases
+| Status | Reason |
+|--------|--------|
+| 404 | `inviteeUserId` does not match any user account |
+| 404 | Workspace not found |
+| 400 | `workspaceRoleId` does not belong to this workspace or role is inactive |
+| 409 | Invitee is already an active workspace member |
+| 409 | A PENDING invite already exists for this user in this workspace |
+| 403 | Caller lacks `userManagement.create` |
+
+### 4b. List Invites for a Workspace
+
+**`GET /workspaces/:workspaceId/invites`**
+Auth: JWT + `X-Workspace-Id`
+Permission: `userManagement.create` on the caller's workspace role
+
+#### Query params
+| Param | Type | Notes |
+|-------|------|-------|
+| `status` | `PENDING` \| `ACCEPTED` \| `DECLINED` \| `REVOKED` \| `EXPIRED` | Filter by status |
+| `page` | number | Default `1` |
+| `limit` | number | Default `50` |
+
+#### Response `200`
+```json
+{
+  "data": {
+    "items": [ /* array of workspace invite objects */ ],
+    "count": 5
+  },
+  "message": "Workspace invites fetched successfully"
+}
+```
+
+### 4c. Received Workspace Invites
+
+**`GET /workspace-invites/received`**
+Auth: JWT
+
+Returns workspace invites where the authenticated user is the invitee.
+
+For the workspace invite inbox/action list, call:
+
+```http
+GET /workspace-invites/received?status=PENDING
+```
+
+#### Query params
+| Param | Type | Notes |
+|-------|------|-------|
+| `status` | invite status | Optional, use `PENDING` for actionable invites |
+| `page` | number | Default `1` |
+| `limit` | number | Default `50` |
+
+### 4d. Resend / Cancel Workspace Invite
+
+```http
+POST /workspace-invites/:inviteId/resend
+POST /workspace-invites/:inviteId/cancel
+```
+
+Auth: JWT + `X-Workspace-Id`
+Permission: `userManagement.create`
+
+Both actions only work on `PENDING` invites. Resend generates a fresh token and extends expiry by 7 days. Cancel sets status to `REVOKED`.
+
+### 4e. Accept Workspace Invite
+
+```http
+POST /workspace-invites/:inviteId/accept
+POST /workspace-invites/accept?token=<token>
+```
+
+Authenticated accept requires the current user to be the invitee. Token-based accept uses the one-time token.
+
+After a successful accept, refresh:
+
+```http
+GET /workspaces/me
+```
+
+Then switch the active workspace to `data.workspaceId` from the accept response if the user should land in the accepted workspace immediately.
+
+#### Response `200`
+```json
+{
+  "data": {
+    "workspaceId": "uuid",
+    "inviteId": "uuid",
+    "message": "Welcome to the workspace!",
+    "membership": {
+      "id": "uuid",
+      "status": "ACTIVE",
+      "workspaceRoleId": "uuid",
+      "workspaceRole": {
+        "id": "uuid",
+        "name": "Member",
+        "slug": "member",
+        "status": true,
+        "isSystem": false,
+        "permissions": { "projectManagement": { "create": false, "update": false, "view": true, "delete": false } }
+      }
+    }
+  },
+  "message": "Workspace invite accepted"
+}
+```
+
+### 4f. Decline Workspace Invite
+
+**`POST /workspace-invites/:inviteId/decline`**
+Auth: JWT
+
+The current user must be the invitee. Sets status to `DECLINED`.
+
+#### Response `200`
+```json
+{ "data": { "id": "uuid", "declined": true }, "message": "Workspace invite declined" }
+```
+
 ---
 
-## 4. My Profile (self-service)
+## 5. My Profile (self-service)
 
-### 4a. Get own profile
+### 5a. Get own profile
 
 **`GET /users/me`**
 Auth: JWT + `X-Workspace-Id`
@@ -291,7 +470,7 @@ Returns the authenticated user's own record, including `isPublicProfile`.
 
 ---
 
-### 4b. Update own profile / toggle discoverability
+### 5b. Update own profile / toggle discoverability
 
 **`PATCH /users/me/profile`**
 Auth: JWT + `X-Workspace-Id`
@@ -323,7 +502,7 @@ Users can update their own display fields and toggle whether they appear in `GET
 
 ---
 
-## 5. Workspace Settings (admin only)
+## 6. Workspace Settings (admin only)
 
 **`PATCH /workspaces/:workspaceId/settings`**
 Auth: JWT only (no `X-Workspace-Id` header needed)
@@ -376,11 +555,11 @@ A user appears in `GET /users/search` results when:
 - `user.isPublicProfile = true` (individual opt-in), **OR**
 - `workspace.allowPublicProfiles = true` for any workspace the user is an active member of
 
-Both flags default to `false` (opt-in model). Use `excludeProjectId` on the search endpoint to pre-filter users who are already in the target project.
+Both flags default to `false` (opt-in model). Use `excludeProjectId` to pre-filter users already in the target project, and `excludeWorkspaceId` to pre-filter users already in the target workspace.
 
 ---
 
-## Typical invite flow (end-to-end)
+## Typical project invite flow (end-to-end)
 
 ```
 1. User opens "Invite member" dialog in a project
@@ -395,6 +574,43 @@ Both flags default to `false` (opt-in model). Use `excludeProjectId` on the sear
 10. Backend: creates membership, returns { projectId, membership }
 11. Frontend: redirect Jane into the project with projectId
 ```
+
+## Typical workspace invite flow (end-to-end)
+
+```
+1. User opens "Invite to workspace" dialog in workspace/team settings
+2. Frontend: GET /users/search?q=jane&excludeWorkspaceId=<workspaceId>
+3. User picks Jane from results (gets her UUID)
+4. User selects a workspace role from the role picker (gets workspaceRoleId)
+5. Frontend: POST /workspace-invites { workspaceId, inviteeUserId, workspaceRoleId, message? }
+6. Backend creates PENDING invite, generates token, and sends WORKSPACE_INVITE_RECEIVED notification
+7. Jane opens the invite from notification or link
+8. Frontend: POST /workspace-invites/:inviteId/accept or POST /workspace-invites/accept?token=<token>
+9. Backend: creates/reactivates workspace membership, assigns workspace role, returns { workspaceId, membership }
+10. Frontend: refresh workspace list/membership context and switch to workspaceId if desired
+```
+
+## Invite notification types
+
+Project invite notifications:
+
+```ts
+PROJECT_INVITE_RECEIVED
+PROJECT_INVITE_ACCEPTED
+PROJECT_INVITE_DECLINED
+PROJECT_INVITE_REVOKED
+```
+
+Workspace invite notifications:
+
+```ts
+WORKSPACE_INVITE_RECEIVED
+WORKSPACE_INVITE_ACCEPTED
+WORKSPACE_INVITE_DECLINED
+WORKSPACE_INVITE_REVOKED
+```
+
+The notification `meta` includes `inviteType: 'project' | 'workspace'` plus the relevant `inviteId`, target id, and role id/name.
 
 ---
 

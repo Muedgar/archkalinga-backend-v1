@@ -123,6 +123,17 @@ export class ProjectsService {
     return workspaceMember?.workspaceRole?.slug === 'admin';
   }
 
+  private hasWorkspaceProjectPermission(
+    workspaceMember: WorkspaceMember | undefined,
+    action: 'view' | 'update' | 'delete',
+  ): boolean {
+    if (this.isWorkspaceAdmin(workspaceMember)) {
+      return true;
+    }
+
+    return workspaceMember?.workspaceRole?.permissions?.projectManagement?.[action] === true;
+  }
+
   private toSerializer(
     project: Project & Partial<ProjectDetail>,
   ): ProjectSerializer {
@@ -207,7 +218,12 @@ export class ProjectsService {
     prefetchedMembership?: ProjectMembership | null,
   ): Promise<Project> {
     const projectPromise = this.loadProjectOrFail(projectId, workspaceId);
-    const membershipPromise = this.isWorkspaceAdmin(workspaceMember)
+    const canUseWorkspacePermission = this.hasWorkspaceProjectPermission(
+      workspaceMember,
+      requiresManagement ? 'update' : 'view',
+    );
+
+    const membershipPromise = canUseWorkspacePermission
       ? Promise.resolve<ProjectMembership | null>(null)
       : this.loadMembershipForUser(projectId, requestUser.id, prefetchedMembership);
 
@@ -216,7 +232,7 @@ export class ProjectsService {
       membershipPromise,
     ]);
 
-    if (!this.isWorkspaceAdmin(workspaceMember)) {
+    if (!canUseWorkspacePermission) {
       const authorized = requiresManagement
         ? this.membershipCanManageProject(membership)
         : this.membershipIsActive(membership);
@@ -906,7 +922,7 @@ export class ProjectsService {
     workspaceMember?: WorkspaceMember,
     prefetchedMembership?: ProjectMembership | null,
   ): Promise<ProjectSerializer> {
-    if (!this.isWorkspaceAdmin(workspaceMember)) {
+    if (!this.hasWorkspaceProjectPermission(workspaceMember, 'view')) {
       const membership = await this.loadMembershipForUser(
         projectId,
         requestUser.id,

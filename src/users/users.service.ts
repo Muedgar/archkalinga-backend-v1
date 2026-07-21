@@ -229,7 +229,7 @@ export class UserService {
    *   - their workspace has `allowPublicProfiles` set to true
    *
    * Results can optionally exclude users who are already active members
-   * of a given project (via excludeProjectId).
+   * of a given project or workspace.
    */
   async searchUsers(
     dto: UserSearchDto,
@@ -289,6 +289,19 @@ export class UserService {
             AND pm.status = 'ACTIVE'
         )`,
         { excludeProjectId: dto.excludeProjectId },
+      );
+    }
+
+    // Optionally exclude users who are already active members of a workspace
+    if (dto.excludeWorkspaceId) {
+      qb.andWhere(
+        `u.id NOT IN (
+          SELECT wm_excluded."userId"
+          FROM workspace_members wm_excluded
+          WHERE wm_excluded."workspaceId" = :excludeWorkspaceId
+            AND wm_excluded.status = 'ACTIVE'
+        )`,
+        { excludeWorkspaceId: dto.excludeWorkspaceId },
       );
     }
 
