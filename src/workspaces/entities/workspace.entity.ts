@@ -1,5 +1,6 @@
 import { Column, Entity, OneToMany } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
+import { WorkspaceInvite } from './workspace-invite.entity';
 import { WorkspaceMember } from './workspace-member.entity';
 
 @Entity('workspaces')
@@ -29,4 +30,7 @@ export class Workspace extends AppBaseEntity {
 
   @OneToMany(() => WorkspaceMember, (m) => m.workspace)
   members: WorkspaceMember[];
+
+  @OneToMany(() => WorkspaceInvite, (invite) => invite.workspace)
+  invites: WorkspaceInvite[];
 }

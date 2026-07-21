@@ -4,14 +4,16 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from 'src/users/entities';
 import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
-import { ProjectMembership } from 'src/projects/entities';
+import { Project, ProjectMembership } from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
+import { WorkspaceMemberStatus } from 'src/workspaces/entities/workspace-member.entity';
 import type {
   ProjectPermissionAction,
   ProjectPermissionDomain,
@@ -47,6 +49,10 @@ export class ProjectPermissionGuard implements CanActivate {
     private readonly reflector: Reflector,
     @InjectRepository(ProjectMembership)
     private readonly membershipRepo: Repository<ProjectMembership>,
+    @InjectRepository(Project)
+    private readonly projectRepo: Repository<Project>,
+    @InjectRepository(WorkspaceMember)
+    private readonly workspaceMemberRepo: Repository<WorkspaceMember>,
   ) {}
 
   private resolveProjectId(request: {
@@ -70,6 +76,82 @@ export class ProjectPermissionGuard implements CanActivate {
     return null;
   }
 
+  private resolveWorkspaceId(request: {
+    headers?: Record<string, string | string[] | undefined>;
+  }): string | null {
+    const rawHeader = request.headers?.['x-workspace-id'];
+    const workspaceId =
+      typeof rawHeader === 'string' ? rawHeader.trim() : undefined;
+
+    return workspaceId && workspaceId.length > 0 ? workspaceId : null;
+  }
+
+  private async resolveWorkspaceMember(
+    request: {
+      user?: User;
+      workspaceMember?: WorkspaceMember;
+      headers?: Record<string, string | string[] | undefined>;
+    },
+  ): Promise<WorkspaceMember | null> {
+    if (request.workspaceMember) {
+      return request.workspaceMember;
+    }
+
+    const workspaceId = this.resolveWorkspaceId(request);
+    const userId = request.user?.id;
+    if (!workspaceId || !userId) {
+      return null;
+    }
+
+    const member = await this.workspaceMemberRepo.findOne({
+      where: {
+        workspaceId,
+        userId,
+        status: WorkspaceMemberStatus.ACTIVE,
+      },
+      relations: ['workspaceRole'],
+    });
+
+    if (member) {
+      request.workspaceMember = member;
+    }
+
+    return member;
+  }
+
+  private canUseWorkspacePermission(
+    required: RequiredProjectPermission | undefined,
+    workspaceMember: WorkspaceMember | null,
+  ): boolean {
+    if (!workspaceMember) {
+      return false;
+    }
+
+    const workspacePermissions = workspaceMember.workspaceRole?.permissions;
+    if (!workspacePermissions) {
+      return false;
+    }
+
+    if (!required) {
+      return workspacePermissions.projectManagement?.view === true;
+    }
+
+    if (required.domain === 'canManageProject') {
+      if (workspaceMember.workspaceRole?.slug === 'admin') {
+        return true;
+      }
+
+      const fallbackAction = required.action ?? 'update';
+      return workspacePermissions.projectManagement?.[fallbackAction] === true;
+    }
+
+    if (!required.action) {
+      return false;
+    }
+
+    return workspacePermissions[required.domain]?.[required.action] === true;
+  }
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const required = this.reflector.get<RequiredProjectPermission | undefined>(
       REQUIRE_PROJECT_PERMISSION_KEY,
@@ -79,22 +161,40 @@ export class ProjectPermissionGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<{
       user?: User;
       workspaceMember?: WorkspaceMember;
+      headers?: Record<string, string | string[] | undefined>;
       params?: Record<string, unknown>;
       body?: Record<string, unknown>;
       query?: Record<string, unknown>;
     }>();
     const user = request.user;
 
-    // Workspace admins bypass all project-level permission checks
-    if (request.workspaceMember?.workspaceRole?.slug === 'admin') {
-      return true;
-    }
-
     const projectId = this.resolveProjectId(request);
     if (!required && !projectId) return true;
 
     if (!projectId) {
       throw new BadRequestException(PROJECT_CONTEXT_REQUIRED);
+    }
+
+    const [project, workspaceMember] = await Promise.all([
+      this.projectRepo.findOne({
+        where: { id: projectId },
+        select: ['id', 'workspaceId'],
+      }),
+      this.resolveWorkspaceMember(request),
+    ]);
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const isSameWorkspace =
+      !!workspaceMember && workspaceMember.workspaceId === project.workspaceId;
+
+    if (
+      isSameWorkspace &&
+      this.canUseWorkspacePermission(required, workspaceMember)
+    ) {
+      return true;
     }
 
     const membership = await this.membershipRepo.findOne({

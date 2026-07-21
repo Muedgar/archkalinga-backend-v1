@@ -31,6 +31,15 @@ export class UserSearchDto {
   @IsOptional()
   excludeProjectId?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'When provided, filters out users who are already active members of this workspace.',
+    example: 'uuid-of-workspace',
+  })
+  @IsUUID()
+  @IsOptional()
+  excludeWorkspaceId?: string;
+
   @ApiPropertyOptional({ example: 1, default: 1 })
   @IsInt()
   @Min(1)

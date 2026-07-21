@@ -1,7 +1,7 @@
 /**
  * JWT token payload.
- * Carries only the user's stable identity — no role or school data.
- * School context is resolved per-request via X-School-Id header (Phase 3).
+ * Carries only the user's stable identity; workspace and project context are
+ * resolved per request by the relevant guards.
  *
  * The optional `purpose` claim narrows a token to a specific use-case:
  *   - 'invite'  → first-time password setup via POST /auth/accept-invite

@@ -38,7 +38,6 @@ import { ProjectInviteSerializer } from './serializers/project-invite.serializer
 import {
   INVITE_ALREADY_MEMBER,
   INVITE_DUPLICATE,
-  INVITE_FORBIDDEN,
   INVITE_NOT_FOUND,
   INVITE_NOT_PENDING,
   INVITE_PROJECT_NOT_FOUND,
@@ -186,23 +185,14 @@ export class ProjectInvitesService {
   }
 
   /**
-   * Verify the requesting user has an ACTIVE membership in the project.
+   * @deprecated Authorization is enforced by ProjectPermissionGuard.
    */
   private async requireProjectMembership(
     projectId: string,
     requestUser: RequestUser,
   ): Promise<void> {
-    const isAdmin = (requestUser as any).role?.slug === 'admin';
-    if (isAdmin) return;
-
-    const membership = await this.membershipRepo.findOne({
-      where: {
-        projectId,
-        userId: requestUser.id,
-        status: MembershipStatus.ACTIVE,
-      },
-    });
-    if (!membership) throw new ForbiddenException(INVITE_FORBIDDEN);
+    void projectId;
+    void requestUser;
   }
 
   // ---------------------------------------------------------------------------
@@ -308,10 +298,11 @@ export class ProjectInvitesService {
     void this.notificationsService
       .createNotification({
         userId: inviteeUser.id,
-        type: NotificationType.INVITE_RECEIVED,
+        type: NotificationType.PROJECT_INVITE_RECEIVED,
         title: `You've been invited to join a project`,
         body: `${inviterUser.firstName} ${inviterUser.lastName} invited you to join the project as ${projectRole.name}.`,
         meta: {
+          inviteType: 'project',
           inviteId: invite.id,
           projectId: dto.projectId,
           projectRoleId: projectRole.id,
@@ -540,10 +531,11 @@ export class ProjectInvitesService {
     void this.notificationsService
       .createNotification({
         userId: invite.inviterUserId,
-        type: NotificationType.INVITE_ACCEPTED,
+        type: NotificationType.PROJECT_INVITE_ACCEPTED,
         title: 'Invite accepted',
         body: `${inviteeUser.firstName} ${inviteeUser.lastName} accepted your project invite.`,
         meta: {
+          inviteType: 'project',
           inviteId: invite.id,
           projectId: invite.projectId,
           inviteeUserId: inviteeUser.id,
@@ -678,12 +670,13 @@ export class ProjectInvitesService {
     void this.notificationsService
       .createNotification({
         userId: invite.inviterUserId,
-        type: NotificationType.INVITE_DECLINED,
+        type: NotificationType.PROJECT_INVITE_DECLINED,
         title: 'Invite declined',
         body: inviteeUser
           ? `${inviteeUser.firstName} ${inviteeUser.lastName} declined your project invite.`
           : 'Your project invite was declined.',
         meta: {
+          inviteType: 'project',
           inviteId: invite.id,
           projectId: invite.projectId,
           inviteeUserId: invite.inviteeUserId,

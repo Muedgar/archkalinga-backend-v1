@@ -16,6 +16,7 @@ import { CommonModule } from './common/common.module';
 import { TemplatesModule } from './templates/templates.module';
 import { ProjectsModule } from './projects/projects.module';
 import { ProjectInvitesModule } from './project-invites/project-invites.module';
+import { WorkspaceInvitesModule } from './workspace-invites/workspace-invites.module';
 import { TasksModule } from './tasks/tasks.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OutboxModule } from './outbox/outbox.module';
@@ -72,6 +73,7 @@ import { dataSourceOptions } from './config/db/db.config';
     TemplatesModule,
     ProjectsModule,
     ProjectInvitesModule,
+    WorkspaceInvitesModule,
     TasksModule,
     NotificationsModule,
     OutboxModule,

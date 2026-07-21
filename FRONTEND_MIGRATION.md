@@ -239,7 +239,37 @@ The new architecture supports a single user belonging to multiple workspaces. Th
 
 ---
 
-## 12. Summary Checklist for Frontend
+## 12. Workspace vs Project Invites
+
+The invite UX now has two separate flows:
+
+- **Workspace invite:** `POST /workspace-invites`, assigns a selected `WorkspaceRole`, and creates/reactivates only workspace membership on accept.
+- **Project invite:** `POST /project-invites`, assigns a selected `ProjectRole`, and creates/reactivates project membership on accept. If the invitee is not already in the workspace, the backend also creates a minimal workspace `Guest` membership so project routes remain accessible.
+
+User search supports both pre-filtering modes:
+
+```http
+GET /users/search?q=jane&excludeWorkspaceId=<workspaceId>
+GET /users/search?q=jane&excludeProjectId=<projectId>
+```
+
+Invite notifications are split by scope:
+
+```ts
+PROJECT_INVITE_RECEIVED
+PROJECT_INVITE_ACCEPTED
+PROJECT_INVITE_DECLINED
+PROJECT_INVITE_REVOKED
+
+WORKSPACE_INVITE_RECEIVED
+WORKSPACE_INVITE_ACCEPTED
+WORKSPACE_INVITE_DECLINED
+WORKSPACE_INVITE_REVOKED
+```
+
+---
+
+## 13. Summary Checklist for Frontend
 
 - [ ] Add `X-Workspace-Id` header to all HTTP requests (interceptor level)
 - [ ] Update signup form: remove org address/country/website/profession/specialty; add `workspaceName` and optional `workspaceDescription`
@@ -247,6 +277,9 @@ The new architecture supports a single user belonging to multiple workspaces. Th
 - [ ] Remove user fields: `userType`, `roleId`, `organization`, `role`
 - [ ] Load role/permissions from `workspaceMember.workspaceRole.permissions`
 - [ ] Update any display of `organizationId` → `workspaceId` in project, template, audit log, and role objects
+- [ ] Add workspace invite UI using `excludeWorkspaceId` and a `WorkspaceRole` picker
+- [ ] Keep project invite UI separate using `excludeProjectId` and a `ProjectRole` picker
+- [ ] Route invite notifications by `PROJECT_INVITE_*` vs `WORKSPACE_INVITE_*`
 - [ ] Hide delete button on roles where `isSystem === true`
 - [ ] Build workspace switcher if multi-workspace UX is planned
 - [ ] Update any references to `role.organizationId` → `role.workspaceId`
