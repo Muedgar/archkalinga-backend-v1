@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonModule } from 'src/common/common.module';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 import { OutboxModule } from 'src/outbox/outbox.module';
 import { ProjectPermissionGuard } from 'src/auth/guards';
 import { WorkspacesModule } from 'src/workspaces/workspaces.module';
@@ -68,6 +69,7 @@ import { ProjectsService } from './projects.service';
       ProjectLabel,
     ]),
     CommonModule,
+    NotificationsModule,
     OutboxModule,
     WorkspacesModule,
   ],

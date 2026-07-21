@@ -113,10 +113,11 @@ export class TaskMembersService {
     const { invite, projectId, projectRole, inviteeUser, actorUser } = params;
     await this.notificationsService.createNotification({
       userId: inviteeUser.id,
-      type: NotificationType.INVITE_RECEIVED,
+      type: NotificationType.PROJECT_INVITE_RECEIVED,
       title: `You've been invited to join a project`,
       body: `${actorUser.firstName} ${actorUser.lastName} assigned you to a task and invited you to join the project as ${projectRole.name}.`,
       meta: {
+        inviteType: 'project',
         inviteId: invite.id,
         projectId,
         projectRoleId: projectRole.id,
@@ -259,10 +260,11 @@ export class TaskMembersService {
         void this.notificationsService
           .createNotification({
             userId: user.id,
-            type: NotificationType.INVITE_RECEIVED,
+            type: NotificationType.PROJECT_INVITE_RECEIVED,
             title: `You've been invited to join a project`,
             body: `${actorUser.firstName} ${actorUser.lastName} assigned you to a task and invited you to join the project as ${role.name}.`,
             meta: {
+              inviteType: 'project',
               inviteId: invite.id,
               projectId,
               projectRoleId: role.id,

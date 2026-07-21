@@ -59,12 +59,12 @@ export class Project extends AppBaseEntity {
   workspaceId: string;
 
   // ── Template ──────────────────────────────────────────────────────────────
-  @ManyToOne(() => Template, { nullable: false, onDelete: 'RESTRICT' })
+  @ManyToOne(() => Template, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'template_id' })
-  template: Template;
+  template: Template | null;
 
-  @Column({ type: 'uuid', nullable: false })
-  templateId: string;
+  @Column({ type: 'uuid', nullable: true })
+  templateId: string | null;
 
   // ── Creator ───────────────────────────────────────────────────────────────
   @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })

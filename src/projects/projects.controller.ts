@@ -33,6 +33,7 @@ import type { WorkspaceMember } from 'src/workspaces/entities/workspace-member.e
 import { LogActivity, ResponseMessage } from 'src/common/decorators';
 import type { RequestUser } from 'src/auth/types';
 import {
+  AssignProjectMemberDto,
   CreateProjectDto,
   ProjectFiltersDto,
   UpdateProjectDto,
@@ -42,6 +43,7 @@ import {
   PROJECT_CREATED,
   PROJECT_DELETED,
   PROJECT_FETCHED,
+  PROJECT_MEMBER_ASSIGNED,
   PROJECT_MEMBER_ROLE_UPDATED,
   PROJECT_MEMBERS_FETCHED,
   PROJECT_UPDATED,
@@ -58,7 +60,7 @@ export class ProjectsController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new project in the current workspace' })
-  @ApiResponse({ status: 201, description: 'Project created with default roles, workflow columns, seeded tasks, and activity logs' })
+  @ApiResponse({ status: 201, description: 'Project created with default roles, project config, optional seeded tasks, and activity logs' })
   @ResponseMessage(PROJECT_CREATED)
   @UseGuards(PermissionGuard)
   @RequirePermission('projectManagement', 'create')
@@ -138,7 +140,7 @@ export class ProjectsController {
   @ApiResponse({ status: 200, description: 'List of active project members with their roles' })
   @ResponseMessage(PROJECT_MEMBERS_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectMemberManagement', 'view')
   listProjectMembers(
     @Req() req: any,
     @Param('projectId', ParseUUIDPipe) projectId: string,
@@ -154,12 +156,44 @@ export class ProjectsController {
     );
   }
 
+  @Post(':projectId/members/assign')
+  @ApiOperation({
+    summary: 'Assign a user to a project',
+    description:
+      'Project-scoped assignment flow. If the user is already an active project member, their project role is updated. ' +
+      'If they are not a project member, a pending project invite is created or updated with the selected role.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Project member role updated or project invite created/updated',
+  })
+  @ResponseMessage(PROJECT_MEMBER_ASSIGNED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('projectMemberManagement', 'create')
+  @LogActivity({ action: 'assign:project-member', resource: 'project-membership', includeBody: true })
+  assignProjectMember(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Body() dto: AssignProjectMemberDto,
+    @GetUser() user: RequestUser,
+    @GetWorkspaceMember() member: WorkspaceMember,
+  ) {
+    return this.projectsService.assignProjectMember(
+      projectId,
+      dto,
+      user,
+      member.workspaceId,
+      member,
+      req.projectMembership,
+    );
+  }
+
   @Patch(':projectId/members/:memberId/role')
   @ApiOperation({ summary: 'Update a project member role' })
   @ApiResponse({ status: 200, description: 'Updated project detail with refreshed member roles' })
   @ResponseMessage(PROJECT_MEMBER_ROLE_UPDATED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectMemberManagement', 'update')
   @LogActivity({ action: 'update:project-member-role', resource: 'project-membership', includeBody: true })
   updateProjectMemberRole(
     @Req() req: any,

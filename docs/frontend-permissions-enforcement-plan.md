@@ -51,7 +51,7 @@ Use workspace permissions for app-level resources:
 | `templateManagement.update` | Edit template actions |
 | `templateManagement.delete` | Delete template actions |
 
-Do not use workspace `projectManagement.update/delete` to gate project detail actions. The live backend uses project-level `canManageProject` for project settings, member roles, invites, project roles, and project delete.
+Do not use workspace `projectManagement.update/delete` as the primary frontend gate for project detail actions. The live backend checks project-level permissions first, with workspace `projectManagement` as an admin fallback inside `ProjectPermissionGuard`.
 
 ### Project Role Permissions
 
@@ -82,6 +82,24 @@ type ProjectPermissionMatrix = {
     view: boolean;
     delete: boolean;
   };
+  projectRoleManagement: {
+    create: boolean;
+    update: boolean;
+    view: boolean;
+    delete: boolean;
+  };
+  projectConfigManagement: {
+    create: boolean;
+    update: boolean;
+    view: boolean;
+    delete: boolean;
+  };
+  projectMemberManagement: {
+    create: boolean;
+    update: boolean;
+    view: boolean;
+    delete: boolean;
+  };
 };
 ```
 
@@ -89,7 +107,7 @@ Use project permissions inside a selected project:
 
 | Backend permission | Frontend enforcement target |
 | --- | --- |
-| `canManageProject` | Edit/delete project, project settings, member role changes, project invites, project role management, project config create/update/delete |
+| `canManageProject` | Edit/delete project; compatibility fallback for granular project-admin checks during rollout |
 | `taskManagement.view` | Task board, task list, task detail, Gantt/activity schedule, task reports, task comments/checklists/watchers/material/resource views |
 | `taskManagement.create` | Create task, create subtask/starter/deliverable, import task rows that create tasks |
 | `taskManagement.update` | Edit task fields, move tasks, assign members, labels, relations, dependencies, comments, checklists, watchers, schedule recalculation, material/resource mutations |
@@ -102,6 +120,18 @@ Use project permissions inside a selected project:
 | `changeRequestManagement.create` | Raise/request a change |
 | `changeRequestManagement.update` | Review/approve/reject/update change requests |
 | `changeRequestManagement.delete` | Delete/cancel change requests where backend supports it |
+| `projectRoleManagement.view` | Project roles list/detail |
+| `projectRoleManagement.create` | Create project role |
+| `projectRoleManagement.update` | Edit project role name/permissions/status |
+| `projectRoleManagement.delete` | Delete project role |
+| `projectConfigManagement.view` | Project statuses, priorities, severities, task types, labels |
+| `projectConfigManagement.create` | Create project config items |
+| `projectConfigManagement.update` | Update project config items |
+| `projectConfigManagement.delete` | Delete project config items |
+| `projectMemberManagement.view` | Project members and sent project invites |
+| `projectMemberManagement.create` | Assign/invite project members |
+| `projectMemberManagement.update` | Update member role and resend project invites |
+| `projectMemberManagement.delete` | Cancel project invites; remove members if/when supported |
 
 If `taskManagement.viewScope === 'assigned'`, the frontend must not pretend the user can see all project tasks. Let the backend filter the dataset, and adjust UI copy/counts so they read as "your visible tasks" rather than "all project tasks".
 
@@ -134,6 +164,10 @@ export function hasProjectPermission(
 ): boolean;
 
 export function canManageProject(
+  matrix: ProjectPermissionMatrix | null | undefined,
+): boolean;
+
+export function canManageProjectSettings(
   matrix: ProjectPermissionMatrix | null | undefined,
 ): boolean;
 
@@ -198,6 +232,9 @@ Also add helpers for repeated surfaces:
 - `useWorkspacePermission(domain, action)`
 - `useProjectPermission(domain, action)`
 - `useCanManageProject()`
+- `useProjectRolePermission(action)`
+- `useProjectConfigPermission(action)`
+- `useProjectMemberPermission(action)`
 
 Recommended UX behavior:
 
@@ -226,7 +263,10 @@ Navigation enforcement should happen before page-level rendering:
 - Inside project navigation, hide task/board/gantt/report pages unless `taskManagement.view`.
 - Hide standalone project/document-management pages unless `documentManagement.view`; task document panels inside task pages currently follow `taskManagement.view`.
 - Hide change request pages unless `changeRequestManagement.view`.
-- Hide project settings, invites, member role management, project roles, and project config unless `canManageProject`.
+- Hide project settings unless `canManageProject`.
+- Hide project roles unless `projectRoleManagement.view`.
+- Hide project config unless `projectConfigManagement.view`.
+- Hide project members and sent invites unless `projectMemberManagement.view`.
 
 Every protected route should also have a page guard. Navigation hiding is not enough because users can deep-link.
 
@@ -240,11 +280,13 @@ Every protected route should also have a page guard. Navigation hiding is not en
 | Open project detail | Active project membership; no specific permission |
 | Edit project | Project `canManageProject` |
 | Delete/archive project | Project `canManageProject` |
-| Manage members | Project `canManageProject` |
-| Change member role | Project `canManageProject` |
-| View members | Project `taskManagement.view` |
-| Send/resend/cancel project invite | Project `canManageProject` |
-| View sent project invites | Project `canManageProject` |
+| View members | Project `projectMemberManagement.view` |
+| Assign/invite member | Project `projectMemberManagement.create` |
+| Change member role | Project `projectMemberManagement.update` |
+| Send project invite | Project `projectMemberManagement.create` |
+| Resend project invite | Project `projectMemberManagement.update` |
+| Cancel project invite | Project `projectMemberManagement.delete` |
+| View sent project invites | Project `projectMemberManagement.view` |
 | Accept/decline received invite | Authenticated invitee; no project permission |
 
 #### Task Board, Task List, Task Detail
@@ -360,7 +402,7 @@ Create fixtures for these roles:
 - Workspace admin/full access.
 - Workspace member without `projectManagement.create`.
 - Workspace member with templates view only.
-- Project owner/manager with `canManageProject`.
+- Project owner/manager with granular project role/config/member management.
 - Project contributor with task create/update/view but no delete.
 - Project reviewer with update/view and no create/delete.
 - Project viewer with `taskManagement.viewScope = 'assigned'`.
@@ -376,7 +418,8 @@ Required tests:
 - Overflow menu trigger disappears when all menu items are unauthorized.
 - Bulk action toolbar hides forbidden actions.
 - Drag/drop task movement is blocked without `taskManagement.update`.
-- `canManageProject` gates project settings, invites, roles, config, member role updates, and project delete.
+- `canManageProject` gates project settings and delete/archive.
+- Granular project-admin domains gate project roles, project config, project members, and sent project invites.
 - `taskManagement.viewScope = 'assigned'` does not show all-project wording/counts.
 - Global API client handles `403` and refreshes permission context.
 

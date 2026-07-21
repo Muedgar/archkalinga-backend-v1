@@ -7,7 +7,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
+import { randomBytes } from 'crypto';
 import { EntityManager, IsNull, Repository } from 'typeorm';
+import { NotificationType } from 'src/notifications/entities/notification.entity';
+import { NotificationsService } from 'src/notifications/notifications.service';
 import { OutboxService } from 'src/outbox/outbox.service';
 
 import { Workspace } from 'src/workspaces/entities/workspace.entity';
@@ -26,6 +29,7 @@ import { User } from 'src/users/entities/user.entity';
 import { RequestUser } from 'src/auth/types';
 
 import {
+  AssignProjectMemberDto,
   CreateProjectDto,
   UpdateProjectDto,
   ProjectFiltersDto,
@@ -61,6 +65,9 @@ import {
 import { ProjectConfigService } from './project-config.service';
 
 const TEMPLATE_NOT_IN_WORKSPACE = 'Template not found in this workspace';
+const INVITEE_ACCOUNT_NOT_FOUND = 'Invitee account not found';
+
+const PROJECT_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,6 +85,22 @@ interface TemplateTaskNode {
   order: number;
   parentTaskId: string | null;
   subtasks: TemplateTaskNode[];
+}
+
+type ProjectMemberAssignmentStatus =
+  | 'member_updated'
+  | 'invite_created'
+  | 'invite_updated';
+
+interface ProjectMemberAssignmentResult {
+  status: ProjectMemberAssignmentStatus;
+  projectRoleId: string;
+  inviteId: string | null;
+  notifyInvite: {
+    id: string;
+    roleId: string;
+    roleName: string;
+  } | null;
 }
 
 const RANK_WIDTH = 10;
@@ -112,6 +135,7 @@ export class ProjectsService {
     @InjectRepository(ProjectTaskTypeConfig)
     private readonly projectTaskTypeRepo: Repository<ProjectTaskTypeConfig>,
     private readonly projectConfigService: ProjectConfigService,
+    private readonly notificationsService: NotificationsService,
     private readonly outboxService: OutboxService,
   ) {}
 
@@ -121,6 +145,14 @@ export class ProjectsService {
 
   private isWorkspaceAdmin(workspaceMember: WorkspaceMember | undefined): boolean {
     return workspaceMember?.workspaceRole?.slug === 'admin';
+  }
+
+  private generateInviteToken(): string {
+    return randomBytes(48).toString('hex');
+  }
+
+  private inviteExpiresAt(): Date {
+    return new Date(Date.now() + PROJECT_INVITE_TTL_MS);
   }
 
   private hasWorkspaceProjectPermission(
@@ -694,15 +726,17 @@ export class ProjectsService {
     this.ensureDateRange(dto.startDate, dto.endDate ?? null);
 
     const [template, workspaceRecord, creatorUser] = await Promise.all([
-      this.templateRepo.findOne({
-        where: { id: dto.templateId, workspaceId },
-        relations: ['tasks'],
-        order: { tasks: { order: 'ASC' } },
-      }),
+      dto.templateId
+        ? this.templateRepo.findOne({
+            where: { id: dto.templateId, workspaceId },
+            relations: ['tasks'],
+            order: { tasks: { order: 'ASC' } },
+          })
+        : Promise.resolve(null),
       this.workspaceRepo.findOneOrFail({ where: { id: workspaceId } }),
       this.userRepo.findOneOrFail({ where: { id: userId } }),
     ]);
-    if (!template) throw new NotFoundException(TEMPLATE_NOT_IN_WORKSPACE);
+    if (dto.templateId && !template) throw new NotFoundException(TEMPLATE_NOT_IN_WORKSPACE);
 
     const project = await this.projectRepo.manager.transaction(async (tx) => {
       const proj = tx.create(Project, {
@@ -715,7 +749,7 @@ export class ProjectsService {
         workspace: workspaceRecord,
         workspaceId,
         template,
-        templateId: dto.templateId,
+        templateId: dto.templateId ?? null,
         createdByUser: creatorUser,
         createdByUserId: userId,
       });
@@ -750,12 +784,14 @@ export class ProjectsService {
 
     // Seed template tasks now that config defaults exist for the project.
     const seededTaskCount = await this.projectRepo.manager.transaction(async (tx) => {
-      const count = await this.seedProjectTasksFromTemplate(
-        tx,
-        project,
-        creatorUser,
-        template,
-      );
+      const count = template
+        ? await this.seedProjectTasksFromTemplate(
+            tx,
+            project,
+            creatorUser,
+            template,
+          )
+        : 0;
 
       await tx.save(
         tx.create(ProjectActivityLog, {
@@ -782,7 +818,7 @@ export class ProjectsService {
           actorUserId: userId,
           title: dto.title,
           type: dto.type,
-          templateId: dto.templateId,
+          templateId: dto.templateId ?? null,
           seededTaskCount: count,
         },
       });
@@ -1070,6 +1106,213 @@ export class ProjectsService {
         ? { id: m.projectRole.id, name: m.projectRole.name, slug: m.projectRole.slug }
         : null,
     }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Assign a user to the project
+  // ---------------------------------------------------------------------------
+
+  async assignProjectMember(
+    projectId: string,
+    dto: AssignProjectMemberDto,
+    requestUser: RequestUser,
+    workspaceId: string,
+    workspaceMember?: WorkspaceMember,
+    prefetchedMembership?: ProjectMembership | null,
+  ): Promise<{
+    status: ProjectMemberAssignmentStatus;
+    userId: string;
+    projectRoleId: string;
+    inviteId: string | null;
+    project: ProjectSerializer;
+  }> {
+    const { id: actorUserId } = requestUser;
+
+    const [actorUser, inviteeUser, project] = await Promise.all([
+      this.userRepo.findOneOrFail({ where: { id: actorUserId } }),
+      this.userRepo.findOne({ where: { id: dto.userId } }),
+      this.loadAuthorizedProject(
+        projectId,
+        workspaceId,
+        requestUser,
+        true,
+        workspaceMember,
+        prefetchedMembership,
+      ),
+    ]);
+
+    if (!inviteeUser) throw new NotFoundException(INVITEE_ACCOUNT_NOT_FOUND);
+
+    const assignmentResult = await this.projectRepo.manager.transaction<ProjectMemberAssignmentResult>(
+      async (tx) => {
+        const nextRole = await tx.findOne(ProjectRole, {
+          where: { id: dto.projectRoleId, projectId, status: true },
+        });
+        if (!nextRole) throw new BadRequestException(INVALID_PROJECT_MEMBER_ROLE);
+
+        const activeMembership = await tx.findOne(ProjectMembership, {
+          where: {
+            projectId,
+            userId: inviteeUser.id,
+            status: MembershipStatus.ACTIVE,
+          },
+          relations: ['projectRole'],
+        });
+
+        if (activeMembership) {
+          if (activeMembership.projectRole?.isProtected === true) {
+            throw new BadRequestException(PROJECT_MEMBER_ROLE_CHANGE_FORBIDDEN);
+          }
+
+          activeMembership.projectRole = nextRole;
+          activeMembership.projectRoleId = nextRole.id;
+          await tx.save(activeMembership);
+
+          await tx.save(
+            tx.create(ProjectActivityLog, {
+              project,
+              projectId,
+              user: actorUser,
+              userId: actorUserId,
+              taskId: null,
+              actionType: ProjectActionType.PROJECT_UPDATED,
+              actionMeta: {
+                assignmentFlow: 'project_member',
+                updatedMemberId: inviteeUser.id,
+                projectRoleId: nextRole.id,
+                projectRoleSlug: nextRole.slug,
+              },
+            }),
+          );
+
+          await this.outboxService.record(tx, {
+            aggregateType: 'project-member',
+            aggregateId: inviteeUser.id,
+            eventType: 'project.member.role.updated',
+            payload: {
+              projectId,
+              workspaceId,
+              actorUserId,
+              memberId: inviteeUser.id,
+              projectRoleId: nextRole.id,
+              projectRoleSlug: nextRole.slug,
+              assignmentFlow: 'project_member',
+            },
+          });
+
+          return {
+            status: 'member_updated',
+            projectRoleId: nextRole.id,
+            inviteId: null,
+            notifyInvite: null,
+          };
+        }
+
+        const existingPendingInvite = await tx.findOne(ProjectInvite, {
+          where: {
+            projectId,
+            inviteeUserId: inviteeUser.id,
+            status: InviteStatus.PENDING,
+          },
+        });
+
+        const invite = existingPendingInvite ?? tx.create(ProjectInvite, {
+          project,
+          projectId,
+          inviterUser: actorUser,
+          inviterUserId: actorUserId,
+          inviteeUser,
+          inviteeUserId: inviteeUser.id,
+          token: this.generateInviteToken(),
+          status: InviteStatus.PENDING,
+          expiresAt: this.inviteExpiresAt(),
+          acceptedAt: null,
+        });
+
+        invite.projectRole = nextRole;
+        invite.projectRoleId = nextRole.id;
+        invite.message = dto.message ?? invite.message ?? null;
+        if (!existingPendingInvite) {
+          invite.expiresAt = this.inviteExpiresAt();
+        }
+
+        const savedInvite = await tx.save(invite);
+
+        await tx.save(
+          tx.create(ProjectActivityLog, {
+            project,
+            projectId,
+            user: actorUser,
+            userId: actorUserId,
+            taskId: null,
+            actionType: ProjectActionType.INVITE_SENT,
+            actionMeta: {
+              assignmentFlow: 'project_member',
+              inviteeUserId: inviteeUser.id,
+              inviteeEmail: inviteeUser.email,
+              projectRoleId: nextRole.id,
+              projectRoleSlug: nextRole.slug,
+              inviteUpdated: Boolean(existingPendingInvite),
+            },
+          }),
+        );
+
+        await this.outboxService.record(tx, {
+          aggregateType: 'project-invite',
+          aggregateId: savedInvite.id,
+          eventType: existingPendingInvite
+            ? 'project.invite.updated'
+            : 'project.invite.created',
+          payload: {
+            projectId,
+            workspaceId,
+            actorUserId,
+            inviteId: savedInvite.id,
+            inviteeUserId: inviteeUser.id,
+            projectRoleId: nextRole.id,
+            projectRoleSlug: nextRole.slug,
+            assignmentFlow: 'project_member',
+          },
+        });
+
+        return {
+          status: existingPendingInvite ? 'invite_updated' : 'invite_created',
+          projectRoleId: nextRole.id,
+          inviteId: savedInvite.id,
+          notifyInvite: {
+            id: savedInvite.id,
+            roleId: nextRole.id,
+            roleName: nextRole.name,
+          },
+        };
+      },
+    );
+
+    if (assignmentResult.notifyInvite) {
+      void this.notificationsService
+        .createNotification({
+          userId: inviteeUser.id,
+          type: NotificationType.PROJECT_INVITE_RECEIVED,
+          title: `You've been invited to join a project`,
+          body: `${actorUser.firstName} ${actorUser.lastName} invited you to join the project as ${assignmentResult.notifyInvite.roleName}.`,
+          meta: {
+            inviteType: 'project',
+            inviteId: assignmentResult.notifyInvite.id,
+            projectId,
+            projectRoleId: assignmentResult.notifyInvite.roleId,
+            projectRoleName: assignmentResult.notifyInvite.roleName,
+          },
+        })
+        .catch(() => void 0);
+    }
+
+    return {
+      status: assignmentResult.status,
+      userId: inviteeUser.id,
+      projectRoleId: assignmentResult.projectRoleId,
+      inviteId: assignmentResult.inviteId,
+      project: this.toSerializer(await this.loadFull(projectId, workspaceId)),
+    };
   }
 
   // ---------------------------------------------------------------------------

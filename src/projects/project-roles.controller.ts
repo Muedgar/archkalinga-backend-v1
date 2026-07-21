@@ -43,12 +43,12 @@ export class ProjectRolesController {
   @ApiOperation({
     summary: 'Create a custom project role',
     description:
-      "Project-scoped settings action. Requires canManageProject through the caller's active project role, or projectManagement.update through their workspace role.",
+      "Requires projectRoleManagement.create through the caller's active project role, or projectManagement.update through their workspace role.",
   })
   @ApiResponse({ status: 201, description: 'Project role created' })
   @ResponseMessage(PROJECT_ROLE_CREATED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject', 'update')
+  @RequireProjectPermission('projectRoleManagement', 'create')
   @LogActivity({ action: 'create:project-role', resource: 'project-role', includeBody: true })
   createProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,
@@ -61,12 +61,12 @@ export class ProjectRolesController {
   @ApiOperation({
     summary: 'List project roles',
     description:
-      "Project-scoped settings action. Requires canManageProject through the caller's active project role, or projectManagement.view through their workspace role.",
+      "Requires projectRoleManagement.view through the caller's active project role, or projectManagement.view through their workspace role.",
   })
   @ApiResponse({ status: 200, description: 'Paginated list of project roles' })
   @ResponseMessage(PROJECT_ROLES_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject', 'view')
+  @RequireProjectPermission('projectRoleManagement', 'view')
   listProjectRoles(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Query() filters: ListFilterDTO,
@@ -78,12 +78,12 @@ export class ProjectRolesController {
   @ApiOperation({
     summary: 'Get a single project role',
     description:
-      "Project-scoped settings action. Requires canManageProject through the caller's active project role, or projectManagement.view through their workspace role.",
+      "Requires projectRoleManagement.view through the caller's active project role, or projectManagement.view through their workspace role.",
   })
   @ApiResponse({ status: 200, description: 'Project role detail' })
   @ResponseMessage(PROJECT_ROLE_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject', 'view')
+  @RequireProjectPermission('projectRoleManagement', 'view')
   getProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('roleId', ParseUUIDPipe) roleId: string,
@@ -95,12 +95,12 @@ export class ProjectRolesController {
   @ApiOperation({
     summary: 'Update a project role',
     description:
-      "Project-scoped settings action. Requires canManageProject through the caller's active project role, or projectManagement.update through their workspace role. System roles keep stable internal slugs when renamed.",
+      "Requires projectRoleManagement.update through the caller's active project role, or projectManagement.update through their workspace role. System roles keep stable internal slugs when renamed.",
   })
   @ApiResponse({ status: 200, description: 'Project role updated' })
   @ResponseMessage(PROJECT_ROLE_UPDATED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject', 'update')
+  @RequireProjectPermission('projectRoleManagement', 'update')
   @LogActivity({ action: 'update:project-role', resource: 'project-role', includeBody: true })
   updateProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,
@@ -114,12 +114,12 @@ export class ProjectRolesController {
   @ApiOperation({
     summary: 'Delete a project role',
     description:
-      "Project-scoped settings action. Requires canManageProject through the caller's active project role, or projectManagement.update through their workspace role. Protected roles and roles still used by memberships or pending invites cannot be deleted.",
+      "Requires projectRoleManagement.delete through the caller's active project role, or projectManagement.delete through their workspace role. Protected roles and roles still used by memberships or pending invites cannot be deleted.",
   })
   @ApiResponse({ status: 200, description: 'Project role deleted' })
   @ResponseMessage(PROJECT_ROLE_DELETED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('canManageProject', 'update')
+  @RequireProjectPermission('projectRoleManagement', 'delete')
   @LogActivity({ action: 'delete:project-role', resource: 'project-role' })
   deleteProjectRole(
     @Param('projectId', ParseUUIDPipe) projectId: string,

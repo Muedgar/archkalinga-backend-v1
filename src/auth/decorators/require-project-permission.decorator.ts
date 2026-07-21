@@ -13,10 +13,12 @@ export const REQUIRE_PROJECT_PERMISSION_KEY = 'require_project_permission';
  *
  * Two forms:
  *
- *   // Resource-level permission (taskManagement, documentManagement, changeRequestManagement)
+ *   // Resource-level permission (taskManagement, documentManagement, changeRequestManagement,
+ *   // projectRoleManagement, projectConfigManagement, projectMemberManagement)
  *   @RequireProjectPermission('taskManagement', 'update')
  *
- *   // Admin flag — gates project settings, invite, and role management actions.
+ *   // Compatibility admin flag — gates project settings and remains a rollout
+ *   // fallback for granular project-admin domains.
  *   // `action` is optional and is used only for equivalent workspace-level
  *   // fallback checks against workspace projectManagement permissions.
  *   @RequireProjectPermission('canManageProject')

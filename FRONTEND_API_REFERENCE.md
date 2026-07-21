@@ -21,6 +21,16 @@ Invite model summary:
 - Accepting a project invite also ensures the invitee has workspace access as a minimal workspace `Guest`, so project routes that require workspace context continue to work.
 - Accepting a workspace invite does **not** create project membership.
 
+Project permission domain summary:
+
+| Domain | Frontend use |
+|--------|--------------|
+| `canManageProject` | Project settings/update/delete and rollout fallback for granular project-admin permissions |
+| `projectRoleManagement.*` | Project role list/create/update/delete |
+| `projectConfigManagement.*` | Project statuses, priorities, severities, task types, and labels |
+| `projectMemberManagement.*` | Project members and sent project invites |
+| `taskManagement.*` | Tasks, subtasks, task board/list/detail, and task-owned operations |
+
 ---
 
 ## 1. Create a Project
@@ -112,11 +122,13 @@ Finds users whose profile is publicly discoverable:
 
 Project invites are for adding someone to one project. The inviter selects a `ProjectRole`; on acceptance, the backend creates/reactivates `ProjectMembership` and ensures workspace `Guest` membership if the user was not already in that workspace.
 
+Project invite management is gated by `projectMemberManagement` on the caller's project role. During backend rollout, roles with legacy `canManageProject: true` are still accepted as a compatibility fallback.
+
 ### 3a. Send Invite
 
 **`POST /project-invites`**
 Auth: JWT
-Permission: `canManageProject` on the caller's **project** role
+Permission: `projectMemberManagement.create` on the caller's **project** role
 
 Invitee must already have an account — find them first via `GET /users/search`.
 
@@ -174,7 +186,7 @@ Invitee must already have an account — find them first via `GET /users/search`
 
 **`GET /projects/:projectId/invites`**
 Auth: JWT
-Permission: `canManageProject` on the caller's project role
+Permission: `projectMemberManagement.view` on the caller's project role
 
 #### Query params
 | Param | Type | Notes |
@@ -200,7 +212,7 @@ Permission: `canManageProject` on the caller's project role
 
 **`POST /project-invites/:inviteId/resend`**
 Auth: JWT
-Permission: `canManageProject` on caller's project role
+Permission: `projectMemberManagement.update` on caller's project role
 
 Generates a new token and extends expiry by 7 days. Only works on `PENDING` invites.
 
@@ -212,7 +224,7 @@ Generates a new token and extends expiry by 7 days. Only works on `PENDING` invi
 
 **`POST /project-invites/:inviteId/cancel`**
 Auth: JWT
-Permission: `canManageProject` on caller's project role
+Permission: `projectMemberManagement.delete` on caller's project role
 
 Sets status to `REVOKED`. Only works on `PENDING` invites.
 

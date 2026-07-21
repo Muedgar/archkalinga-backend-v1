@@ -278,10 +278,10 @@ export class WorkspaceRefactor1776000000000 implements MigrationInterface {
         "status"        "public"."projects_status_enum" NOT NULL DEFAULT 'ACTIVE',
         "archivedAt"    TIMESTAMP WITH TIME ZONE,
         "workspaceId"   uuid          NOT NULL,
-        "templateId"    uuid          NOT NULL,
+        "templateId"    uuid,
         "createdByUserId" uuid        NOT NULL,
         "workspace_id"  integer       NOT NULL,
-        "template_id"   integer       NOT NULL,
+        "template_id"   integer,
         "created_by_id" integer       NOT NULL,
         CONSTRAINT "UQ_projects_id" UNIQUE ("id"),
         CONSTRAINT "PK_projects"    PRIMARY KEY ("pkid")

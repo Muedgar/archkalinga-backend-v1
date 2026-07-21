@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
 import { Project } from 'src/projects/entities';
 import {
@@ -239,18 +239,27 @@ export class ActivityScheduleGanttService {
       canViewAllProjectTasks,
     );
 
-    const [tasks, schedules, dependencies, calendar] = await Promise.all([
+    const [projectTasks, calendar] = await Promise.all([
       taskQb.getMany(),
-      this.scheduleRepo.find({ relations: ['task'] }),
-      this.dependencyRepo.find(),
       this.calendarRepo.findOne({ where: { projectId } }),
     ]);
 
-    const projectTasks = tasks;
     const taskIds = new Set(projectTasks.map((task) => task.id));
-    const projectSchedules = schedules.filter((schedule) =>
-      taskIds.has(schedule.taskId),
-    ) as ScheduleWithTask[];
+    const visibleTaskIds = [...taskIds];
+    const [projectSchedules, projectDependencies] = visibleTaskIds.length
+      ? await Promise.all([
+          this.scheduleRepo.find({
+            where: { taskId: In(visibleTaskIds) },
+            relations: ['task'],
+          }) as Promise<ScheduleWithTask[]>,
+          this.dependencyRepo.find({
+            where: {
+              taskId: In(visibleTaskIds),
+              dependsOnTaskId: In(visibleTaskIds),
+            },
+          }),
+        ])
+      : [[], [] as TaskDependency[]];
     const scheduleByTaskId = new Map(
       projectSchedules.map((schedule) => [schedule.taskId, schedule]),
     );
@@ -342,26 +351,6 @@ export class ActivityScheduleGanttService {
             wbsCode: task.wbsCode,
           });
         }
-      }
-    }
-
-    const projectDependencies = dependencies.filter(
-      (dependency) =>
-        taskIds.has(dependency.taskId) ||
-        taskIds.has(dependency.dependsOnTaskId),
-    );
-    for (const dependency of projectDependencies) {
-      if (
-        !taskIds.has(dependency.taskId) ||
-        !taskIds.has(dependency.dependsOnTaskId)
-      ) {
-        issues.push({
-          severity: 'error',
-          code: 'missing_predecessor',
-          message:
-            'Dependency points to a task outside this project or a deleted task',
-          taskId: dependency.taskId,
-        });
       }
     }
 

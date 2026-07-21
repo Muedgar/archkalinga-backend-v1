@@ -20,6 +20,7 @@ import { WorkspaceInvitesModule } from './workspace-invites/workspace-invites.mo
 import { TasksModule } from './tasks/tasks.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OutboxModule } from './outbox/outbox.module';
+import { SearchModule } from './search/search.module';
 
 import { ResponseInterceptor } from './common/interceptors';
 import { dataSourceOptions } from './config/db/db.config';
@@ -77,6 +78,7 @@ import { dataSourceOptions } from './config/db/db.config';
     TasksModule,
     NotificationsModule,
     OutboxModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [

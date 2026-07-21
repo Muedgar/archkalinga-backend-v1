@@ -73,7 +73,7 @@ export class ProjectConfigController {
   @ApiOperation({ summary: 'List all statuses for a project' })
   @ApiResponse({ status: 200 })
   @ResponseMessage(CONFIG_STATUSES_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   listStatuses(@Param('projectId', ParseUUIDPipe) projectId: string) {
     return this.configService.listStatuses(projectId);
   }
@@ -81,7 +81,7 @@ export class ProjectConfigController {
   @Get('statuses/:statusId')
   @ApiOperation({ summary: 'Get a single project status' })
   @ResponseMessage(CONFIG_STATUS_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   getStatus(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('statusId', ParseUUIDPipe) statusId: string,
@@ -93,7 +93,7 @@ export class ProjectConfigController {
   @ApiOperation({ summary: 'Create a new status for a project' })
   @ApiResponse({ status: 201 })
   @ResponseMessage(CONFIG_STATUS_CREATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'create')
   createStatus(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() dto: CreateProjectStatusDto,
@@ -104,7 +104,7 @@ export class ProjectConfigController {
   @Patch('statuses/:statusId')
   @ApiOperation({ summary: 'Update a project status' })
   @ResponseMessage(CONFIG_STATUS_UPDATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'update')
   updateStatus(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('statusId', ParseUUIDPipe) statusId: string,
@@ -116,7 +116,7 @@ export class ProjectConfigController {
   @Delete('statuses/:statusId')
   @ApiOperation({ summary: 'Delete a project status' })
   @ResponseMessage(CONFIG_STATUS_DELETED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'delete')
   deleteStatus(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('statusId', ParseUUIDPipe) statusId: string,
@@ -129,7 +129,7 @@ export class ProjectConfigController {
   @Get('priorities')
   @ApiOperation({ summary: 'List all priorities for a project' })
   @ResponseMessage(CONFIG_PRIORITIES_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   listPriorities(@Param('projectId', ParseUUIDPipe) projectId: string) {
     return this.configService.listPriorities(projectId);
   }
@@ -137,7 +137,7 @@ export class ProjectConfigController {
   @Get('priorities/:priorityId')
   @ApiOperation({ summary: 'Get a single project priority' })
   @ResponseMessage(CONFIG_PRIORITY_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   getPriority(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('priorityId', ParseUUIDPipe) priorityId: string,
@@ -149,7 +149,7 @@ export class ProjectConfigController {
   @ApiOperation({ summary: 'Create a new priority for a project' })
   @ApiResponse({ status: 201 })
   @ResponseMessage(CONFIG_PRIORITY_CREATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'create')
   createPriority(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() dto: CreateProjectPriorityDto,
@@ -160,7 +160,7 @@ export class ProjectConfigController {
   @Patch('priorities/:priorityId')
   @ApiOperation({ summary: 'Update a project priority' })
   @ResponseMessage(CONFIG_PRIORITY_UPDATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'update')
   updatePriority(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('priorityId', ParseUUIDPipe) priorityId: string,
@@ -172,7 +172,7 @@ export class ProjectConfigController {
   @Delete('priorities/:priorityId')
   @ApiOperation({ summary: 'Delete a project priority' })
   @ResponseMessage(CONFIG_PRIORITY_DELETED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'delete')
   deletePriority(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('priorityId', ParseUUIDPipe) priorityId: string,
@@ -185,7 +185,7 @@ export class ProjectConfigController {
   @Get('severities')
   @ApiOperation({ summary: 'List all severities for a project' })
   @ResponseMessage(CONFIG_SEVERITIES_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   listSeverities(@Param('projectId', ParseUUIDPipe) projectId: string) {
     return this.configService.listSeverities(projectId);
   }
@@ -193,7 +193,7 @@ export class ProjectConfigController {
   @Get('severities/:severityId')
   @ApiOperation({ summary: 'Get a single project severity' })
   @ResponseMessage(CONFIG_SEVERITY_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   getSeverity(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('severityId', ParseUUIDPipe) severityId: string,
@@ -205,7 +205,7 @@ export class ProjectConfigController {
   @ApiOperation({ summary: 'Create a new severity for a project' })
   @ApiResponse({ status: 201 })
   @ResponseMessage(CONFIG_SEVERITY_CREATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'create')
   createSeverity(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() dto: CreateProjectSeverityDto,
@@ -216,7 +216,7 @@ export class ProjectConfigController {
   @Patch('severities/:severityId')
   @ApiOperation({ summary: 'Update a project severity' })
   @ResponseMessage(CONFIG_SEVERITY_UPDATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'update')
   updateSeverity(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('severityId', ParseUUIDPipe) severityId: string,
@@ -228,7 +228,7 @@ export class ProjectConfigController {
   @Delete('severities/:severityId')
   @ApiOperation({ summary: 'Delete a project severity' })
   @ResponseMessage(CONFIG_SEVERITY_DELETED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'delete')
   deleteSeverity(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('severityId', ParseUUIDPipe) severityId: string,
@@ -241,7 +241,7 @@ export class ProjectConfigController {
   @Get('task-types')
   @ApiOperation({ summary: 'List all task types for a project' })
   @ResponseMessage(CONFIG_TASK_TYPES_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   listTaskTypes(@Param('projectId', ParseUUIDPipe) projectId: string) {
     return this.configService.listTaskTypes(projectId);
   }
@@ -249,7 +249,7 @@ export class ProjectConfigController {
   @Get('task-types/:typeId')
   @ApiOperation({ summary: 'Get a single project task type' })
   @ResponseMessage(CONFIG_TASK_TYPE_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   getTaskType(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('typeId', ParseUUIDPipe) typeId: string,
@@ -261,7 +261,7 @@ export class ProjectConfigController {
   @ApiOperation({ summary: 'Create a new task type for a project' })
   @ApiResponse({ status: 201 })
   @ResponseMessage(CONFIG_TASK_TYPE_CREATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'create')
   createTaskType(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() dto: CreateProjectTaskTypeDto,
@@ -272,7 +272,7 @@ export class ProjectConfigController {
   @Patch('task-types/:typeId')
   @ApiOperation({ summary: 'Update a project task type' })
   @ResponseMessage(CONFIG_TASK_TYPE_UPDATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'update')
   updateTaskType(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('typeId', ParseUUIDPipe) typeId: string,
@@ -284,7 +284,7 @@ export class ProjectConfigController {
   @Delete('task-types/:typeId')
   @ApiOperation({ summary: 'Delete a project task type' })
   @ResponseMessage(CONFIG_TASK_TYPE_DELETED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'delete')
   deleteTaskType(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('typeId', ParseUUIDPipe) typeId: string,
@@ -297,7 +297,7 @@ export class ProjectConfigController {
   @Get('labels')
   @ApiOperation({ summary: 'List all labels for a project' })
   @ResponseMessage(CONFIG_LABELS_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   listLabels(@Param('projectId', ParseUUIDPipe) projectId: string) {
     return this.configService.listLabels(projectId);
   }
@@ -305,7 +305,7 @@ export class ProjectConfigController {
   @Get('labels/:labelId')
   @ApiOperation({ summary: 'Get a single project label' })
   @ResponseMessage(CONFIG_LABEL_FETCHED)
-  @RequireProjectPermission('taskManagement', 'view')
+  @RequireProjectPermission('projectConfigManagement', 'view')
   getLabel(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('labelId', ParseUUIDPipe) labelId: string,
@@ -317,7 +317,7 @@ export class ProjectConfigController {
   @ApiOperation({ summary: 'Create a new label for a project' })
   @ApiResponse({ status: 201 })
   @ResponseMessage(CONFIG_LABEL_CREATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'create')
   createLabel(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() dto: CreateProjectLabelDto,
@@ -328,7 +328,7 @@ export class ProjectConfigController {
   @Patch('labels/:labelId')
   @ApiOperation({ summary: 'Update a project label' })
   @ResponseMessage(CONFIG_LABEL_UPDATED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'update')
   updateLabel(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('labelId', ParseUUIDPipe) labelId: string,
@@ -340,7 +340,7 @@ export class ProjectConfigController {
   @Delete('labels/:labelId')
   @ApiOperation({ summary: 'Delete a project label' })
   @ResponseMessage(CONFIG_LABEL_DELETED)
-  @RequireProjectPermission('canManageProject')
+  @RequireProjectPermission('projectConfigManagement', 'delete')
   deleteLabel(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('labelId', ParseUUIDPipe) labelId: string,
