@@ -36,7 +36,11 @@ export class CreateProjectDto {
   @IsEnum(ProjectType)
   type: ProjectType;
 
-  @ApiProperty({ example: 'uuid-of-template' })
+  @ApiPropertyOptional({
+    example: 'uuid-of-template',
+    description: 'Optional. When omitted, the project starts without seeded template tasks.',
+  })
   @IsUUID()
-  templateId: string;
+  @IsOptional()
+  templateId?: string;
 }

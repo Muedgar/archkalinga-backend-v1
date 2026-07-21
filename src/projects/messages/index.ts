@@ -23,6 +23,8 @@ export const PROJECT_MEMBER_NOT_FOUND = 'Project member not found';
 export const PROJECT_MEMBERS_FETCHED = 'Project members fetched successfully';
 export const PROJECT_MEMBER_ROLE_UPDATED =
   'Project member role updated successfully';
+export const PROJECT_MEMBER_ASSIGNED =
+  'Project member assignment processed successfully';
 export const PROJECT_MEMBER_ROLE_CHANGE_FORBIDDEN =
   'Protected member roles cannot be reassigned through this endpoint';
 

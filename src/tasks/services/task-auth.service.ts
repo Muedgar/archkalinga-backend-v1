@@ -215,18 +215,37 @@ export class TaskAuthService {
     if (!resolvedProject) throw new NotFoundException(TASK_PROJECT_NOT_FOUND);
     if (resolvedProject.createdByUserId === requestUser.id) return true;
 
-    const workspaceMember = await this.workspaceMemberRepo.findOne({
-      where: {
-        workspaceId: resolvedProject.workspaceId,
-        userId: requestUser.id,
-        status: WorkspaceMemberStatus.ACTIVE,
-      },
-      relations: ['workspaceRole'],
-    });
+    const [workspaceMember, membership] = await Promise.all([
+      this.workspaceMemberRepo.findOne({
+        where: {
+          workspaceId: resolvedProject.workspaceId,
+          userId: requestUser.id,
+          status: WorkspaceMemberStatus.ACTIVE,
+        },
+        relations: ['workspaceRole'],
+      }),
+      this.membershipRepo.findOne({
+        where: {
+          projectId,
+          userId: requestUser.id,
+          status: MembershipStatus.ACTIVE,
+        },
+        relations: ['projectRole'],
+      }),
+    ]);
 
-    return (
+    if (
       workspaceMember?.workspaceRole?.status === true &&
       workspaceMember.workspaceRole.slug === 'admin'
+    ) {
+      return true;
+    }
+
+    return (
+      membership?.status === MembershipStatus.ACTIVE &&
+      membership.projectRole?.status === true &&
+      membership.projectRole.permissions?.taskManagement?.view === true &&
+      membership.projectRole.permissions.taskManagement.viewScope === 'all'
     );
   }
 
@@ -238,12 +257,26 @@ export class TaskAuthService {
     requestUser: RequestUser,
     project?: Project | null,
   ): Promise<boolean> {
-    if (task.createdByUserId === requestUser.id) return true;
-    if ((task.assignees ?? []).some((a) => a.userId === requestUser.id))
+    if (await this.canViewAllProjectTasks(task.projectId, requestUser, project)) {
       return true;
-    if (task.reporteeUserId === requestUser.id) return true;
+    }
 
-    return this.canViewAllProjectTasks(task.projectId, requestUser, project);
+    const membership = await this.membershipRepo.findOne({
+      where: {
+        projectId: task.projectId,
+        userId: requestUser.id,
+        status: MembershipStatus.ACTIVE,
+      },
+      relations: ['projectRole'],
+    });
+
+    if (!this.membershipHasTaskPermission(membership, 'view')) return false;
+
+    return (
+      task.createdByUserId === requestUser.id ||
+      task.reporteeUserId === requestUser.id ||
+      (task.assignees ?? []).some((a) => a.userId === requestUser.id)
+    );
   }
 
   private isTaskAssignee(
@@ -347,6 +380,9 @@ export class TaskAuthService {
   ): void {
     if (canViewAllProjectTasks) return;
 
+    // Assigned-only members keep a narrow task surface: tasks they created,
+    // tasks where they are the reportee, or tasks where they are an assignee.
+    // Watchers are intentionally notification subscribers, not visibility grants.
     qb.andWhere(
       `(task.createdByUserId = :visibilityUserId
         OR task.reporteeUserId = :visibilityUserId

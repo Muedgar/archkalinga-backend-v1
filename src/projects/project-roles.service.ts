@@ -31,6 +31,7 @@ import { UpdateProjectRoleDto } from './dtos/update-project-role.dto';
 import { CreateProjectRoleDto } from './dtos/create-project-role.dto';
 import {
   EMPTY_PROJECT_ACCESS_MATRIX,
+  type ProjectCrudPermissionSet,
   type ProjectPermissionMatrix,
 } from './types/project-permission-matrix.type';
 
@@ -134,12 +135,43 @@ export class ProjectRolesService {
     }
   }
 
+  private mergeCrudPermissions(
+    defaults: ProjectCrudPermissionSet,
+    incoming?: Partial<ProjectCrudPermissionSet>,
+  ): ProjectCrudPermissionSet {
+    return { ...defaults, ...incoming };
+  }
+
   private mergePermissions(
-    permissions?: Record<string, boolean | Record<string, boolean>>,
+    permissions?: Partial<ProjectPermissionMatrix>,
   ): ProjectPermissionMatrix {
     return {
       ...EMPTY_PROJECT_ACCESS_MATRIX,
-      ...(permissions as ProjectPermissionMatrix | undefined),
+      ...permissions,
+      taskManagement: {
+        ...EMPTY_PROJECT_ACCESS_MATRIX.taskManagement,
+        ...permissions?.taskManagement,
+      },
+      documentManagement: this.mergeCrudPermissions(
+        EMPTY_PROJECT_ACCESS_MATRIX.documentManagement,
+        permissions?.documentManagement,
+      ),
+      changeRequestManagement: this.mergeCrudPermissions(
+        EMPTY_PROJECT_ACCESS_MATRIX.changeRequestManagement,
+        permissions?.changeRequestManagement,
+      ),
+      projectRoleManagement: this.mergeCrudPermissions(
+        EMPTY_PROJECT_ACCESS_MATRIX.projectRoleManagement,
+        permissions?.projectRoleManagement,
+      ),
+      projectConfigManagement: this.mergeCrudPermissions(
+        EMPTY_PROJECT_ACCESS_MATRIX.projectConfigManagement,
+        permissions?.projectConfigManagement,
+      ),
+      projectMemberManagement: this.mergeCrudPermissions(
+        EMPTY_PROJECT_ACCESS_MATRIX.projectMemberManagement,
+        permissions?.projectMemberManagement,
+      ),
     };
   }
 

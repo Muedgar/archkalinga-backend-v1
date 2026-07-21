@@ -956,7 +956,7 @@ export class TasksService {
     filters: ChangeRequestFiltersDto,
     requestUser: RequestUser,
   ) {
-    const context = await this.authSvc.verifyProjectPermission(
+    const { project, membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'view',
@@ -965,11 +965,14 @@ export class TasksService {
     const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
       projectId,
       requestUser,
-      context.project,
+      project,
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -987,7 +990,7 @@ export class TasksService {
     changeRequestId: string,
     requestUser: RequestUser,
   ) {
-    const context = await this.authSvc.verifyProjectPermission(
+    const { project, membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'view',
@@ -996,11 +999,14 @@ export class TasksService {
     const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
       projectId,
       requestUser,
-      context.project,
+      project,
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1019,7 +1025,7 @@ export class TasksService {
     requestUser: RequestUser,
     file?: UploadableFile,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'create',
@@ -1027,7 +1033,10 @@ export class TasksService {
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1047,7 +1056,7 @@ export class TasksService {
     requestUser: RequestUser,
     file?: UploadableFile,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'view',
@@ -1055,7 +1064,10 @@ export class TasksService {
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1075,7 +1087,7 @@ export class TasksService {
     dto: CreateChangeRequestReviewDto,
     requestUser: RequestUser,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'update',
@@ -1083,7 +1095,10 @@ export class TasksService {
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1103,7 +1118,7 @@ export class TasksService {
     dto: DecideChangeRequestReviewDto,
     requestUser: RequestUser,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'view',
@@ -1111,7 +1126,10 @@ export class TasksService {
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1132,7 +1150,7 @@ export class TasksService {
     requestUser: RequestUser,
     file?: UploadableFile,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'update',
@@ -1140,7 +1158,10 @@ export class TasksService {
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1160,7 +1181,7 @@ export class TasksService {
     dto: ReopenChangeRequestDto,
     requestUser: RequestUser,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'update',
@@ -1168,7 +1189,10 @@ export class TasksService {
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1188,7 +1212,7 @@ export class TasksService {
     requestUser: RequestUser,
     file?: UploadableFile,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'update',
@@ -1196,7 +1220,10 @@ export class TasksService {
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1217,7 +1244,7 @@ export class TasksService {
     requestUser: RequestUser,
     file?: UploadableFile,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'update',
@@ -1225,7 +1252,10 @@ export class TasksService {
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1246,7 +1276,7 @@ export class TasksService {
     attachmentId: string,
     requestUser: RequestUser,
   ) {
-    const context = await this.authSvc.verifyProjectPermission(
+    const { project, membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'view',
@@ -1255,11 +1285,14 @@ export class TasksService {
     const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
       projectId,
       requestUser,
-      context.project,
+      project,
     );
 
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
       this.actor(requestUser),
     ]);
 
@@ -1481,12 +1514,15 @@ export class TasksService {
     dto: CreateChecklistGroupDto,
     requestUser: RequestUser,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'update',
     );
-    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
+    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.checklistSvc.createGroup(task, dto);
   }
 
@@ -1641,12 +1677,15 @@ export class TasksService {
     dto: AddRelationDto,
     requestUser: RequestUser,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'update',
     );
-    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
+    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.relationsSvc.addRelation(task, dto, projectId);
   }
 
@@ -1693,12 +1732,15 @@ export class TasksService {
     dto: AddLabelDto,
     requestUser: RequestUser,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'update',
     );
-    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
+    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.membersSvc.addLabel(task, dto, projectId);
   }
 
@@ -1745,12 +1787,15 @@ export class TasksService {
     dto: AddWatcherDto,
     requestUser: RequestUser,
   ) {
-    await this.authSvc.verifyProjectPermission(
+    const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'update',
     );
-    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
+    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
     return this.membersSvc.addWatcher(task, dto, projectId);
   }
 

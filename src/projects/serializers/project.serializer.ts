@@ -128,7 +128,7 @@ export class ProjectListItemSerializer extends BaseSerializer {
 
   @Expose()
   @Type(() => TemplateSummary)
-  template: TemplateSummary;
+  template: TemplateSummary | null;
 
   @Expose() declare createdAt: Date;
   @Expose() declare updatedAt: Date;
@@ -149,7 +149,7 @@ export class ProjectSerializer extends BaseSerializer {
 
   @Expose()
   @Type(() => TemplateSnippet)
-  template: TemplateSnippet;
+  template: TemplateSnippet | null;
 
   @Expose()
   @Transform(({ obj }) =>

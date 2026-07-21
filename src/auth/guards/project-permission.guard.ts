@@ -11,7 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from 'src/users/entities';
 import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
-import { Project, ProjectMembership } from 'src/projects/entities';
+import { Project, ProjectInvite, ProjectMembership } from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
 import { WorkspaceMemberStatus } from 'src/workspaces/entities/workspace-member.entity';
 import type {
@@ -30,15 +30,22 @@ export interface RequiredProjectPermission {
   action?: ProjectPermissionAction;
 }
 
+const PROJECT_ADMIN_PERMISSION_DOMAINS: readonly ProjectPermissionDomain[] = [
+  'projectRoleManagement',
+  'projectConfigManagement',
+  'projectMemberManagement',
+];
+
 /**
  * ProjectPermissionGuard
  *
  * Reads the RequiredProjectPermission metadata set by @RequireProjectPermission
  * and checks that the authenticated user's active project membership grants access.
  *
- * Two check modes:
+ * Check modes:
  *   - domain === 'canManageProject'  → checks membership.projectRole.permissions.canManageProject === true
  *   - any resource domain            → checks membership.projectRole.permissions[domain][action] === true
+ *   - granular project-admin domains → also allow canManageProject during rollout
  *
  * Workspace admins bypass project-level checks entirely.
  * Must be placed AFTER JwtAuthGuard so request.user is populated.
@@ -51,29 +58,49 @@ export class ProjectPermissionGuard implements CanActivate {
     private readonly membershipRepo: Repository<ProjectMembership>,
     @InjectRepository(Project)
     private readonly projectRepo: Repository<Project>,
+    @InjectRepository(ProjectInvite)
+    private readonly inviteRepo: Repository<ProjectInvite>,
     @InjectRepository(WorkspaceMember)
     private readonly workspaceMemberRepo: Repository<WorkspaceMember>,
   ) {}
 
-  private resolveProjectId(request: {
+  private resolveString(value: unknown): string | null {
+    return typeof value === 'string' && value.trim().length > 0
+      ? value.trim()
+      : null;
+  }
+
+  private async resolveProjectId(request: {
     params?: Record<string, unknown>;
     body?: Record<string, unknown>;
     query?: Record<string, unknown>;
-  }): string | null {
-    const candidates = [
-      request.params?.projectId,
-      request.params?.id,
-      request.body?.projectId,
-      request.query?.projectId,
-    ];
+  }): Promise<string | null> {
+    const projectIdFromParams =
+      this.resolveString(request.params?.projectId) ??
+      this.resolveString(request.params?.id);
 
-    for (const candidate of candidates) {
-      if (typeof candidate === 'string' && candidate.trim().length > 0) {
-        return candidate.trim();
-      }
+    if (projectIdFromParams) {
+      return projectIdFromParams;
     }
 
-    return null;
+    const inviteId = this.resolveString(request.params?.inviteId);
+    if (inviteId) {
+      const invite = await this.inviteRepo.findOne({
+        where: { id: inviteId },
+        select: ['id', 'projectId'],
+      });
+
+      if (!invite) {
+        throw new NotFoundException('Project invite not found');
+      }
+
+      return invite.projectId;
+    }
+
+    return (
+      this.resolveString(request.body?.projectId) ??
+      this.resolveString(request.query?.projectId)
+    );
   }
 
   private resolveWorkspaceId(request: {
@@ -119,6 +146,38 @@ export class ProjectPermissionGuard implements CanActivate {
     return member;
   }
 
+  private isProjectAdminPermissionDomain(
+    domain: ProjectPermissionDomain,
+  ): boolean {
+    return PROJECT_ADMIN_PERMISSION_DOMAINS.includes(domain);
+  }
+
+  private resolveWorkspaceProjectManagementAction(
+    required: RequiredProjectPermission | undefined,
+  ): ProjectPermissionAction | null {
+    if (!required) {
+      return 'view';
+    }
+
+    if (required.domain === 'canManageProject') {
+      return required.action ?? 'update';
+    }
+
+    if (!this.isProjectAdminPermissionDomain(required.domain)) {
+      return null;
+    }
+
+    if (!required.action) {
+      return null;
+    }
+
+    if (required.action === 'create') {
+      return 'update';
+    }
+
+    return required.action;
+  }
+
   private canUseWorkspacePermission(
     required: RequiredProjectPermission | undefined,
     workspaceMember: WorkspaceMember | null,
@@ -132,24 +191,44 @@ export class ProjectPermissionGuard implements CanActivate {
       return false;
     }
 
-    if (!required) {
-      return workspacePermissions.projectManagement?.view === true;
+    if (workspaceMember.workspaceRole?.slug === 'admin') {
+      return true;
     }
 
-    if (required.domain === 'canManageProject') {
-      if (workspaceMember.workspaceRole?.slug === 'admin') {
-        return true;
-      }
+    const projectManagementAction =
+      this.resolveWorkspaceProjectManagementAction(required);
 
-      const fallbackAction = required.action ?? 'update';
-      return workspacePermissions.projectManagement?.[fallbackAction] === true;
+    if (projectManagementAction) {
+      return workspacePermissions.projectManagement?.[projectManagementAction] === true;
+    }
+
+    if (!required?.action) {
+      return false;
+    }
+
+    return workspacePermissions[required.domain]?.[required.action] === true;
+  }
+
+  private canUseProjectPermission(
+    required: RequiredProjectPermission,
+    permissions: ProjectMembership['projectRole']['permissions'] | undefined,
+  ): boolean {
+    if (required.domain === 'canManageProject') {
+      return permissions?.canManageProject === true;
     }
 
     if (!required.action) {
       return false;
     }
 
-    return workspacePermissions[required.domain]?.[required.action] === true;
+    if (permissions?.[required.domain]?.[required.action] === true) {
+      return true;
+    }
+
+    return (
+      this.isProjectAdminPermissionDomain(required.domain) &&
+      permissions?.canManageProject === true
+    );
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -168,7 +247,7 @@ export class ProjectPermissionGuard implements CanActivate {
     }>();
     const user = request.user;
 
-    const projectId = this.resolveProjectId(request);
+    const projectId = await this.resolveProjectId(request);
     if (!required && !projectId) return true;
 
     if (!projectId) {
@@ -221,20 +300,12 @@ export class ProjectPermissionGuard implements CanActivate {
     // membership for the service layer.
     if (!required) return true;
 
-    // ── canManageProject flag ──────────────────────────────────────────────────
-    if (required.domain === 'canManageProject') {
-      if (!permissions?.canManageProject) {
-        throw new ForbiddenException(INSUFFICIENT_PROJECT_PERMISSIONS);
-      }
-      return true;
-    }
-
     // ── Resource domain + action ───────────────────────────────────────────────
-    if (!required.action) {
+    if (required.domain !== 'canManageProject' && !required.action) {
       throw new BadRequestException('Permission action is required for resource domains');
     }
 
-    if (!permissions?.[required.domain]?.[required.action]) {
+    if (!this.canUseProjectPermission(required, permissions)) {
       throw new ForbiddenException(INSUFFICIENT_PROJECT_PERMISSIONS);
     }
 
