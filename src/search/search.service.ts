@@ -243,8 +243,8 @@ export class SearchService {
       .addSelect('MIN(matchedTask.title)', 'matched_task_title')
       .addSelect(
         `MIN(COALESCE(
-          NULLIF(TRIM(matchedProjectUser."firstName" || ' ' || matchedProjectUser."lastName"), ''),
-          NULLIF(TRIM(matchedTaskUser."firstName" || ' ' || matchedTaskUser."lastName"), '')
+          NULLIF(TRIM("matchedProjectUser"."firstName" || ' ' || "matchedProjectUser"."lastName"), ''),
+          NULLIF(TRIM("matchedTaskUser"."firstName" || ' ' || "matchedTaskUser"."lastName"), '')
         ))`,
         'matched_user_name',
       )
@@ -322,12 +322,13 @@ export class SearchService {
   }
 
   private userNameSearchSql(alias: string): string {
+    const quotedAlias = `"${alias}"`;
     return `(
-      ${alias}."firstName" ILIKE :like
-      OR ${alias}."lastName" ILIKE :like
-      OR ${alias}."userName" ILIKE :like
-      OR ${alias}.email ILIKE :like
-      OR (${alias}."firstName" || ' ' || ${alias}."lastName") ILIKE :like
+      ${quotedAlias}."firstName" ILIKE :like
+      OR ${quotedAlias}."lastName" ILIKE :like
+      OR ${quotedAlias}."userName" ILIKE :like
+      OR ${quotedAlias}.email ILIKE :like
+      OR (${quotedAlias}."firstName" || ' ' || ${quotedAlias}."lastName") ILIKE :like
     )`;
   }
 
