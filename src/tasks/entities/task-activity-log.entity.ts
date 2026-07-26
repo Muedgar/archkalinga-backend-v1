@@ -6,6 +6,7 @@ export enum TaskActionType {
   TASK_CREATED = 'task:created',
   TASK_UPDATED = 'task:updated',
   TASK_MOVED = 'task:moved',
+  TASK_SUPERSEDED = 'task:superseded',
   TASK_DELETED = 'task:deleted',
   TASK_ASSIGNED = 'task:assigned',
   TASK_UNASSIGNED = 'task:unassigned',

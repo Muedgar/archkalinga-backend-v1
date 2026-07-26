@@ -1,7 +1,13 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
+import { User } from 'src/users/entities';
 import { Task } from './task.entity';
 import { TaskChecklist } from './task-checklist.entity';
+
+export enum TaskChecklistBranchStatus {
+  FLAT = 'flat',
+  BRANCHED = 'branched',
+}
 
 @Entity('task_checklist_items')
 export class TaskChecklistItem extends AppBaseEntity {
@@ -34,6 +40,34 @@ export class TaskChecklistItem extends AppBaseEntity {
 
   @Column({ type: 'int', default: 0 })
   orderIndex: number;
+
+  @Column({ name: 'item_code', type: 'varchar', length: 100, nullable: true })
+  itemCode: string | null;
+
+  @ManyToOne(() => Task, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'branched_task_id', referencedColumnName: 'id' })
+  branchedTask: Task | null;
+
+  @Column({ name: 'branched_task_id', type: 'uuid', nullable: true })
+  branchedTaskId: string | null;
+
+  @Column({
+    name: 'branch_status',
+    type: 'varchar',
+    length: 30,
+    default: TaskChecklistBranchStatus.FLAT,
+  })
+  branchStatus: TaskChecklistBranchStatus;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'branched_by_user_id', referencedColumnName: 'id' })
+  branchedByUser: User | null;
+
+  @Column({ name: 'branched_by_user_id', type: 'uuid', nullable: true })
+  branchedByUserId: string | null;
+
+  @Column({ name: 'branched_at', type: 'timestamptz', nullable: true })
+  branchedAt: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
   completedByUserId: string | null;

@@ -31,9 +31,21 @@ export class UpdateChecklistItemDto {
 
   @ApiPropertyOptional({
     example: 'a1b2c3d4-...',
-    description: 'Move item to a different checklist group, or null to ungroupit',
+    description:
+      'Move item to a different checklist group, or null to ungroupit',
   })
   @IsOptional()
   @IsUUID()
   checklistGroupId?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'CHK-001',
+    nullable: true,
+    description: 'Optional permanent checklist item code within this task.',
+  })
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  @Type(() => String)
+  itemCode?: string | null;
 }

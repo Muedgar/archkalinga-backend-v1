@@ -10,8 +10,11 @@ export { TaskAuthService } from './task-auth.service';
 export { TaskChecklistService } from './task-checklist.service';
 export { TaskCommentsService } from './task-comments.service';
 export { TaskCrudService } from './task-crud.service';
+export { TaskDashboardSummaryService } from './task-dashboard-summary.service';
 export { TaskChangeRequestsService } from './task-change-requests.service';
 export { TaskDocumentsService } from './task-documents.service';
+export { TaskFieldWorkQueueService } from './task-field-work-queue.service';
+export { TaskLocationsService } from './task-locations.service';
 export { TaskMembersService } from './task-members.service';
 export { TaskMaterialsReportImportService } from './task-materials-report-import.service';
 export { TaskMaterialsReportService } from './task-materials-report.service';
@@ -22,6 +25,8 @@ export { TaskRelationsService } from './task-relations.service';
 export { TaskResourceAllocationService } from './task-resource-allocation.service';
 export { TaskResourceReportImportService } from './task-resource-report-import.service';
 export { TaskResourceReportService } from './task-resource-report.service';
+export { TaskSyncEventsService } from './task-sync-events.service';
+export { TaskWbsService } from './task-wbs.service';
 export type {
   MaterialReportResponse,
   MaterialReportTotals,

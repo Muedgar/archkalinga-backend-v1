@@ -40,6 +40,11 @@ class TaskListReporteeSerializer extends BaseSerializer {
 }
 
 class TaskListChecklistItemSerializer extends BaseSerializer {
+  @Expose() itemCode: string | null;
+  @Expose() branchedTaskId: string | null;
+  @Expose() branchStatus: string;
+  @Expose() branchedByUserId: string | null;
+  @Expose() branchedAt: Date | null;
   @Expose() text?: string;
   @Expose() completed: boolean;
   @Expose() orderIndex: number;
@@ -88,6 +93,10 @@ class TaskListActivityScheduleSerializer extends BaseSerializer {
 export class TaskListItemSerializer extends BaseSerializer {
   @Expose() projectId: string;
   @Expose() parentTaskId: string | null;
+  @Expose() supersededByTaskId: string | null;
+  @Expose() supersedesTaskId: string | null;
+  @Expose() supersessionReason: string | null;
+  @Expose() supersededAt: Date | null;
 
   @Expose() statusId: string;
   @Expose()

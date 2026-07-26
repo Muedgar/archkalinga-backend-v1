@@ -43,6 +43,7 @@ import {
   ActivityScheduleGanttQueryDto,
   ActivityScheduleImportDto,
   ActivityScheduleImportMode,
+  BranchChecklistItemDto,
   BulkUpdateTasksDto,
   ChangeRequestFiltersDto,
   CreateChangeRequestDto,
@@ -51,8 +52,10 @@ import {
   DecideChangeRequestReviewDto,
   CreateStarterFromDeliverableDto,
   CreateTaskDocumentDto,
+  CreateTaskLocationsDto,
   CreateTaskMaterialDto,
   CreateTaskResourceAllocationDto,
+  FieldWorkQueueQueryDto,
   CreateProjectCalendarExceptionDto,
   CreateChecklistGroupDto,
   CreateTaskDto,
@@ -65,13 +68,20 @@ import {
   ResourceReportFiltersDto,
   ResourceReportImportDto,
   ResourceReportImportMode,
+  SupersedeTaskDto,
   EscalateChangeRequestDto,
   ResolveChangeRequestDto,
   SubmitChangeRequestRevisionDto,
+  TaskDashboardSummaryQueryDto,
   TaskDocumentFiltersDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
+  TaskSnapshotQueryDto,
+  TaskSyncEventsDto,
+  TaskTimelineQueryDto,
+  TaskTreeQueryDto,
   UpdateTaskDocumentDto,
+  UpdateTaskLocationProgressDto,
   UpdateTaskMaterialDto,
   UpdateTaskResourceAllocationDto,
   UpdateActivityScheduleDto,
@@ -93,6 +103,7 @@ import {
   TASK_CHECKLIST_GROUP_UPDATED,
   TASK_CHECKLIST_GROUPS_FETCHED,
   TASK_CHECKLIST_ITEM_ADDED,
+  TASK_CHECKLIST_ITEM_BRANCHED,
   TASK_CHECKLIST_ITEM_DELETED,
   TASK_CHECKLIST_ITEM_UPDATED,
   TASK_COMMENT_ADDED,
@@ -100,6 +111,7 @@ import {
   TASK_COMMENT_UPDATED,
   TASK_COMMENTS_FETCHED,
   TASK_CREATED,
+  TASK_DASHBOARD_SUMMARY_FETCHED,
   TASK_DELETED,
   TASK_DEPENDENCIES_FETCHED,
   TASK_DEPENDENCY_ADDED,
@@ -120,12 +132,21 @@ import {
   PROJECT_CALENDAR_UPDATED,
   PROJECT_CRITICAL_PATH_FETCHED,
   TASK_FETCHED,
+  TASK_FIELD_WORK_QUEUE_FETCHED,
+  TASK_TREE_FETCHED,
   TASK_LABEL_ADDED,
   TASK_LABEL_REMOVED,
   TASK_LABELS_FETCHED,
+  TASK_LOCATION_PROGRESS_UPDATED,
+  TASK_LOCATIONS_CREATED,
+  TASK_LOCATIONS_FETCHED,
+  TASK_SYNC_EVENTS_PROCESSED,
   TASK_ACTIVITY_FETCHED,
+  TASK_SNAPSHOT_FETCHED,
+  TASK_TIMELINE_FETCHED,
   TASK_ACTIVITY_SCHEDULE_IMPORTED,
   TASK_MOVED,
+  TASK_SUPERSEDED,
   TASK_MATERIAL_CREATED,
   TASK_MATERIAL_DELETED,
   TASK_MATERIAL_FETCHED,
@@ -201,6 +222,53 @@ export class TasksController {
       user,
       req.projectMembership,
     );
+  }
+
+  @Get('tasks/my-work/today')
+  @ApiOperation({
+    summary: 'Get my field work queue for today',
+    description:
+      'Returns assigned leaf tasks, flat checklist items, active location progress units, and lightweight sync metadata for mobile field execution.',
+  })
+  @ApiResponse({ status: 200, description: 'Task field work queue fetched' })
+  @ResponseMessage(TASK_FIELD_WORK_QUEUE_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getMyFieldWorkToday(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() query: FieldWorkQueueQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getMyFieldWorkToday(
+      projectId,
+      query,
+      user,
+      req.projectMembership,
+    );
+  }
+
+  @Post('tasks/sync-events')
+  @ApiOperation({
+    summary: 'Process offline task sync events',
+    description:
+      'Accepts idempotent mobile field events such as checklist toggles, task progress updates, site notes, and location progress updates.',
+  })
+  @ApiResponse({ status: 201, description: 'Task sync events processed' })
+  @ResponseMessage(TASK_SYNC_EVENTS_PROCESSED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'sync:task-events',
+    resource: 'task-sync-event',
+    includeBody: true,
+  })
+  processTaskSyncEvents(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Body() dto: TaskSyncEventsDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.processTaskSyncEvents(projectId, dto, user);
   }
 
   @Post('tasks')
@@ -906,6 +974,58 @@ export class TasksController {
     @GetUser() user: RequestUser,
   ) {
     return this.tasksService.importActivitySchedule(projectId, file, dto, user);
+  }
+
+  @Get('tasks/:taskId/tree')
+  @ApiOperation({
+    summary: 'Get a task subtree',
+    description:
+      'Returns the task, visible descendants, checklist items, child counts, progress rollups, and status metadata in one response.',
+  })
+  @ApiResponse({ status: 200, description: 'Task tree fetched' })
+  @ResponseMessage(TASK_TREE_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskTree(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: TaskTreeQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskTree(
+      projectId,
+      taskId,
+      query,
+      user,
+      req.projectMembership,
+    );
+  }
+
+  @Get('tasks/:taskId/dashboard-summary')
+  @ApiOperation({
+    summary: 'Get task dashboard summary',
+    description:
+      'Returns subtree counters, progress, overdue/blocked/critical exposure, resource and material totals, and direct child branch progress.',
+  })
+  @ApiResponse({ status: 200, description: 'Task dashboard summary fetched' })
+  @ResponseMessage(TASK_DASHBOARD_SUMMARY_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskDashboardSummary(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: TaskDashboardSummaryQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskDashboardSummary(
+      projectId,
+      taskId,
+      query,
+      user,
+      req.projectMembership,
+    );
   }
 
   @Get('tasks/:taskId')
@@ -2032,6 +2152,30 @@ export class TasksController {
     return this.tasksService.moveTask(projectId, taskId, dto, user);
   }
 
+  @Post('tasks/:taskId/supersede')
+  @ApiOperation({
+    summary: 'Supersede a task with a replacement task',
+    description:
+      'Links the current task to an existing active replacement task without deleting either task.',
+  })
+  @ApiResponse({ status: 201, description: 'Task superseded' })
+  @ResponseMessage(TASK_SUPERSEDED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'supersede:task',
+    resource: 'task',
+    includeBody: true,
+  })
+  supersedeTask(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: SupersedeTaskDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.supersedeTask(projectId, taskId, dto, user);
+  }
+
   @Delete('tasks/:taskId')
   @ApiOperation({
     summary: 'Soft-delete a task',
@@ -2196,6 +2340,37 @@ export class TasksController {
     );
   }
 
+  @Post('tasks/:taskId/checklist/:itemId/branch')
+  @ApiOperation({
+    summary: 'Branch a checklist item into a child task',
+    description:
+      'Creates a child task from the checklist item and stores the branch link on the item.',
+  })
+  @ApiResponse({ status: 201, description: 'Checklist item branched' })
+  @ResponseMessage(TASK_CHECKLIST_ITEM_BRANCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'branch:task-checklist-item',
+    resource: 'task-checklist-item',
+    includeBody: true,
+  })
+  branchChecklistItem(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: BranchChecklistItemDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.branchChecklistItem(
+      projectId,
+      taskId,
+      itemId,
+      dto,
+      user,
+    );
+  }
+
   @Delete('tasks/:taskId/checklist/:itemId')
   @ApiOperation({ summary: 'Delete a task checklist item' })
   @ApiResponse({ status: 200, description: 'Checklist item deleted' })
@@ -2216,6 +2391,71 @@ export class TasksController {
       projectId,
       taskId,
       itemId,
+      user,
+    );
+  }
+
+  @Get('tasks/:taskId/locations')
+  @ApiOperation({ summary: 'List task execution locations' })
+  @ApiResponse({ status: 200, description: 'Task locations fetched' })
+  @ResponseMessage(TASK_LOCATIONS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskLocations(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskLocations(projectId, taskId, user);
+  }
+
+  @Post('tasks/:taskId/locations')
+  @ApiOperation({
+    summary: 'Assign execution locations to a task',
+    description:
+      'Creates one or more task locations for spatial fan-out execution without creating sibling tasks.',
+  })
+  @ApiResponse({ status: 201, description: 'Task locations created' })
+  @ResponseMessage(TASK_LOCATIONS_CREATED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'create:task-locations',
+    resource: 'task-location',
+    includeBody: true,
+  })
+  createTaskLocations(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateTaskLocationsDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.createTaskLocations(projectId, taskId, dto, user);
+  }
+
+  @Patch('tasks/:taskId/locations/:locationId/progress')
+  @ApiOperation({ summary: 'Update task location progress' })
+  @ApiResponse({ status: 200, description: 'Task location progress updated' })
+  @ResponseMessage(TASK_LOCATION_PROGRESS_UPDATED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'update:task-location-progress',
+    resource: 'task-location-progress',
+    includeBody: true,
+  })
+  updateTaskLocationProgress(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('locationId', ParseUUIDPipe) locationId: string,
+    @Body() dto: UpdateTaskLocationProgressDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.updateTaskLocationProgress(
+      projectId,
+      taskId,
+      locationId,
+      dto,
       user,
     );
   }
@@ -2629,5 +2869,45 @@ export class TasksController {
       page,
       limit,
     );
+  }
+
+  @Get('tasks/:taskId/timeline')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  @ResponseMessage(TASK_TIMELINE_FETCHED)
+  @ApiOperation({
+    summary: 'Replay task timeline events',
+    description:
+      'Returns time-ordered activity events for a task or its current visible subtree.',
+  })
+  @ApiResponse({ status: 200, description: 'Task timeline fetched' })
+  @ApiResponse({ status: 404, description: 'Task not found' })
+  getTaskTimeline(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: TaskTimelineQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskTimeline(projectId, taskId, query, user);
+  }
+
+  @Get('tasks/:taskId/snapshot')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  @ResponseMessage(TASK_SNAPSHOT_FETCHED)
+  @ApiOperation({
+    summary: 'Get task timeline snapshot',
+    description:
+      'Returns tasks that existed at a point in time plus activity-event replay metadata.',
+  })
+  @ApiResponse({ status: 200, description: 'Task snapshot fetched' })
+  @ApiResponse({ status: 404, description: 'Task not found' })
+  getTaskSnapshot(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: TaskSnapshotQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskSnapshot(projectId, taskId, query, user);
   }
 }
