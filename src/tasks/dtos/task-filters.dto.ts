@@ -96,6 +96,12 @@ export class TaskFiltersDto extends ListFilterDTO {
   @IsBoolean()
   includeDeleted?: boolean;
 
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  includeSuperseded?: boolean;
+
   @ApiPropertyOptional({
     example:
       'assignedMembers,reportee,checklist,comments,dependencies,viewMeta',

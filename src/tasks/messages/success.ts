@@ -6,8 +6,18 @@ export const TASK_CREATED = 'Task created successfully';
 export const TASK_UPDATED = 'Task updated successfully';
 export const TASK_DELETED = 'Task deleted successfully';
 export const TASK_FETCHED = 'Task fetched successfully';
+export const TASK_TREE_FETCHED = 'Task tree fetched successfully';
+export const TASK_DASHBOARD_SUMMARY_FETCHED =
+  'Task dashboard summary fetched successfully';
+export const TASK_FIELD_WORK_QUEUE_FETCHED =
+  'Task field work queue fetched successfully';
+export const TASK_SYNC_EVENTS_PROCESSED =
+  'Task sync events processed successfully';
+export const TASK_TIMELINE_FETCHED = 'Task timeline fetched successfully';
+export const TASK_SNAPSHOT_FETCHED = 'Task snapshot fetched successfully';
 export const TASKS_FETCHED = 'Tasks fetched successfully';
 export const TASK_MOVED = 'Task moved successfully';
+export const TASK_SUPERSEDED = 'Task superseded successfully';
 export const TASKS_BULK_UPDATED = 'Tasks updated successfully';
 export const PROJECT_ACTIVITY_SCHEDULE_FETCHED =
   'Project activity schedule fetched successfully';
@@ -55,6 +65,10 @@ export const TASK_RESOURCE_ALLOCATION_UPDATED =
   'Task resource allocation updated successfully';
 export const TASK_RESOURCE_ALLOCATION_DELETED =
   'Task resource allocation deleted successfully';
+export const TASK_LOCATIONS_FETCHED = 'Task locations fetched successfully';
+export const TASK_LOCATIONS_CREATED = 'Task locations created successfully';
+export const TASK_LOCATION_PROGRESS_UPDATED =
+  'Task location progress updated successfully';
 export const TASK_MATERIALS_FETCHED = 'Task materials fetched successfully';
 export const TASK_MATERIAL_FETCHED = 'Task material fetched successfully';
 export const TASK_MATERIAL_CREATED = 'Task material created successfully';
@@ -102,6 +116,8 @@ export const TASK_COMMENT_DELETED = 'Task comment deleted successfully';
 export const TASK_CHECKLIST_FETCHED = 'Task checklist fetched successfully';
 export const TASK_CHECKLIST_ITEM_ADDED =
   'Task checklist item added successfully';
+export const TASK_CHECKLIST_ITEM_BRANCHED =
+  'Task checklist item branched successfully';
 export const TASK_CHECKLIST_ITEM_UPDATED =
   'Task checklist item updated successfully';
 export const TASK_CHECKLIST_ITEM_DELETED =

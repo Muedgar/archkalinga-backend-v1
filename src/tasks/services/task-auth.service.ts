@@ -257,7 +257,9 @@ export class TaskAuthService {
     requestUser: RequestUser,
     project?: Project | null,
   ): Promise<boolean> {
-    if (await this.canViewAllProjectTasks(task.projectId, requestUser, project)) {
+    if (
+      await this.canViewAllProjectTasks(task.projectId, requestUser, project)
+    ) {
       return true;
     }
 
@@ -517,6 +519,10 @@ export class TaskAuthService {
           'task.id',
           'task.projectId',
           'task.parentTaskId',
+          'task.supersededByTaskId',
+          'task.supersedesTaskId',
+          'task.supersessionReason',
+          'task.supersededAt',
           'task.statusId',
           'task.priorityId',
           'task.taskTypeId',
@@ -591,6 +597,12 @@ export class TaskAuthService {
           'item.pkid',
           'item.id',
           'item.taskId',
+          'item.checklistGroupId',
+          'item.itemCode',
+          'item.branchedTaskId',
+          'item.branchStatus',
+          'item.branchedByUserId',
+          'item.branchedAt',
           'item.text',
           'item.completed',
           'item.orderIndex',

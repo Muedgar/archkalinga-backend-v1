@@ -1,6 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, IsUUID, Length, Min } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Min,
+} from 'class-validator';
 
 export class AddChecklistItemDto {
   @ApiProperty({ example: 'Upload base survey' })
@@ -23,4 +30,14 @@ export class AddChecklistItemDto {
   @IsOptional()
   @IsUUID()
   checklistGroupId?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'CHK-001',
+    description: 'Optional permanent checklist item code within this task.',
+  })
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  @Type(() => String)
+  itemCode?: string | null;
 }

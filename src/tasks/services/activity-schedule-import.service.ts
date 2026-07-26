@@ -14,6 +14,7 @@ import {
 } from '../entities';
 import { ProjectStatus, ProjectTaskType } from '../project-config';
 import { ScheduleCalculationService } from './schedule-calculation.service';
+import { TaskWbsService } from './task-wbs.service';
 
 type ParsedXlsxRow = {
   rowNumber: number;
@@ -81,18 +82,18 @@ type ImportValidationReport = {
   };
   issues: ImportIssue[];
   preview: Array<
-    Pick<
-      ImportActivityRow,
-      | 'rowNumber'
-      | 'phaseCode'
-      | 'stageCode'
-      | 'activityCode'
-      | 'activityName'
-      | 'predecessorCode'
-      | 'dependencyType'
-      | 'lagDays'
-      | 'durationDays'
-    >
+    | Pick<
+        ImportActivityRow,
+        | 'rowNumber'
+        | 'phaseCode'
+        | 'stageCode'
+        | 'activityCode'
+        | 'activityName'
+        | 'predecessorCode'
+        | 'dependencyType'
+        | 'lagDays'
+        | 'durationDays'
+      >
     | Pick<
         ImportWbsTaskRow,
         | 'rowNumber'
@@ -164,6 +165,7 @@ export class ActivityScheduleImportService {
     @InjectRepository(ProjectTaskType)
     private readonly taskTypeRepo: Repository<ProjectTaskType>,
     private readonly calculationSvc: ScheduleCalculationService,
+    private readonly wbsSvc: TaskWbsService,
   ) {}
 
   async importProjectSchedule(
@@ -192,10 +194,17 @@ export class ActivityScheduleImportService {
     const parsed = this.parseWorkbook(file.buffer);
     if (this.detectWorkbookSource(parsed.rows) === 'wbs') {
       const wbsRows = this.toWbsTaskRows(parsed.rows).tasks;
-      const upsert = await this.upsertWbsHierarchy(projectId, wbsRows, actorUser);
-      const calculation = await this.calculationSvc.recalculateProject(projectId, {
-        triggerType: 'excel_import',
-      });
+      const upsert = await this.upsertWbsHierarchy(
+        projectId,
+        wbsRows,
+        actorUser,
+      );
+      const calculation = await this.calculationSvc.recalculateProject(
+        projectId,
+        {
+          triggerType: 'excel_import',
+        },
+      );
       return {
         ...validation,
         upsert: {
@@ -208,9 +217,12 @@ export class ActivityScheduleImportService {
 
     const activityRows = this.toActivityRows(parsed.rows).activities;
     const upsert = await this.upsertByWbs(projectId, activityRows, actorUser);
-    const calculation = await this.calculationSvc.recalculateProject(projectId, {
-      triggerType: 'excel_import',
-    });
+    const calculation = await this.calculationSvc.recalculateProject(
+      projectId,
+      {
+        triggerType: 'excel_import',
+      },
+    );
 
     return {
       ...validation,
@@ -594,9 +606,9 @@ export class ActivityScheduleImportService {
       }
     }
     return [...byCode.values()].sort((a, b) =>
-      this.toWbsSortKey(a.activityCode).localeCompare(
-        this.toWbsSortKey(b.activityCode),
-      ),
+      this.wbsSvc
+        .toWbsSortKey(a.activityCode)
+        .localeCompare(this.wbsSvc.toWbsSortKey(b.activityCode)),
     );
   }
 
@@ -608,9 +620,9 @@ export class ActivityScheduleImportService {
       }
     }
     return [...byCode.values()].sort((a, b) =>
-      this.toWbsSortKey(a.taskCode).localeCompare(
-        this.toWbsSortKey(b.taskCode),
-      ),
+      this.wbsSvc
+        .toWbsSortKey(a.taskCode)
+        .localeCompare(this.wbsSvc.toWbsSortKey(b.taskCode)),
     );
   }
 
@@ -830,7 +842,12 @@ export class ActivityScheduleImportService {
       existing.parent = input.parentTaskPkid
         ? ({ pkid: input.parentTaskPkid } as Task)
         : null;
-      existing.wbsSortKey = this.toWbsSortKey(input.code);
+      existing.wbsSortKey = this.wbsSvc.toWbsSortKey(input.code);
+      await this.wbsSvc.reserveExistingTaskCode(
+        tx,
+        existing,
+        input.actorUserId,
+      );
       const saved = await tx.save(Task, existing);
       taskByWbs.set(input.code, saved);
       return { task: saved, created: false };
@@ -851,7 +868,7 @@ export class ActivityScheduleImportService {
       completed: false,
       scheduleType: input.scheduleType,
       wbsCode: input.code,
-      wbsSortKey: this.toWbsSortKey(input.code),
+      wbsSortKey: this.wbsSvc.toWbsSortKey(input.code),
       weightPercent: null,
       isManuallyScheduled: false,
       manualScheduleReason: null,
@@ -866,6 +883,7 @@ export class ActivityScheduleImportService {
       reporteeUserId: null,
     });
     const saved = await tx.save(Task, task);
+    await this.wbsSvc.reserveExistingTaskCode(tx, saved, input.actorUserId);
     taskByWbs.set(input.code, saved);
     return { task: saved, created: true };
   }
@@ -898,7 +916,9 @@ export class ActivityScheduleImportService {
       }
     }
     return [...summaries.values()].sort((a, b) =>
-      this.toWbsSortKey(a.code).localeCompare(this.toWbsSortKey(b.code)),
+      this.wbsSvc
+        .toWbsSortKey(a.code)
+        .localeCompare(this.wbsSvc.toWbsSortKey(b.code)),
     );
   }
 
@@ -936,7 +956,9 @@ export class ActivityScheduleImportService {
       }
     }
     return [...summaries.values()].sort((a, b) =>
-      this.toWbsSortKey(a.code).localeCompare(this.toWbsSortKey(b.code)),
+      this.wbsSvc
+        .toWbsSortKey(a.code)
+        .localeCompare(this.wbsSvc.toWbsSortKey(b.code)),
     );
   }
 
@@ -1123,11 +1145,7 @@ export class ActivityScheduleImportService {
       }
       if (!taskName) {
         issues.push(
-          this.error(
-            row.rowNumber,
-            'taskName',
-            'Task description is required',
-          ),
+          this.error(row.rowNumber, 'taskName', 'Task description is required'),
         );
       }
 
@@ -1155,7 +1173,11 @@ export class ActivityScheduleImportService {
           ),
         );
       }
-      if (activityCode && taskCode && !taskCode.startsWith(`${activityCode}.`)) {
+      if (
+        activityCode &&
+        taskCode &&
+        !taskCode.startsWith(`${activityCode}.`)
+      ) {
         issues.push(
           this.error(
             row.rowNumber,
@@ -1450,18 +1472,6 @@ export class ActivityScheduleImportService {
   private clean(value: string | undefined): string | null {
     const trimmed = value?.trim();
     return trimmed ? trimmed : null;
-  }
-
-  private toWbsSortKey(code: string): string {
-    return code
-      .split('.')
-      .map((part) => {
-        const numeric = Number(part);
-        return Number.isInteger(numeric)
-          ? numeric.toString().padStart(6, '0')
-          : part.toUpperCase().padStart(6, '0');
-      })
-      .join('.');
   }
 
   private error(

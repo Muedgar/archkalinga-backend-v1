@@ -34,6 +34,7 @@ import {
   ActivityScheduleFiltersDto,
   ActivityScheduleGanttQueryDto,
   ActivityScheduleImportDto,
+  BranchChecklistItemDto,
   BulkUpdateTasksDto,
   CreateStarterFromDeliverableDto,
   CreateChangeRequestDto,
@@ -42,7 +43,9 @@ import {
   DecideChangeRequestReviewDto,
   CreateTaskMaterialDto,
   CreateTaskDocumentDto,
+  CreateTaskLocationsDto,
   CreateTaskResourceAllocationDto,
+  FieldWorkQueueQueryDto,
   CreateProjectCalendarExceptionDto,
   CreateChecklistGroupDto,
   CreateTaskDto,
@@ -53,11 +56,18 @@ import {
   ReopenChangeRequestDto,
   ResourceReportFiltersDto,
   ResourceReportImportDto,
+  SupersedeTaskDto,
   TaskDocumentFiltersDto,
+  TaskDashboardSummaryQueryDto,
   ChangeRequestFiltersDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
+  TaskSnapshotQueryDto,
+  TaskSyncEventsDto,
+  TaskTimelineQueryDto,
+  TaskTreeQueryDto,
   UpdateTaskDocumentDto,
+  UpdateTaskLocationProgressDto,
   UpdateTaskMaterialDto,
   UpdateTaskResourceAllocationDto,
   UpdateActivityScheduleDto,
@@ -88,7 +98,10 @@ import {
   TaskChangeRequestsService,
   TaskCommentsService,
   TaskCrudService,
+  TaskDashboardSummaryService,
   TaskDocumentsService,
+  TaskFieldWorkQueueService,
+  TaskLocationsService,
   TaskMembersService,
   TaskMaterialsReportImportService,
   TaskMaterialsReportService,
@@ -99,6 +112,7 @@ import {
   TaskResourceAllocationService,
   TaskResourceReportImportService,
   TaskResourceReportService,
+  TaskSyncEventsService,
 } from './services';
 
 @Injectable()
@@ -109,7 +123,9 @@ export class TasksService {
     // ── Focused sub-services ──────────────────────────────────────────────
     private readonly authSvc: TaskAuthService,
     private readonly crudSvc: TaskCrudService,
+    private readonly dashboardSummarySvc: TaskDashboardSummaryService,
     private readonly querySvc: TaskQueryService,
+    private readonly fieldWorkQueueSvc: TaskFieldWorkQueueService,
     private readonly activityScheduleGanttSvc: ActivityScheduleGanttService,
     private readonly activityScheduleImportSvc: ActivityScheduleImportService,
     private readonly activityScheduleQuerySvc: ActivityScheduleQueryService,
@@ -122,6 +138,7 @@ export class TasksService {
     private readonly changeRequestsSvc: TaskChangeRequestsService,
     private readonly checklistSvc: TaskChecklistService,
     private readonly relationsSvc: TaskRelationsService,
+    private readonly locationsSvc: TaskLocationsService,
     private readonly membersSvc: TaskMembersService,
     private readonly materialsSvc: TaskMaterialsService,
     private readonly documentsSvc: TaskDocumentsService,
@@ -130,6 +147,7 @@ export class TasksService {
     private readonly resourceAllocationSvc: TaskResourceAllocationService,
     private readonly resourceReportImportSvc: TaskResourceReportImportService,
     private readonly resourceReportSvc: TaskResourceReportService,
+    private readonly syncEventsSvc: TaskSyncEventsService,
   ) {}
 
   // ── Convenience: auth (used externally by e.g. ProjectsService) ───────────
@@ -182,6 +200,21 @@ export class TasksService {
     );
   }
 
+  async supersedeTask(
+    projectId: string,
+    taskId: string,
+    dto: SupersedeTaskDto,
+    requestUser: RequestUser,
+  ) {
+    return this.crudSvc.supersedeTask(
+      projectId,
+      taskId,
+      dto,
+      requestUser,
+      (p, id, u, m) => this.getTask(p, id, u, m),
+    );
+  }
+
   async bulkUpdateTasks(
     projectId: string,
     dto: BulkUpdateTasksDto,
@@ -214,6 +247,38 @@ export class TasksService {
     );
   }
 
+  async getTaskTree(
+    projectId: string,
+    taskId: string,
+    query: TaskTreeQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    return this.querySvc.getTaskTree(
+      projectId,
+      taskId,
+      query,
+      requestUser,
+      prefetchedMembership,
+    );
+  }
+
+  async getTaskDashboardSummary(
+    projectId: string,
+    taskId: string,
+    query: TaskDashboardSummaryQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    return this.dashboardSummarySvc.getSummary(
+      projectId,
+      taskId,
+      query,
+      requestUser,
+      prefetchedMembership,
+    );
+  }
+
   async getProjectTasks(
     projectId: string,
     filters: TaskFiltersDto,
@@ -226,6 +291,34 @@ export class TasksService {
       requestUser,
       prefetchedMembership,
     );
+  }
+
+  async getMyFieldWorkToday(
+    projectId: string,
+    query: FieldWorkQueueQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    return this.fieldWorkQueueSvc.getToday(
+      projectId,
+      query,
+      requestUser,
+      prefetchedMembership,
+    );
+  }
+
+  async processTaskSyncEvents(
+    projectId: string,
+    dto: TaskSyncEventsDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const actorUser = await this.actor(requestUser);
+    return this.syncEventsSvc.process(projectId, dto, actorUser);
   }
 
   async findOneOrFail(taskId: string, projectId: string): Promise<Task> {
@@ -1468,6 +1561,28 @@ export class TasksService {
     );
   }
 
+  async branchChecklistItem(
+    projectId: string,
+    taskId: string,
+    itemId: string,
+    dto: BranchChecklistItemDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.checklistSvc.branchItem(task, itemId, actorUser, dto);
+  }
+
   async deleteChecklistItem(
     projectId: string,
     taskId: string,
@@ -1487,6 +1602,72 @@ export class TasksService {
       this.actor(requestUser),
     ]);
     return this.checklistSvc.deleteItem(task, itemId, actorUser);
+  }
+
+  // ── Location-aware execution ─────────────────────────────────────────────
+
+  async getTaskLocations(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      {
+        requestUser,
+        membership,
+      },
+    );
+    return this.locationsSvc.list(task);
+  }
+
+  async createTaskLocations(
+    projectId: string,
+    taskId: string,
+    dto: CreateTaskLocationsDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.locationsSvc.createMany(task, actorUser, dto);
+  }
+
+  async updateTaskLocationProgress(
+    projectId: string,
+    taskId: string,
+    locationId: string,
+    dto: UpdateTaskLocationProgressDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+        requestUser,
+        membership,
+      }),
+      this.actor(requestUser),
+    ]);
+    return this.locationsSvc.updateProgress(task, locationId, actorUser, dto);
   }
 
   // ── Checklist groups ──────────────────────────────────────────────────────
@@ -1519,10 +1700,14 @@ export class TasksService {
       requestUser,
       'update',
     );
-    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
-      requestUser,
-      membership,
-    });
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      {
+        requestUser,
+        membership,
+      },
+    );
     return this.checklistSvc.createGroup(task, dto);
   }
 
@@ -1682,10 +1867,14 @@ export class TasksService {
       requestUser,
       'update',
     );
-    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
-      requestUser,
-      membership,
-    });
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      {
+        requestUser,
+        membership,
+      },
+    );
     return this.relationsSvc.addRelation(task, dto, projectId);
   }
 
@@ -1737,10 +1926,14 @@ export class TasksService {
       requestUser,
       'update',
     );
-    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
-      requestUser,
-      membership,
-    });
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      {
+        requestUser,
+        membership,
+      },
+    );
     return this.membersSvc.addLabel(task, dto, projectId);
   }
 
@@ -1792,10 +1985,14 @@ export class TasksService {
       requestUser,
       'update',
     );
-    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
-      requestUser,
-      membership,
-    });
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      {
+        requestUser,
+        membership,
+      },
+    );
     return this.membersSvc.addWatcher(task, dto, projectId);
   }
 
@@ -1836,5 +2033,41 @@ export class TasksService {
       membership,
     });
     return this.activitySvc.listForTask(taskId, page, limit);
+  }
+
+  async getTaskTimeline(
+    projectId: string,
+    taskId: string,
+    query: TaskTimelineQueryDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.activitySvc.listTimeline(projectId, taskId, query, requestUser);
+  }
+
+  async getTaskSnapshot(
+    projectId: string,
+    taskId: string,
+    query: TaskSnapshotQueryDto,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    return this.activitySvc.getSnapshot(projectId, taskId, query, requestUser);
   }
 }

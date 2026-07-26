@@ -24,6 +24,7 @@ import { TaskComment } from './task-comment.entity';
 import { TaskDependency } from './task-dependency.entity';
 import { TaskDocument } from './task-document.entity';
 import { TaskLabel } from './task-label.entity';
+import { TaskLocation } from './task-location.entity';
 import { TaskMaterial } from './task-material.entity';
 import { TaskRelation } from './task-relation.entity';
 import { TaskResourceAllocation } from './task-resource-allocation.entity';
@@ -145,6 +146,26 @@ export class Task extends AppBaseEntity {
   @OneToMany(() => Task, (task) => task.parent)
   children: Task[];
 
+  @ManyToOne(() => Task, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'superseded_by_task_id', referencedColumnName: 'id' })
+  supersededByTask: Task | null;
+
+  @Column({ name: 'superseded_by_task_id', type: 'uuid', nullable: true })
+  supersededByTaskId: string | null;
+
+  @ManyToOne(() => Task, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'supersedes_task_id', referencedColumnName: 'id' })
+  supersedesTask: Task | null;
+
+  @Column({ name: 'supersedes_task_id', type: 'uuid', nullable: true })
+  supersedesTaskId: string | null;
+
+  @Column({ name: 'supersession_reason', type: 'text', nullable: true })
+  supersessionReason: string | null;
+
+  @Column({ name: 'superseded_at', type: 'timestamptz', nullable: true })
+  supersededAt: Date | null;
+
   // ── Project & ownership ───────────────────────────────────────────────────
   @ManyToOne(() => Project, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'project_id' })
@@ -191,6 +212,9 @@ export class Task extends AppBaseEntity {
 
   @OneToMany(() => TaskLabel, (label) => label.task)
   labels: TaskLabel[];
+
+  @OneToMany(() => TaskLocation, (location) => location.task)
+  locations: TaskLocation[];
 
   @OneToMany(() => TaskWatcher, (watcher) => watcher.task)
   watchers: TaskWatcher[];

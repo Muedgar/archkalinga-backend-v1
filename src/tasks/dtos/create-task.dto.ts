@@ -30,6 +30,16 @@ class CreateTaskChecklistItemDto {
   @IsInt()
   @Min(0)
   orderIndex: number;
+
+  @ApiPropertyOptional({
+    example: 'CHK-001',
+    description: 'Optional permanent checklist item code within this task.',
+  })
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  @Type(() => String)
+  itemCode?: string | null;
 }
 
 class MindmapMetaDto {

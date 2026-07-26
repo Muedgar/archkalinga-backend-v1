@@ -19,10 +19,17 @@ export const INVALID_TASK_MOVE_TARGET =
   'beforeTaskId and afterTaskId must reference tasks in the same destination scope';
 export const INVALID_TASK_HIERARCHY =
   'A task cannot be moved under itself or one of its descendants';
+export const INVALID_TASK_SUPERSESSION =
+  'Task supersession requires two different active tasks in the same project';
+export const TASK_ALREADY_SUPERSEDED = 'This task has already been superseded';
+export const TASK_REPLACEMENT_ALREADY_USED =
+  'This replacement task already supersedes another task';
 export const TASK_COMMENT_NOT_FOUND = 'Task comment not found';
 export const TASK_COMMENT_ACCESS_DENIED =
   'You can only edit or delete your own comments';
 export const TASK_CHECKLIST_ITEM_NOT_FOUND = 'Task checklist item not found';
+export const TASK_CHECKLIST_ITEM_ALREADY_BRANCHED =
+  'This checklist item has already been branched into a task';
 export const TASK_MATERIAL_NOT_FOUND = 'Task material not found';
 export const TASK_DOCUMENT_NOT_FOUND = 'Task document not found';
 export const TASK_DOCUMENT_ATTACHMENT_NOT_FOUND =
@@ -94,8 +101,15 @@ export const INVALID_TASK_WATCHER =
 export const TASK_RELATION_NOT_FOUND = 'Task relation not found';
 export const TASK_RESOURCE_ALLOCATION_NOT_FOUND =
   'Task resource allocation not found';
+export const TASK_LOCATION_NOT_FOUND = 'Task location not found';
+export const TASK_LOCATION_CODE_ALREADY_EXISTS =
+  'This location code already exists on the task';
+export const INVALID_TASK_SYNC_EVENT =
+  'Task sync event payload is invalid or references a task subresource outside this task';
 export const INVALID_TASK_RELATION =
   'Related task must belong to the same project and must not create a self-relation or duplicate';
 export const TASK_RELATION_SELF = 'A task cannot be related to itself';
 export const TASK_STATUS_WIP_LIMIT_EXCEEDED =
   'This status has reached its WIP limit. Move or complete existing tasks before adding more.';
+export const TASK_CHECKLIST_ITEM_CODE_ALREADY_EXISTS =
+  'This checklist item code already exists on the task';

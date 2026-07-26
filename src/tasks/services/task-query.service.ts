@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -10,11 +11,76 @@ import { FilterResponse } from 'src/common/interfaces';
 import { ProjectMembership } from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
 import { Task, TaskComment } from '../entities';
-import { TaskFiltersDto } from '../dtos';
+import { TaskFiltersDto, TaskTreeQueryDto } from '../dtos';
 import { TASK_NOT_FOUND, TASK_PROJECT_ACCESS_DENIED } from '../messages';
-import { TaskListItemSerializer, TaskSerializer } from '../serializers';
+import {
+  TaskChecklistItemDetailSerializer,
+  TaskListItemSerializer,
+  TaskSerializer,
+} from '../serializers';
 import { TaskAuthService } from './task-auth.service';
 import { TaskMembersService } from './task-members.service';
+
+const TASK_TREE_INCLUDE_KEYS = new Set([
+  'assignees',
+  'assignedMembers',
+  'checklist',
+  'dependencies',
+  'comments',
+  'viewMeta',
+  'activitySchedule',
+  'counts',
+  'progress',
+  'status',
+]);
+const DEFAULT_TASK_TREE_NODE_LIMIT = 500;
+const MAX_TASK_TREE_DEPTH = 25;
+
+export type TaskTreeNode = {
+  task: TaskListItemSerializer;
+  children: TaskTreeNode[];
+  checklistItems: TaskChecklistItemDetailSerializer[];
+  counts: {
+    childCount: number;
+    descendantCount: number;
+    checklistItemCount: number;
+    completedChecklistItemCount: number;
+    branchedChecklistItemCount: number;
+    commentCount: number;
+  };
+  progress: {
+    self: number | null;
+    rollup: number | null;
+    completed: boolean;
+  };
+  status: unknown;
+};
+
+export type TaskTreeResponse = {
+  root: TaskTreeNode;
+  summary: {
+    descendantCount: number;
+    taskCount: number;
+    leafCount: number;
+    completedTaskCount: number;
+    checklistItemCount: number;
+    completedChecklistItemCount: number;
+    branchedChecklistItemCount: number;
+    rollupProgress: number | null;
+  };
+  meta: {
+    projectId: string;
+    rootTaskId: string;
+    depth: number | 'all';
+    maxDepthVisited: number;
+    limit: number;
+    truncated: boolean;
+    includeDeleted: boolean;
+    includeCompleted: boolean;
+    includeSuperseded: boolean;
+    includes: string[];
+  };
+};
 
 @Injectable()
 export class TaskQueryService {
@@ -107,11 +173,13 @@ export class TaskQueryService {
     const limit = filters.limit ?? 10;
     const includeDeleted =
       filters.includeDeleted === true && this.authSvc.isAdmin(requestUser);
+    const includeSuperseded = filters.includeSuperseded === true;
 
     const qb = this.taskRepo
       .createQueryBuilder('task')
       .where('task.projectId = :projectId', { projectId });
     if (!includeDeleted) qb.andWhere('task.deletedAt IS NULL');
+    if (!includeSuperseded) qb.andWhere('task.supersededByTaskId IS NULL');
 
     const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
       projectId,
@@ -334,6 +402,391 @@ export class TaskQueryService {
       page,
       nextPage: count / limit > page ? page + 1 : null,
       limit,
+    };
+  }
+
+  async getTaskTree(
+    projectId: string,
+    taskId: string,
+    query: TaskTreeQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ): Promise<TaskTreeResponse> {
+    if (prefetchedMembership === undefined) {
+      await this.authSvc.verifyProjectPermission(
+        projectId,
+        requestUser,
+        'view',
+      );
+    }
+
+    const depth = query.depth ?? 'all';
+    if (depth !== 'all' && (!Number.isInteger(depth) || depth < 0)) {
+      throw new BadRequestException(
+        'depth must be a non-negative integer or "all"',
+      );
+    }
+
+    const includes = this.parseTreeIncludes(query.include);
+    const includeDeleted =
+      query.includeDeleted === true && this.authSvc.isAdmin(requestUser);
+    const includeCompleted = query.includeCompleted ?? true;
+    const includeSuperseded = query.includeSuperseded === true;
+    const limit = query.limit ?? DEFAULT_TASK_TREE_NODE_LIMIT;
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+
+    const rootTasks = await this.loadTreeTasks(
+      projectId,
+      [taskId],
+      includes,
+      requestUser,
+      canViewAllProjectTasks,
+      includeDeleted,
+      includeCompleted,
+      true,
+      'id',
+    );
+    const rootTask = rootTasks[0];
+    if (!rootTask) throw new NotFoundException(TASK_NOT_FOUND);
+
+    const canViewRoot = await this.authSvc.canViewTask(rootTask, requestUser);
+    if (!canViewRoot) throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
+
+    const allTasks: Task[] = [rootTask];
+    let frontierIds = [rootTask.id];
+    let level = 0;
+    let maxDepthVisited = 0;
+    let truncated = false;
+    const maxDepth = depth === 'all' ? MAX_TASK_TREE_DEPTH : depth;
+
+    while (frontierIds.length > 0 && level < maxDepth) {
+      const remaining = limit - allTasks.length;
+      if (remaining <= 0) {
+        truncated = true;
+        break;
+      }
+
+      const children = await this.loadTreeTasks(
+        projectId,
+        frontierIds,
+        includes,
+        requestUser,
+        canViewAllProjectTasks,
+        includeDeleted,
+        includeCompleted,
+        includeSuperseded,
+        'parent',
+        remaining,
+      );
+      if (!children.length) break;
+
+      if (children.length >= remaining) truncated = true;
+      allTasks.push(...children);
+      frontierIds = children.map((child) => child.id);
+      level += 1;
+      maxDepthVisited = level;
+
+      if (truncated) break;
+    }
+
+    if (depth === 'all' && level >= MAX_TASK_TREE_DEPTH && frontierIds.length) {
+      truncated = true;
+    }
+
+    const allTaskIds = allTasks.map((task) => task.id);
+    const userIds = allTasks.flatMap((task) =>
+      [
+        task.reporteeUserId,
+        ...(task.assignees ?? []).map((a) => a.userId),
+      ].filter((v): v is string => Boolean(v)),
+    );
+    const [roleContext, directChildCountMap, commentCountMap] =
+      await Promise.all([
+        this.membersSvc.loadProjectRoleContextMap(projectId, userIds),
+        this.loadDirectChildCountMap(
+          projectId,
+          allTaskIds,
+          requestUser,
+          canViewAllProjectTasks,
+          includeDeleted,
+          includeCompleted,
+          includeSuperseded,
+        ),
+        this.loadCommentCountMap(allTaskIds),
+      ]);
+
+    const nodes = new Map<string, TaskTreeNode>();
+    for (const task of allTasks) {
+      const checklistItems = [...(task.checklistItems ?? [])].sort(
+        (a, b) => a.orderIndex - b.orderIndex,
+      );
+      nodes.set(task.id, {
+        task: this.authSvc.toTaskListItemSerializer(
+          this.membersSvc.buildTaskReadModel(task, roleContext, {
+            childCount: directChildCountMap.get(task.id) ?? 0,
+            commentCount: commentCountMap.get(task.id) ?? 0,
+          }),
+        ),
+        children: [],
+        checklistItems: includes.has('checklist')
+          ? checklistItems.map((item) => this.toTreeChecklistItem(item))
+          : [],
+        counts: {
+          childCount: directChildCountMap.get(task.id) ?? 0,
+          descendantCount: 0,
+          checklistItemCount: checklistItems.length,
+          completedChecklistItemCount: checklistItems.filter(
+            (item) => item.completed,
+          ).length,
+          branchedChecklistItemCount: checklistItems.filter((item) =>
+            Boolean(item.branchedTaskId),
+          ).length,
+          commentCount: commentCountMap.get(task.id) ?? 0,
+        },
+        progress: {
+          self: task.progress ?? null,
+          rollup: task.progress ?? null,
+          completed: task.completed,
+        },
+        status: task.status ?? null,
+      });
+    }
+
+    for (const task of allTasks) {
+      if (!task.parentTaskId) continue;
+      const parent = nodes.get(task.parentTaskId);
+      const child = nodes.get(task.id);
+      if (parent && child) parent.children.push(child);
+    }
+
+    const root = nodes.get(rootTask.id)!;
+    this.applyTreeRollups(root);
+
+    return {
+      root,
+      summary: this.buildTreeSummary(root),
+      meta: {
+        projectId,
+        rootTaskId: rootTask.id,
+        depth,
+        maxDepthVisited,
+        limit,
+        truncated,
+        includeDeleted,
+        includeCompleted,
+        includeSuperseded,
+        includes: [...includes],
+      },
+    };
+  }
+
+  private parseTreeIncludes(raw?: string): Set<string> {
+    const defaults = new Set(['checklist', 'counts', 'progress', 'status']);
+    if (!raw) return defaults;
+
+    const includes = new Set(
+      raw
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    for (const include of includes) {
+      if (!TASK_TREE_INCLUDE_KEYS.has(include)) {
+        throw new BadRequestException(`Invalid task tree include: ${include}`);
+      }
+    }
+    return includes;
+  }
+
+  private toTreeChecklistItem(
+    item: Task['checklistItems'][number],
+  ): TaskChecklistItemDetailSerializer {
+    return {
+      id: item.id,
+      pkid: item.pkid,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      taskId: item.taskId,
+      checklistGroupId: item.checklistGroupId,
+      itemCode: item.itemCode,
+      branchedTaskId: item.branchedTaskId,
+      branchStatus: item.branchStatus,
+      branchedByUserId: item.branchedByUserId,
+      branchedAt: item.branchedAt,
+      text: item.text,
+      completed: item.completed,
+      orderIndex: item.orderIndex,
+      completedByUserId: item.completedByUserId,
+      completedAt: item.completedAt,
+    };
+  }
+
+  private async loadTreeTasks(
+    projectId: string,
+    ids: string[],
+    includes: Set<string>,
+    requestUser: RequestUser,
+    canViewAllProjectTasks: boolean,
+    includeDeleted: boolean,
+    includeCompleted: boolean,
+    includeSuperseded: boolean,
+    mode: 'id' | 'parent',
+    limit?: number,
+  ): Promise<Task[]> {
+    if (!ids.length) return [];
+
+    const qb = this.taskRepo
+      .createQueryBuilder('task')
+      .where(`task.${mode === 'id' ? 'id' : 'parentTaskId'} IN (:...ids)`, {
+        ids,
+      })
+      .andWhere('task.projectId = :projectId', { projectId });
+
+    if (!includeDeleted) qb.andWhere('task.deletedAt IS NULL');
+    if (!includeCompleted) qb.andWhere('task.completed = false');
+    if (!includeSuperseded) qb.andWhere('task.supersededByTaskId IS NULL');
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
+
+    qb.leftJoinAndSelect('task.assignees', 'assignees')
+      .leftJoinAndSelect('assignees.user', 'assigneeUser')
+      .leftJoinAndSelect('task.reporteeUser', 'reporteeUser')
+      .leftJoinAndSelect('task.status', 'status')
+      .leftJoinAndSelect('task.priority', 'priority')
+      .leftJoinAndSelect('task.taskType', 'taskType')
+      .leftJoinAndSelect('task.severity', 'severity');
+
+    if (includes.has('activitySchedule')) {
+      qb.leftJoinAndSelect('task.activitySchedule', 'activitySchedule');
+    }
+    qb.leftJoinAndSelect('task.checklistItems', 'checklistItems');
+    if (includes.has('dependencies')) {
+      qb.leftJoinAndSelect('task.dependencyEdges', 'dependencyEdges');
+    }
+    if (includes.has('comments')) {
+      qb.leftJoinAndSelect(
+        'task.comments',
+        'comments',
+        'comments.deletedAt IS NULL',
+      );
+    }
+    if (includes.has('viewMeta')) {
+      qb.leftJoinAndSelect('task.viewMetadataEntries', 'viewMetadataEntries');
+    }
+
+    qb.orderBy('task.wbsSortKey', 'ASC', 'NULLS LAST')
+      .addOrderBy('task.rank', 'ASC', 'NULLS LAST')
+      .addOrderBy('task.createdAt', 'ASC');
+
+    if (limit !== undefined) qb.take(limit);
+    return qb.getMany();
+  }
+
+  private async loadDirectChildCountMap(
+    projectId: string,
+    taskIds: string[],
+    requestUser: RequestUser,
+    canViewAllProjectTasks: boolean,
+    includeDeleted: boolean,
+    includeCompleted: boolean,
+    includeSuperseded: boolean,
+  ): Promise<Map<string, number>> {
+    if (!taskIds.length) return new Map();
+
+    const qb = this.taskRepo
+      .createQueryBuilder('task')
+      .select('task.parentTaskId', 'parentTaskId')
+      .addSelect('COUNT(task.id)', 'cnt')
+      .where('task.parentTaskId IN (:...taskIds)', { taskIds })
+      .andWhere('task.projectId = :projectId', { projectId });
+
+    if (!includeDeleted) qb.andWhere('task.deletedAt IS NULL');
+    if (!includeCompleted) qb.andWhere('task.completed = false');
+    if (!includeSuperseded) qb.andWhere('task.supersededByTaskId IS NULL');
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
+
+    const rows = await qb
+      .groupBy('task.parentTaskId')
+      .getRawMany<{ parentTaskId: string; cnt: string }>();
+
+    return new Map(rows.map((row) => [row.parentTaskId, Number(row.cnt)]));
+  }
+
+  private async loadCommentCountMap(
+    taskIds: string[],
+  ): Promise<Map<string, number>> {
+    if (!taskIds.length) return new Map();
+
+    const rows = await this.commentRepo
+      .createQueryBuilder('comment')
+      .select('comment.taskId', 'taskId')
+      .addSelect('COUNT(comment.id)', 'cnt')
+      .where('comment.taskId IN (:...taskIds)', { taskIds })
+      .andWhere('comment.deletedAt IS NULL')
+      .groupBy('comment.taskId')
+      .getRawMany<{ taskId: string; cnt: string }>();
+
+    return new Map(rows.map((row) => [row.taskId, Number(row.cnt)]));
+  }
+
+  private applyTreeRollups(node: TaskTreeNode): void {
+    let descendantCount = 0;
+    let progressTotal = node.progress.self ?? 0;
+    let progressCount = node.progress.self === null ? 0 : 1;
+
+    for (const child of node.children) {
+      this.applyTreeRollups(child);
+      descendantCount += 1 + child.counts.descendantCount;
+      if (child.progress.rollup !== null) {
+        progressTotal += child.progress.rollup;
+        progressCount += 1;
+      }
+    }
+
+    node.counts.descendantCount = descendantCount;
+    node.progress.rollup =
+      progressCount > 0 ? Math.round(progressTotal / progressCount) : null;
+  }
+
+  private buildTreeSummary(root: TaskTreeNode): TaskTreeResponse['summary'] {
+    const stack = [root];
+    let taskCount = 0;
+    let leafCount = 0;
+    let completedTaskCount = 0;
+    let checklistItemCount = 0;
+    let completedChecklistItemCount = 0;
+    let branchedChecklistItemCount = 0;
+
+    while (stack.length) {
+      const node = stack.pop()!;
+      taskCount += 1;
+      if (!node.children.length) leafCount += 1;
+      if (node.progress.completed) completedTaskCount += 1;
+      checklistItemCount += node.counts.checklistItemCount;
+      completedChecklistItemCount += node.counts.completedChecklistItemCount;
+      branchedChecklistItemCount += node.counts.branchedChecklistItemCount;
+      stack.push(...node.children);
+    }
+
+    return {
+      descendantCount: root.counts.descendantCount,
+      taskCount,
+      leafCount,
+      completedTaskCount,
+      checklistItemCount,
+      completedChecklistItemCount,
+      branchedChecklistItemCount,
+      rollupProgress: root.progress.rollup,
     };
   }
 

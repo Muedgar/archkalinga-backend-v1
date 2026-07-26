@@ -12,6 +12,7 @@ import {
   BulkUpdateTasksDto,
   CreateTaskDto,
   MoveTaskDto,
+  SupersedeTaskDto,
   UpdateTaskDto,
 } from '../dtos';
 import {
@@ -29,13 +30,19 @@ import {
   ProjectStatus,
   ProjectTaskType,
 } from '../project-config';
-import { TASK_NOT_FOUND } from '../messages';
+import {
+  INVALID_TASK_SUPERSESSION,
+  TASK_ALREADY_SUPERSEDED,
+  TASK_NOT_FOUND,
+  TASK_REPLACEMENT_ALREADY_USED,
+} from '../messages';
 import { TaskListItemSerializer, TaskSerializer } from '../serializers';
 import { TaskActivityService } from './task-activity.service';
 import { TaskAuthService } from './task-auth.service';
 import { TaskMembersService } from './task-members.service';
 import { TaskRankingService } from './task-ranking.service';
 import { TaskRelationsService } from './task-relations.service';
+import { TaskWbsService } from './task-wbs.service';
 
 @Injectable()
 export class TaskCrudService {
@@ -63,6 +70,7 @@ export class TaskCrudService {
     private readonly activitySvc: TaskActivityService,
     private readonly membersSvc: TaskMembersService,
     private readonly relationsSvc: TaskRelationsService,
+    private readonly wbsSvc: TaskWbsService,
   ) {}
 
   async createTask(
@@ -144,6 +152,11 @@ export class TaskCrudService {
         defaultStatus.id,
       );
 
+      const initialWbs = this.wbsSvc.prepareAssignment(
+        dto.wbsCode,
+        dto.wbsSortKey,
+      );
+
       const task = tx.create(Task, {
         project,
         projectId,
@@ -164,8 +177,8 @@ export class TaskCrudService {
         progress: dto.progress ?? null,
         completed: defaultStatus.isTerminal,
         scheduleType: dto.scheduleType ?? ScheduleType.TASK,
-        wbsCode: dto.wbsCode?.trim() ?? null,
-        wbsSortKey: dto.wbsSortKey?.trim() ?? null,
+        wbsCode: initialWbs.wbsCode,
+        wbsSortKey: initialWbs.wbsSortKey,
         weightPercent: dto.weightPercent ?? null,
         isManuallyScheduled: dto.isManuallyScheduled ?? false,
         manualScheduleReason: dto.manualScheduleReason?.trim() ?? null,
@@ -174,6 +187,7 @@ export class TaskCrudService {
       });
 
       const saved = await tx.save(task);
+      await this.wbsSvc.reserveExistingTaskCode(tx, saved, actorUser.id);
       await this.upsertActivitySchedule(tx, saved, dto);
 
       if (assignedUsers.length) {
@@ -198,6 +212,7 @@ export class TaskCrudService {
               taskId: saved.id,
               text: item.text.trim(),
               orderIndex: item.orderIndex,
+              itemCode: item.itemCode?.trim() || null,
             }),
           ),
         );
@@ -335,14 +350,8 @@ export class TaskCrudService {
       task.scheduleType = dto.scheduleType;
       changedFields.push('scheduleType');
     }
-    if (dto.wbsCode !== undefined) {
-      task.wbsCode = dto.wbsCode?.trim() ?? null;
-      changedFields.push('wbsCode');
-    }
-    if (dto.wbsSortKey !== undefined) {
-      task.wbsSortKey = dto.wbsSortKey?.trim() ?? null;
-      changedFields.push('wbsSortKey');
-    }
+    const hasWbsChange =
+      dto.wbsCode !== undefined || dto.wbsSortKey !== undefined;
     if (dto.weightPercent !== undefined) {
       task.weightPercent = dto.weightPercent ?? null;
       changedFields.push('weightPercent');
@@ -371,6 +380,16 @@ export class TaskCrudService {
     await this.taskRepo.manager.transaction(async (tx) => {
       if (dto.statusId && task.statusId !== originalStatusId) {
         await this.authSvc.assertWipLimit(tx, task.statusId, projectId);
+      }
+      if (hasWbsChange) {
+        await this.wbsSvc.applyTaskAssignment(
+          tx,
+          task,
+          dto.wbsCode,
+          dto.wbsSortKey,
+          actorUser.id,
+        );
+        changedFields.push('wbsCode', 'wbsSortKey');
       }
       await tx.save(task);
       await this.upsertActivitySchedule(tx, task, dto);
@@ -420,6 +439,7 @@ export class TaskCrudService {
                 taskId: task.id,
                 text: item.text.trim(),
                 orderIndex: item.orderIndex,
+                itemCode: item.itemCode?.trim() || null,
               }),
             ),
           );
@@ -684,6 +704,97 @@ export class TaskCrudService {
     return getTask(projectId, task.id, requestUser, membership);
   }
 
+  async supersedeTask(
+    projectId: string,
+    taskId: string,
+    dto: SupersedeTaskDto,
+    requestUser: RequestUser,
+    getTask: (
+      projectId: string,
+      taskId: string,
+      requestUser: RequestUser,
+      membership?: ProjectMembership | null,
+    ) => Promise<TaskSerializer>,
+  ): Promise<{
+    supersededTask: TaskSerializer;
+    replacementTask: TaskSerializer;
+  }> {
+    if (taskId === dto.replacementTaskId) {
+      throw new BadRequestException(INVALID_TASK_SUPERSESSION);
+    }
+
+    const [{ membership }, actorUser, tasks] = await Promise.all([
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
+      this.taskRepo.find({
+        where: {
+          id: In([taskId, dto.replacementTaskId]),
+          projectId,
+          deletedAt: IsNull(),
+        },
+        relations: ['project'],
+      }),
+    ]);
+
+    const taskMap = new Map(tasks.map((task) => [task.id, task]));
+    const supersededTask = taskMap.get(taskId);
+    const replacementTask = taskMap.get(dto.replacementTaskId);
+    if (!supersededTask || !replacementTask) {
+      throw new BadRequestException(INVALID_TASK_SUPERSESSION);
+    }
+    if (supersededTask.supersededByTaskId) {
+      throw new BadRequestException(TASK_ALREADY_SUPERSEDED);
+    }
+    if (replacementTask.supersedesTaskId) {
+      throw new BadRequestException(TASK_REPLACEMENT_ALREADY_USED);
+    }
+
+    await this.taskRepo.manager.transaction(async (tx) => {
+      const now = new Date();
+      supersededTask.supersededByTask = replacementTask;
+      supersededTask.supersededByTaskId = replacementTask.id;
+      supersededTask.supersessionReason = dto.reason?.trim() ?? null;
+      supersededTask.supersededAt = now;
+
+      replacementTask.supersedesTask = supersededTask;
+      replacementTask.supersedesTaskId = supersededTask.id;
+
+      await tx.save(Task, [supersededTask, replacementTask]);
+
+      await this.activitySvc.log(
+        tx,
+        supersededTask,
+        actorUser,
+        TaskActionType.TASK_SUPERSEDED,
+        {
+          supersededByTaskId: replacementTask.id,
+          supersessionReason: supersededTask.supersessionReason,
+          supersededAt: now.toISOString(),
+        },
+      );
+      await this.activitySvc.log(
+        tx,
+        replacementTask,
+        actorUser,
+        TaskActionType.TASK_UPDATED,
+        {
+          supersedesTaskId: supersededTask.id,
+          operation: 'task_supersession_replacement_linked',
+        },
+      );
+    });
+
+    const [updatedSupersededTask, updatedReplacementTask] = await Promise.all([
+      getTask(projectId, supersededTask.id, requestUser, membership),
+      getTask(projectId, replacementTask.id, requestUser, membership),
+    ]);
+
+    return {
+      supersededTask: updatedSupersededTask,
+      replacementTask: updatedReplacementTask,
+    };
+  }
+
   async bulkUpdateTasks(
     projectId: string,
     dto: BulkUpdateTasksDto,
@@ -757,10 +868,17 @@ export class TaskCrudService {
         if (item.progress !== undefined) task.progress = item.progress;
         if (item.scheduleType !== undefined)
           task.scheduleType = item.scheduleType;
-        if (item.wbsCode !== undefined)
-          task.wbsCode = item.wbsCode?.trim() ?? null;
-        if (item.wbsSortKey !== undefined)
-          task.wbsSortKey = item.wbsSortKey?.trim() ?? null;
+        const hasWbsChange =
+          item.wbsCode !== undefined || item.wbsSortKey !== undefined;
+        if (hasWbsChange) {
+          await this.wbsSvc.applyTaskAssignment(
+            tx,
+            task,
+            item.wbsCode,
+            item.wbsSortKey,
+            actorUser.id,
+          );
+        }
         if (item.weightPercent !== undefined)
           task.weightPercent = item.weightPercent ?? null;
         if (item.isManuallyScheduled !== undefined)

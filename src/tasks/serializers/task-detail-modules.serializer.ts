@@ -4,6 +4,11 @@ import { BaseSerializer } from 'src/common/serializers';
 export class TaskChecklistItemDetailSerializer extends BaseSerializer {
   @Expose() taskId: string;
   @Expose() checklistGroupId: string | null;
+  @Expose() itemCode: string | null;
+  @Expose() branchedTaskId: string | null;
+  @Expose() branchStatus: string;
+  @Expose() branchedByUserId: string | null;
+  @Expose() branchedAt: Date | null;
   @Expose() text: string;
   @Expose() completed: boolean;
   @Expose() orderIndex: number;
