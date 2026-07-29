@@ -83,6 +83,7 @@ import {
   TaskResourceReportImportService,
   TaskResourceReportService,
   TaskSyncEventsService,
+  TaskViewMetadataService,
   TaskWbsService,
 } from './services';
 
@@ -115,6 +116,7 @@ const SUB_SERVICES = [
   TaskResourceReportImportService,
   TaskResourceReportService,
   TaskSyncEventsService,
+  TaskViewMetadataService,
 ];
 
 @Module({

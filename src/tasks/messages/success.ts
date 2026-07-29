@@ -7,6 +7,13 @@ export const TASK_UPDATED = 'Task updated successfully';
 export const TASK_DELETED = 'Task deleted successfully';
 export const TASK_FETCHED = 'Task fetched successfully';
 export const TASK_TREE_FETCHED = 'Task tree fetched successfully';
+export const TASK_GANTT_FETCHED = 'Task Gantt fetched successfully';
+export const TASK_GANTT_CHECKS_FETCHED =
+  'Task Gantt checks fetched successfully';
+export const TASK_MINDMAP_FETCHED = 'Task Mindmap fetched successfully';
+export const TASK_MINDMAP_CHECKS_FETCHED =
+  'Task Mindmap checks fetched successfully';
+export const TASK_VIEW_METADATA_SAVED = 'Task view metadata saved successfully';
 export const TASK_DASHBOARD_SUMMARY_FETCHED =
   'Task dashboard summary fetched successfully';
 export const TASK_FIELD_WORK_QUEUE_FETCHED =

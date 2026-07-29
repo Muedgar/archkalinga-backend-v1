@@ -5,13 +5,25 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
 import { FilterResponse } from 'src/common/interfaces';
 import { ProjectMembership } from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
-import { Task, TaskComment } from '../entities';
-import { TaskFiltersDto, TaskTreeQueryDto } from '../dtos';
+import {
+  ChangeRequest,
+  ChangeRequestPriority,
+  ChangeRequestStatus,
+  Task,
+  TaskComment,
+  TaskRelation,
+} from '../entities';
+import {
+  TaskFiltersDto,
+  TaskMindmapCollapsedMode,
+  TaskMindmapQueryDto,
+  TaskTreeQueryDto,
+} from '../dtos';
 import { TASK_NOT_FOUND, TASK_PROJECT_ACCESS_DENIED } from '../messages';
 import {
   TaskChecklistItemDetailSerializer,
@@ -35,6 +47,35 @@ const TASK_TREE_INCLUDE_KEYS = new Set([
 ]);
 const DEFAULT_TASK_TREE_NODE_LIMIT = 500;
 const MAX_TASK_TREE_DEPTH = 25;
+const TASK_MINDMAP_INCLUDE_KEYS = new Set([
+  'checklist',
+  'counts',
+  'progress',
+  'status',
+  'assignees',
+  'dependencies',
+  'requests',
+  'linkedTasks',
+  'viewMeta',
+  'permissions',
+  'activitySchedule',
+]);
+const DEFAULT_TASK_MINDMAP_INCLUDES = new Set([
+  'checklist',
+  'counts',
+  'progress',
+  'status',
+  'viewMeta',
+  'permissions',
+  'requests',
+]);
+const OPEN_CHANGE_REQUEST_STATUSES = [
+  ChangeRequestStatus.NEW,
+  ChangeRequestStatus.UNDER_REVIEW,
+  ChangeRequestStatus.ESCALATED,
+  ChangeRequestStatus.RETURNED_FOR_REVISION,
+];
+type MindmapCheckSeverity = 'error' | 'warning';
 
 export type TaskTreeNode = {
   task: TaskListItemSerializer;
@@ -89,6 +130,10 @@ export class TaskQueryService {
     private readonly taskRepo: Repository<Task>,
     @InjectRepository(TaskComment)
     private readonly commentRepo: Repository<TaskComment>,
+    @InjectRepository(ChangeRequest)
+    private readonly changeRequestRepo: Repository<ChangeRequest>,
+    @InjectRepository(TaskRelation)
+    private readonly relationRepo: Repository<TaskRelation>,
     private readonly authSvc: TaskAuthService,
     private readonly membersSvc: TaskMembersService,
   ) {}
@@ -583,6 +628,292 @@ export class TaskQueryService {
     };
   }
 
+  async getTaskMindmap(
+    projectId: string,
+    taskId: string,
+    query: TaskMindmapQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    const includes = this.parseMindmapIncludes(query.include);
+    const tree = await this.getTaskTree(
+      projectId,
+      taskId,
+      {
+        depth: query.depth,
+        limit: query.limit,
+        include: this.toTreeIncludeCsv(includes),
+        includeCompleted: query.includeCompleted,
+        includeDeleted: query.includeDeleted,
+        includeSuperseded: query.includeSuperseded,
+      },
+      requestUser,
+      prefetchedMembership,
+    );
+    const visibleNodeIds = new Set<string>();
+    const hiddenByCollapse = new Set<string>();
+    const rootCollapsedMode =
+      query.collapsedMode ?? TaskMindmapCollapsedMode.RESPECT;
+
+    const allNodes = this.flattenTree(tree.root);
+    const requestCountMap = includes.has('requests')
+      ? await this.loadRequestCountMap(allNodes.map((node) => node.task.id))
+      : new Map<
+          string,
+          { openRequestCount: number; urgentRequestCount: number }
+        >();
+    const linkedRelations = includes.has('linkedTasks')
+      ? await this.loadVisibleRelationEdges(
+          allNodes.map((node) => node.task.id),
+        )
+      : [];
+    const canUpdate = includes.has('permissions')
+      ? await this.canUpdateProjectTasks(projectId, requestUser)
+      : false;
+
+    const nodes: Array<ReturnType<typeof this.toMindmapNode>> = [];
+    const edges: Array<Record<string, unknown>> = [];
+    const flatChecklistItems: Array<Record<string, unknown>> = [];
+    const stack: Array<{ node: TaskTreeNode; hidden: boolean }> = [
+      { node: tree.root, hidden: false },
+    ];
+
+    while (stack.length) {
+      const { node, hidden } = stack.pop()!;
+      const collapsed =
+        rootCollapsedMode === TaskMindmapCollapsedMode.RESPECT &&
+        this.isMindmapCollapsed(node.task);
+      if (hidden) {
+        hiddenByCollapse.add(node.task.id);
+      } else {
+        visibleNodeIds.add(node.task.id);
+        const requestCounts = requestCountMap.get(node.task.id) ?? {
+          openRequestCount: 0,
+          urgentRequestCount: 0,
+        };
+        nodes.push(
+          this.toMindmapNode(
+            node,
+            requestCounts,
+            includes,
+            canUpdate,
+            requestUser,
+          ),
+        );
+
+        if (includes.has('checklist')) {
+          for (const item of node.checklistItems) {
+            if (item.branchedTaskId) {
+              if (!collapsed) {
+                edges.push({
+                  id: `${item.id}:${item.branchedTaskId}`,
+                  type: 'branched-checklist-item',
+                  sourceTaskId: node.task.id,
+                  targetTaskId: item.branchedTaskId,
+                  checklistItemId: item.id,
+                  checklistItemCode: item.itemCode,
+                });
+              }
+            } else {
+              flatChecklistItems.push({
+                id: item.id,
+                taskId: item.taskId,
+                itemCode: item.itemCode,
+                text: item.text,
+                completed: item.completed,
+                orderIndex: item.orderIndex,
+                checklistGroupId: item.checklistGroupId,
+                branchedTaskId: null,
+                branchStatus: item.branchStatus,
+                completedAt: item.completedAt,
+                completedByUserId: item.completedByUserId,
+              });
+            }
+          }
+        }
+      }
+
+      for (const child of [...node.children].reverse()) {
+        const childHidden = hidden || collapsed;
+        if (!childHidden) {
+          edges.push({
+            id: `${node.task.id}:${child.task.id}`,
+            type: 'child-task',
+            sourceTaskId: node.task.id,
+            targetTaskId: child.task.id,
+            checklistItemId: this.findBranchingChecklistItemId(
+              node,
+              child.task.id,
+            ),
+            checklistItemCode: this.findBranchingChecklistItemCode(
+              node,
+              child.task.id,
+            ),
+          });
+        }
+        stack.push({ node: child, hidden: childHidden });
+      }
+    }
+
+    if (includes.has('linkedTasks')) {
+      for (const relation of linkedRelations) {
+        if (
+          visibleNodeIds.has(relation.taskId) &&
+          visibleNodeIds.has(relation.relatedTaskId)
+        ) {
+          edges.push({
+            id: relation.id,
+            type: 'linked-task',
+            relationType: relation.relationType,
+            sourceTaskId: relation.taskId,
+            targetTaskId: relation.relatedTaskId,
+            checklistItemId: null,
+            checklistItemCode: null,
+          });
+        }
+      }
+    }
+
+    return {
+      meta: {
+        projectId,
+        rootTaskId: tree.meta.rootTaskId,
+        depth: tree.meta.depth,
+        maxDepthVisited: tree.meta.maxDepthVisited,
+        limit: tree.meta.limit,
+        truncated: tree.meta.truncated,
+        includeCompleted: tree.meta.includeCompleted,
+        includeDeleted: tree.meta.includeDeleted,
+        includeSuperseded: tree.meta.includeSuperseded,
+        collapsedMode: rootCollapsedMode,
+        includes: [...includes],
+        generatedAt: new Date().toISOString(),
+      },
+      summary: {
+        ...tree.summary,
+        visibleTaskCount: nodes.length,
+        hiddenByCollapseCount: hiddenByCollapse.size,
+        openRequestCount: [...requestCountMap.values()].reduce(
+          (sum, count) => sum + count.openRequestCount,
+          0,
+        ),
+        urgentRequestCount: [...requestCountMap.values()].reduce(
+          (sum, count) => sum + count.urgentRequestCount,
+          0,
+        ),
+      },
+      data: {
+        rootId: tree.meta.rootTaskId,
+        nodes,
+        edges,
+        flatChecklistItems,
+      },
+    };
+  }
+
+  async getTaskMindmapChecks(
+    projectId: string,
+    taskId: string,
+    query: TaskMindmapQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    const tree = await this.getTaskTree(
+      projectId,
+      taskId,
+      {
+        depth: query.depth,
+        limit: query.limit,
+        include: 'checklist,counts,progress,status,viewMeta',
+        includeCompleted: query.includeCompleted,
+        includeDeleted: query.includeDeleted,
+        includeSuperseded: query.includeSuperseded,
+      },
+      requestUser,
+      prefetchedMembership,
+    );
+    const nodes = this.flattenTree(tree.root);
+    const nodeById = new Map(nodes.map((node) => [node.task.id, node]));
+    const issues: Array<{
+      severity: MindmapCheckSeverity;
+      code: string;
+      message: string;
+      taskId?: string;
+      wbsCode?: string | null;
+    }> = [];
+
+    if (tree.meta.truncated) {
+      issues.push({
+        severity: 'warning',
+        code: 'excessive_depth',
+        message:
+          'Mindmap response was truncated by depth or node limit; expand a smaller branch to inspect the full structure',
+        taskId: tree.meta.rootTaskId,
+      });
+    }
+
+    const wbsSeen = new Map<string, string>();
+    for (const node of nodes) {
+      if (node.task.wbsCode) {
+        const existingTaskId = wbsSeen.get(node.task.wbsCode);
+        if (existingTaskId) {
+          issues.push({
+            severity: 'error',
+            code: 'duplicate_wbs',
+            message: `Duplicate WBS code "${node.task.wbsCode}" in visible Mindmap subtree`,
+            taskId: node.task.id,
+            wbsCode: node.task.wbsCode,
+          });
+        } else {
+          wbsSeen.set(node.task.wbsCode, node.task.id);
+        }
+      }
+      if (node.task.supersededByTaskId && !query.includeSuperseded) {
+        issues.push({
+          severity: 'warning',
+          code: 'superseded_visible_in_active_view',
+          message:
+            'Superseded task is visible in the active Mindmap projection',
+          taskId: node.task.id,
+          wbsCode: node.task.wbsCode,
+        });
+      }
+      for (const item of node.checklistItems) {
+        if (item.branchedTaskId && !nodeById.has(item.branchedTaskId)) {
+          issues.push({
+            severity: 'error',
+            code: 'branch_missing_child_task',
+            message:
+              'Checklist item is marked branched but its child task is missing from the visible subtree',
+            taskId: node.task.id,
+            wbsCode: node.task.wbsCode,
+          });
+        }
+      }
+    }
+
+    for (const node of nodes) {
+      if (!node.task.parentTaskId) continue;
+      const parent = nodeById.get(node.task.parentTaskId);
+      if (!parent) continue;
+      const branchSource = parent.checklistItems.find(
+        (item) => item.branchedTaskId === node.task.id,
+      );
+      if (!branchSource) {
+        issues.push({
+          severity: 'warning',
+          code: 'child_missing_branch_source',
+          message:
+            'Child task has no parent checklist item pointing to it as a branched task',
+          taskId: node.task.id,
+          wbsCode: node.task.wbsCode,
+        });
+      }
+    }
+
+    return this.mindmapChecksResponse(projectId, tree.meta.rootTaskId, issues);
+  }
+
   private parseTreeIncludes(raw?: string): Set<string> {
     const defaults = new Set(['checklist', 'counts', 'progress', 'status']);
     if (!raw) return defaults;
@@ -599,6 +930,220 @@ export class TaskQueryService {
       }
     }
     return includes;
+  }
+
+  private parseMindmapIncludes(raw?: string): Set<string> {
+    if (!raw) return new Set(DEFAULT_TASK_MINDMAP_INCLUDES);
+    const includes = new Set(
+      raw
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    for (const include of includes) {
+      if (!TASK_MINDMAP_INCLUDE_KEYS.has(include)) {
+        throw new BadRequestException(
+          `Invalid task Mindmap include: ${include}`,
+        );
+      }
+    }
+    return includes;
+  }
+
+  private mindmapChecksResponse(
+    projectId: string,
+    rootTaskId: string,
+    issues: Array<{
+      severity: MindmapCheckSeverity;
+      code: string;
+      message: string;
+      taskId?: string;
+      wbsCode?: string | null;
+    }>,
+  ) {
+    return {
+      meta: {
+        projectId,
+        rootTaskId,
+        generatedAt: new Date().toISOString(),
+      },
+      summary: {
+        valid: issues.every((issue) => issue.severity !== 'error'),
+        errorCount: issues.filter((issue) => issue.severity === 'error').length,
+        warningCount: issues.filter((issue) => issue.severity === 'warning')
+          .length,
+      },
+      data: { issues },
+    };
+  }
+
+  private toTreeIncludeCsv(includes: Set<string>): string {
+    const treeIncludes = new Set<string>([
+      'checklist',
+      'counts',
+      'progress',
+      'status',
+    ]);
+    for (const include of includes) {
+      if (TASK_TREE_INCLUDE_KEYS.has(include)) treeIncludes.add(include);
+      if (include === 'permissions') treeIncludes.add('assignees');
+    }
+    if (includes.has('viewMeta')) treeIncludes.add('viewMeta');
+    return [...treeIncludes].join(',');
+  }
+
+  private flattenTree(root: TaskTreeNode): TaskTreeNode[] {
+    const nodes: TaskTreeNode[] = [];
+    const stack = [root];
+    while (stack.length) {
+      const node = stack.pop()!;
+      nodes.push(node);
+      stack.push(...[...node.children].reverse());
+    }
+    return nodes;
+  }
+
+  private toMindmapNode(
+    node: TaskTreeNode,
+    requestCounts: { openRequestCount: number; urgentRequestCount: number },
+    includes: Set<string>,
+    canUpdate: boolean,
+    requestUser: RequestUser,
+  ) {
+    const task = node.task;
+    return {
+      id: task.id,
+      taskCode: task.wbsCode,
+      wbsCode: task.wbsCode,
+      parentTaskId: task.parentTaskId,
+      title: task.title,
+      scheduleType: task.scheduleType,
+      track: task.taskType?.key ?? task.taskType?.name ?? null,
+      status: includes.has('status') ? task.status : undefined,
+      progress: includes.has('progress') ? node.progress : undefined,
+      counts: includes.has('counts')
+        ? {
+            ...node.counts,
+            openRequestCount: requestCounts.openRequestCount,
+            urgentRequestCount: requestCounts.urgentRequestCount,
+          }
+        : undefined,
+      assignees: includes.has('assignees') ? task.assignedMembers : undefined,
+      viewMeta: includes.has('viewMeta')
+        ? {
+            mindmap:
+              (task.viewMeta?.mindmap as Record<string, unknown> | undefined) ??
+              {},
+          }
+        : undefined,
+      permissions: includes.has('permissions')
+        ? {
+            canView: true,
+            canEdit: canUpdate,
+            canBranchChecklistItem: canUpdate,
+            canCreateRequest:
+              task.reportee?.userId === requestUser.id ||
+              (task.assignedMembers ?? []).some(
+                (member) => member.userId === requestUser.id,
+              ),
+          }
+        : undefined,
+    };
+  }
+
+  private isMindmapCollapsed(task: TaskListItemSerializer): boolean {
+    const mindmapMeta = task.viewMeta?.mindmap;
+    return Boolean(
+      mindmapMeta &&
+      typeof mindmapMeta === 'object' &&
+      'collapsed' in mindmapMeta &&
+      (mindmapMeta as { collapsed?: unknown }).collapsed === true,
+    );
+  }
+
+  private findBranchingChecklistItemId(
+    node: TaskTreeNode,
+    childTaskId: string,
+  ): string | null {
+    return (
+      node.checklistItems.find((item) => item.branchedTaskId === childTaskId)
+        ?.id ?? null
+    );
+  }
+
+  private findBranchingChecklistItemCode(
+    node: TaskTreeNode,
+    childTaskId: string,
+  ): string | null {
+    return (
+      node.checklistItems.find((item) => item.branchedTaskId === childTaskId)
+        ?.itemCode ?? null
+    );
+  }
+
+  private async loadRequestCountMap(
+    taskIds: string[],
+  ): Promise<
+    Map<string, { openRequestCount: number; urgentRequestCount: number }>
+  > {
+    if (!taskIds.length) return new Map();
+    const rows = await this.changeRequestRepo
+      .createQueryBuilder('changeRequest')
+      .select('changeRequest.taskId', 'taskId')
+      .addSelect('COUNT(changeRequest.id)', 'openRequestCount')
+      .addSelect(
+        `SUM(CASE WHEN changeRequest.priority = :critical THEN 1 ELSE 0 END)`,
+        'urgentRequestCount',
+      )
+      .where('changeRequest.taskId IN (:...taskIds)', { taskIds })
+      .andWhere('changeRequest.status IN (:...statuses)', {
+        statuses: OPEN_CHANGE_REQUEST_STATUSES,
+      })
+      .setParameter('critical', ChangeRequestPriority.CRITICAL)
+      .groupBy('changeRequest.taskId')
+      .getRawMany<{
+        taskId: string;
+        openRequestCount: string;
+        urgentRequestCount: string | null;
+      }>();
+
+    return new Map(
+      rows.map((row) => [
+        row.taskId,
+        {
+          openRequestCount: Number(row.openRequestCount),
+          urgentRequestCount: Number(row.urgentRequestCount ?? 0),
+        },
+      ]),
+    );
+  }
+
+  private async loadVisibleRelationEdges(
+    taskIds: string[],
+  ): Promise<TaskRelation[]> {
+    if (!taskIds.length) return [];
+    return this.relationRepo.find({
+      where: [
+        { taskId: In(taskIds), relatedTaskId: In(taskIds) },
+        { relatedTaskId: In(taskIds), taskId: In(taskIds) },
+      ],
+    });
+  }
+
+  private async canUpdateProjectTasks(
+    projectId: string,
+    requestUser: RequestUser,
+  ): Promise<boolean> {
+    try {
+      await this.authSvc.verifyProjectPermission(
+        projectId,
+        requestUser,
+        'update',
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private toTreeChecklistItem(

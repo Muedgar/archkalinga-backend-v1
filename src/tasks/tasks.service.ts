@@ -35,6 +35,7 @@ import {
   ActivityScheduleGanttQueryDto,
   ActivityScheduleImportDto,
   BranchChecklistItemDto,
+  BulkTaskViewMetadataDto,
   BulkUpdateTasksDto,
   CreateStarterFromDeliverableDto,
   CreateChangeRequestDto,
@@ -62,6 +63,8 @@ import {
   ChangeRequestFiltersDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
+  TaskGanttQueryDto,
+  TaskMindmapQueryDto,
   TaskSnapshotQueryDto,
   TaskSyncEventsDto,
   TaskTimelineQueryDto,
@@ -113,6 +116,7 @@ import {
   TaskResourceReportImportService,
   TaskResourceReportService,
   TaskSyncEventsService,
+  TaskViewMetadataService,
 } from './services';
 
 @Injectable()
@@ -148,6 +152,7 @@ export class TasksService {
     private readonly resourceReportImportSvc: TaskResourceReportImportService,
     private readonly resourceReportSvc: TaskResourceReportService,
     private readonly syncEventsSvc: TaskSyncEventsService,
+    private readonly viewMetadataSvc: TaskViewMetadataService,
   ) {}
 
   // ── Convenience: auth (used externally by e.g. ProjectsService) ───────────
@@ -223,6 +228,19 @@ export class TasksService {
     return this.crudSvc.bulkUpdateTasks(projectId, dto, requestUser);
   }
 
+  async bulkSaveTaskViewMetadata(
+    projectId: string,
+    dto: BulkTaskViewMetadataDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'update',
+    );
+    return this.viewMetadataSvc.bulkSave(projectId, dto, requestUser);
+  }
+
   async deleteTask(
     projectId: string,
     taskId: string,
@@ -255,6 +273,82 @@ export class TasksService {
     prefetchedMembership?: ProjectMembership | null,
   ) {
     return this.querySvc.getTaskTree(
+      projectId,
+      taskId,
+      query,
+      requestUser,
+      prefetchedMembership,
+    );
+  }
+
+  async getTaskGantt(
+    projectId: string,
+    taskId: string,
+    query: TaskGanttQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    if (prefetchedMembership === undefined) {
+      await this.authSvc.verifyProjectPermission(
+        projectId,
+        requestUser,
+        'view',
+      );
+    }
+    return this.activityScheduleGanttSvc.getTaskGantt(
+      projectId,
+      taskId,
+      query,
+      requestUser,
+    );
+  }
+
+  async getTaskGanttChecks(
+    projectId: string,
+    taskId: string,
+    query: TaskGanttQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    if (prefetchedMembership === undefined) {
+      await this.authSvc.verifyProjectPermission(
+        projectId,
+        requestUser,
+        'view',
+      );
+    }
+    return this.activityScheduleGanttSvc.getTaskGanttChecks(
+      projectId,
+      taskId,
+      query,
+      requestUser,
+    );
+  }
+
+  async getTaskMindmap(
+    projectId: string,
+    taskId: string,
+    query: TaskMindmapQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    return this.querySvc.getTaskMindmap(
+      projectId,
+      taskId,
+      query,
+      requestUser,
+      prefetchedMembership,
+    );
+  }
+
+  async getTaskMindmapChecks(
+    projectId: string,
+    taskId: string,
+    query: TaskMindmapQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    return this.querySvc.getTaskMindmapChecks(
       projectId,
       taskId,
       query,

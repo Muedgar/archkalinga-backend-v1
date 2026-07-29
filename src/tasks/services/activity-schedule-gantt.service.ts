@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
@@ -6,6 +6,7 @@ import { Project } from 'src/projects/entities';
 import {
   ActivityScheduleGanttQueryDto,
   ActivityScheduleGanttScale,
+  TaskGanttQueryDto,
 } from '../dtos';
 import {
   ProjectCalendar,
@@ -16,12 +17,43 @@ import {
   TaskDependency,
   TaskScheduleCalculationRun,
   TaskScheduleExplanation,
+  TaskViewMetadata,
+  ViewType,
 } from '../entities';
 import { TaskAuthService } from './task-auth.service';
 
 type GanttBucketStatus = 'complete' | 'active' | 'overdue' | 'planned';
 type ProgressStatus = 'Completed' | 'In Progress' | 'Not Started';
 type CheckSeverity = 'error' | 'warning';
+type TaskGanttInclude =
+  | 'dependencies'
+  | 'milestones'
+  | 'criticalPath'
+  | 'viewMeta'
+  | 'permissions'
+  | 'assignees'
+  | 'calendar'
+  | 'checks';
+
+const TASK_GANTT_INCLUDE_KEYS = new Set<TaskGanttInclude>([
+  'dependencies',
+  'milestones',
+  'criticalPath',
+  'viewMeta',
+  'permissions',
+  'assignees',
+  'calendar',
+  'checks',
+]);
+const DEFAULT_TASK_GANTT_INCLUDES = new Set<TaskGanttInclude>([
+  'dependencies',
+  'milestones',
+  'criticalPath',
+  'viewMeta',
+  'permissions',
+]);
+const DEFAULT_TASK_GANTT_ROW_LIMIT = 100;
+const MAX_TASK_GANTT_DEPTH = 25;
 
 type ScheduleWithTask = TaskActivitySchedule & {
   task: {
@@ -49,6 +81,8 @@ export class ActivityScheduleGanttService {
     private readonly taskRepo: Repository<Task>,
     @InjectRepository(TaskDependency)
     private readonly dependencyRepo: Repository<TaskDependency>,
+    @InjectRepository(TaskViewMetadata)
+    private readonly viewMetadataRepo: Repository<TaskViewMetadata>,
     @InjectRepository(ProjectCalendar)
     private readonly calendarRepo: Repository<ProjectCalendar>,
     @InjectRepository(TaskScheduleCalculationRun)
@@ -57,6 +91,399 @@ export class ActivityScheduleGanttService {
     private readonly explanationRepo: Repository<TaskScheduleExplanation>,
     private readonly authSvc: TaskAuthService,
   ) {}
+
+  async getTaskGantt(
+    projectId: string,
+    taskId: string,
+    filters: TaskGanttQueryDto,
+    requestUser: RequestUser,
+  ) {
+    const rootTask = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      { requestUser, membership: null },
+    );
+    const includes = this.parseTaskGanttIncludes(filters.include);
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+    const depth = filters.depth ?? 'all';
+    if (depth !== 'all' && (!Number.isInteger(depth) || depth < 0)) {
+      throw new BadRequestException(
+        'depth must be a non-negative integer or "all"',
+      );
+    }
+
+    const subtreeTasks = await this.loadVisibleSubtreeTasks(
+      projectId,
+      rootTask.id,
+      depth,
+      requestUser,
+      canViewAllProjectTasks,
+      Boolean(filters.locationId),
+    );
+    const subtreeTaskIds = subtreeTasks.map((task) => task.id);
+    const subtreeTaskIdSet = new Set(subtreeTaskIds);
+    const schedules = subtreeTaskIds.length
+      ? ((await this.scheduleRepo.find({
+          where: { taskId: In(subtreeTaskIds) },
+          relations: ['task'],
+        })) as ScheduleWithTask[])
+      : [];
+
+    const scheduleByTaskId = new Map(
+      schedules.map((schedule) => [schedule.taskId, schedule]),
+    );
+    let filteredTasks = subtreeTasks.filter((task) => {
+      const schedule = scheduleByTaskId.get(task.id);
+      if (!schedule) return false;
+      if (
+        filters.includeSummaryRows === false &&
+        this.isSummaryType(task.scheduleType)
+      ) {
+        return false;
+      }
+      if (filters.criticalOnly && !schedule.isCritical) return false;
+      if (filters.overdueOnly && !this.isOverdue(schedule)) return false;
+      if (filters.statusId && task.statusId !== filters.statusId) return false;
+      if (filters.track && !this.matchesTrackFilter(task, filters.track)) {
+        return false;
+      }
+      if (
+        filters.locationId &&
+        !(task.locations ?? []).some(
+          (location) => location.id === filters.locationId,
+        )
+      ) {
+        return false;
+      }
+      if (
+        filters.assigneeUserId &&
+        !(task.assignees ?? []).some(
+          (assignee) => assignee.userId === filters.assigneeUserId,
+        )
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    filteredTasks = this.sortTasksForGantt(filteredTasks);
+    const rowOffset = this.parseRowCursor(filters.cursor);
+    const limit = filters.limit ?? DEFAULT_TASK_GANTT_ROW_LIMIT;
+    const rowWindow = filteredTasks.slice(rowOffset, rowOffset + limit);
+    const visibleRowTaskIds = rowWindow.map((task) => task.id);
+    const visibleRowTaskIdSet = new Set(visibleRowTaskIds);
+    const windowedSchedules = rowWindow
+      .map((task) => scheduleByTaskId.get(task.id))
+      .filter((schedule): schedule is ScheduleWithTask => Boolean(schedule));
+    const filteredSchedules = filteredTasks
+      .map((task) => scheduleByTaskId.get(task.id))
+      .filter((schedule): schedule is ScheduleWithTask => Boolean(schedule));
+
+    const project = await this.projectRepo.findOne({
+      where: { id: projectId },
+      select: ['id', 'startDate'],
+    });
+    const scale = filters.scale ?? ActivityScheduleGanttScale.WEEK;
+    const fromDate = this.periodStart(
+      this.parseDate(
+        filters.from ??
+          this.firstScheduleDate(windowedSchedules) ??
+          this.firstScheduleDate(schedules) ??
+          project?.startDate ??
+          this.today(),
+      ),
+      scale,
+    );
+    const periods = filters.periods ?? 36;
+    const buckets = this.buildBuckets(fromDate, periods, scale);
+
+    const dependencyRows =
+      includes.has('dependencies') && subtreeTaskIds.length
+        ? await this.dependencyRepo.find({
+            where: [
+              { taskId: In(subtreeTaskIds) },
+              { dependsOnTaskId: In(subtreeTaskIds) },
+            ],
+          })
+        : [];
+    const viewMetaByTaskId =
+      includes.has('viewMeta') && visibleRowTaskIds.length
+        ? await this.loadGanttViewMeta(visibleRowTaskIds)
+        : new Map<string, Record<string, unknown>>();
+    const canUpdate = includes.has('permissions')
+      ? await this.canUpdateProjectTasks(projectId, requestUser)
+      : false;
+
+    const rows = windowedSchedules.map((schedule) => {
+      const task = rowWindow.find((rowTask) => rowTask.id === schedule.taskId);
+      const startDate = this.rowStartDate(schedule);
+      const finishDate = this.rowFinishDate(schedule);
+      return {
+        taskId: schedule.taskId,
+        parentTaskId: schedule.task.parentTaskId,
+        taskCode: schedule.task.wbsCode,
+        wbsCode: schedule.task.wbsCode,
+        wbsSortKey: schedule.task.wbsSortKey,
+        level: this.hierarchyLevel(schedule.task.wbsCode),
+        title: schedule.task.title,
+        scheduleType: schedule.task.scheduleType,
+        track: this.taskTrack(task),
+        startDate,
+        finishDate,
+        durationDays: schedule.durationDays,
+        progress: schedule.task.progress ?? 0,
+        completed: this.isDone(schedule),
+        overdue: this.isOverdue(schedule),
+        isMilestone: schedule.task.scheduleType === ScheduleType.MILESTONE,
+        isCritical: schedule.isCritical,
+        totalFloatDays: schedule.totalFloatDays,
+        freeFloatDays: schedule.freeFloatDays,
+        baseline: null,
+        bucketSpans: this.bucketSpans(
+          buckets,
+          startDate,
+          finishDate,
+          this.progressFraction(schedule),
+        ),
+        viewMeta: includes.has('viewMeta')
+          ? { gantt: viewMetaByTaskId.get(schedule.taskId) ?? {} }
+          : undefined,
+        permissions: includes.has('permissions')
+          ? {
+              canView: true,
+              canEditSchedule: canUpdate,
+              canEditDependencies: canUpdate,
+            }
+          : undefined,
+        assignees: includes.has('assignees')
+          ? (task?.assignees ?? [])
+          : undefined,
+      };
+    });
+
+    const dependencies = includes.has('dependencies')
+      ? dependencyRows
+          .filter(
+            (dependency) =>
+              subtreeTaskIdSet.has(dependency.taskId) &&
+              subtreeTaskIdSet.has(dependency.dependsOnTaskId),
+          )
+          .map((dependency) => ({
+            id: dependency.id,
+            sourceTaskId: dependency.dependsOnTaskId,
+            targetTaskId: dependency.taskId,
+            type: dependency.dependencyType,
+            lagDays: dependency.lagDays ?? 0,
+            isCritical: this.isCriticalDependency(dependency, scheduleByTaskId),
+            visible:
+              visibleRowTaskIdSet.has(dependency.taskId) &&
+              visibleRowTaskIdSet.has(dependency.dependsOnTaskId),
+            visibilityReason:
+              visibleRowTaskIdSet.has(dependency.taskId) &&
+              visibleRowTaskIdSet.has(dependency.dependsOnTaskId)
+                ? null
+                : 'outside-row-window',
+          }))
+      : [];
+    const milestones = includes.has('milestones')
+      ? windowedSchedules
+          .filter(
+            (schedule) => schedule.task.scheduleType === ScheduleType.MILESTONE,
+          )
+          .map((schedule) => ({
+            taskId: schedule.taskId,
+            date: this.rowStartDate(schedule) ?? this.rowFinishDate(schedule),
+            title: schedule.task.title,
+            track: this.taskTrack(
+              rowWindow.find((task) => task.id === schedule.taskId),
+            ),
+            isCritical: schedule.isCritical,
+            completed: this.isDone(schedule),
+          }))
+      : [];
+    const criticalPath = includes.has('criticalPath')
+      ? windowedSchedules
+          .filter((schedule) => schedule.isCritical)
+          .map((schedule) => schedule.taskId)
+      : [];
+
+    return {
+      meta: {
+        projectId,
+        rootTaskId: rootTask.id,
+        fromDate: this.formatDate(fromDate),
+        scale,
+        periods,
+        timezone: 'UTC',
+        rowCursor: filters.cursor ?? null,
+        nextCursor:
+          rowOffset + limit < filteredTasks.length
+            ? String(rowOffset + limit)
+            : null,
+        limit,
+        truncated: rowOffset + limit < filteredTasks.length,
+        generatedAt: new Date().toISOString(),
+      },
+      summary: this.taskGanttSummary(filteredSchedules, filteredTasks.length),
+      data: {
+        buckets,
+        rows,
+        dependencies,
+        milestones,
+        criticalPath,
+      },
+    };
+  }
+
+  async getTaskGanttChecks(
+    projectId: string,
+    taskId: string,
+    filters: TaskGanttQueryDto,
+    requestUser: RequestUser,
+  ) {
+    const rootTask = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      { requestUser, membership: null },
+    );
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+    const depth = filters.depth ?? 'all';
+    if (depth !== 'all' && (!Number.isInteger(depth) || depth < 0)) {
+      throw new BadRequestException(
+        'depth must be a non-negative integer or "all"',
+      );
+    }
+
+    const subtreeTasks = await this.loadVisibleSubtreeTasks(
+      projectId,
+      rootTask.id,
+      depth,
+      requestUser,
+      canViewAllProjectTasks,
+      false,
+    );
+    const subtreeTaskIds = subtreeTasks.map((task) => task.id);
+    const subtreeTaskIdSet = new Set(subtreeTaskIds);
+    const schedules = subtreeTaskIds.length
+      ? ((await this.scheduleRepo.find({
+          where: { taskId: In(subtreeTaskIds) },
+          relations: ['task'],
+        })) as ScheduleWithTask[])
+      : [];
+    const scheduleByTaskId = new Map(
+      schedules.map((schedule) => [schedule.taskId, schedule]),
+    );
+    const dependencies = subtreeTaskIds.length
+      ? await this.dependencyRepo.find({
+          where: [
+            { taskId: In(subtreeTaskIds) },
+            { dependsOnTaskId: In(subtreeTaskIds) },
+          ],
+        })
+      : [];
+    const issues: Array<{
+      severity: CheckSeverity;
+      code: string;
+      message: string;
+      taskId?: string;
+      wbsCode?: string | null;
+    }> = [];
+
+    for (const task of subtreeTasks) {
+      const schedule = scheduleByTaskId.get(task.id);
+      if (this.isSchedulable(task.scheduleType) && !schedule) {
+        issues.push({
+          severity: 'error',
+          code: 'missing_schedule_row',
+          message: 'Schedulable task has no activity schedule row',
+          taskId: task.id,
+          wbsCode: task.wbsCode,
+        });
+        continue;
+      }
+      if (!schedule) continue;
+      if (schedule.durationDays === null) {
+        issues.push({
+          severity: 'warning',
+          code: 'missing_duration',
+          message: 'Activity schedule duration is missing',
+          taskId: task.id,
+          wbsCode: task.wbsCode,
+        });
+      }
+      if ((schedule.totalFloatDays ?? 0) < 0) {
+        issues.push({
+          severity: 'error',
+          code: 'negative_float',
+          message: 'Task has negative total float',
+          taskId: task.id,
+          wbsCode: task.wbsCode,
+        });
+      }
+      if (schedule.isManuallyScheduled && !schedule.manualReason) {
+        issues.push({
+          severity: 'error',
+          code: 'manual_without_reason',
+          message: 'Manual schedule pin requires a reason',
+          taskId: task.id,
+          wbsCode: task.wbsCode,
+        });
+      }
+      if (
+        task.scheduleType === ScheduleType.MILESTONE &&
+        (schedule.durationDays ?? 0) !== 0
+      ) {
+        issues.push({
+          severity: 'error',
+          code: 'milestone_non_zero_duration',
+          message: 'Milestone should have zero duration',
+          taskId: task.id,
+          wbsCode: task.wbsCode,
+        });
+      }
+      if (
+        task.scheduleType === ScheduleType.ACTIVITY &&
+        (schedule.durationDays ?? 0) === 0
+      ) {
+        issues.push({
+          severity: 'warning',
+          code: 'activity_zero_duration',
+          message: 'Zero-duration activity should probably be a milestone',
+          taskId: task.id,
+          wbsCode: task.wbsCode,
+        });
+      }
+    }
+
+    for (const dependency of dependencies) {
+      if (
+        !subtreeTaskIdSet.has(dependency.taskId) ||
+        !subtreeTaskIdSet.has(dependency.dependsOnTaskId)
+      ) {
+        issues.push({
+          severity: 'warning',
+          code: 'dependency_outside_scope',
+          message: 'Dependency references a task outside the visible subtree',
+          taskId: dependency.taskId,
+        });
+      }
+    }
+    if (this.detectCycle(schedules, dependencies)) {
+      issues.push({
+        severity: 'error',
+        code: 'dependency_cycle',
+        message: 'Activity schedule dependencies contain a cycle',
+      });
+    }
+
+    return this.checksResponse(projectId, rootTask.id, issues);
+  }
 
   async getGantt(
     projectId: string,
@@ -428,6 +855,320 @@ export class ActivityScheduleGanttService {
       },
       explanation,
     };
+  }
+
+  private parseTaskGanttIncludes(raw?: string): Set<TaskGanttInclude> {
+    if (!raw) return new Set(DEFAULT_TASK_GANTT_INCLUDES);
+    const includes = new Set<TaskGanttInclude>();
+    for (const include of raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      if (!TASK_GANTT_INCLUDE_KEYS.has(include as TaskGanttInclude)) {
+        throw new BadRequestException(`Invalid task Gantt include: ${include}`);
+      }
+      includes.add(include as TaskGanttInclude);
+    }
+    return includes;
+  }
+
+  private checksResponse(
+    projectId: string,
+    rootTaskId: string,
+    issues: Array<{
+      severity: CheckSeverity;
+      code: string;
+      message: string;
+      taskId?: string;
+      wbsCode?: string | null;
+    }>,
+  ) {
+    return {
+      meta: {
+        projectId,
+        rootTaskId,
+        generatedAt: new Date().toISOString(),
+      },
+      summary: {
+        valid: issues.every((issue) => issue.severity !== 'error'),
+        errorCount: issues.filter((issue) => issue.severity === 'error').length,
+        warningCount: issues.filter((issue) => issue.severity === 'warning')
+          .length,
+      },
+      data: { issues },
+    };
+  }
+
+  private async loadVisibleSubtreeTasks(
+    projectId: string,
+    rootTaskId: string,
+    depth: number | 'all',
+    requestUser: RequestUser,
+    canViewAllProjectTasks: boolean,
+    includeLocations: boolean,
+  ): Promise<Task[]> {
+    const root = await this.loadVisibleTasksByIds(
+      projectId,
+      [rootTaskId],
+      requestUser,
+      canViewAllProjectTasks,
+      includeLocations,
+    );
+    const allTasks = [...root];
+    let frontierIds = root.map((task) => task.id);
+    let level = 0;
+    const maxDepth = depth === 'all' ? MAX_TASK_GANTT_DEPTH : depth;
+
+    while (frontierIds.length > 0 && level < maxDepth) {
+      const children = await this.loadVisibleTasksByParentIds(
+        projectId,
+        frontierIds,
+        requestUser,
+        canViewAllProjectTasks,
+        includeLocations,
+      );
+      if (!children.length) break;
+      allTasks.push(...children);
+      frontierIds = children.map((task) => task.id);
+      level += 1;
+    }
+
+    return allTasks;
+  }
+
+  private async loadVisibleTasksByIds(
+    projectId: string,
+    ids: string[],
+    requestUser: RequestUser,
+    canViewAllProjectTasks: boolean,
+    includeLocations: boolean,
+  ): Promise<Task[]> {
+    if (!ids.length) return [];
+    const qb = this.taskRepo
+      .createQueryBuilder('task')
+      .where('task.id IN (:...ids)', { ids })
+      .andWhere('task.projectId = :projectId', { projectId })
+      .andWhere('task.deletedAt IS NULL')
+      .andWhere('task.supersededByTaskId IS NULL')
+      .leftJoinAndSelect('task.assignees', 'assignees')
+      .leftJoinAndSelect('task.taskType', 'taskType');
+    if (includeLocations) {
+      qb.leftJoinAndSelect(
+        'task.locations',
+        'locations',
+        'locations.isActive = true',
+      );
+    }
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
+    return qb.getMany();
+  }
+
+  private async loadVisibleTasksByParentIds(
+    projectId: string,
+    parentTaskIds: string[],
+    requestUser: RequestUser,
+    canViewAllProjectTasks: boolean,
+    includeLocations: boolean,
+  ): Promise<Task[]> {
+    if (!parentTaskIds.length) return [];
+    const qb = this.taskRepo
+      .createQueryBuilder('task')
+      .where('task.parentTaskId IN (:...parentTaskIds)', { parentTaskIds })
+      .andWhere('task.projectId = :projectId', { projectId })
+      .andWhere('task.deletedAt IS NULL')
+      .andWhere('task.supersededByTaskId IS NULL')
+      .leftJoinAndSelect('task.assignees', 'assignees')
+      .leftJoinAndSelect('task.taskType', 'taskType')
+      .orderBy('task.wbsSortKey', 'ASC', 'NULLS LAST')
+      .addOrderBy('task.wbsCode', 'ASC', 'NULLS LAST')
+      .addOrderBy('task.createdAt', 'ASC');
+    if (includeLocations) {
+      qb.leftJoinAndSelect(
+        'task.locations',
+        'locations',
+        'locations.isActive = true',
+      );
+    }
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
+    return qb.getMany();
+  }
+
+  private sortTasksForGantt(tasks: Task[]): Task[] {
+    return [...tasks].sort((a, b) => {
+      const aSort = a.wbsSortKey ?? a.wbsCode ?? '';
+      const bSort = b.wbsSortKey ?? b.wbsCode ?? '';
+      if (aSort && bSort && aSort !== bSort) return aSort.localeCompare(bSort);
+      if (aSort && !bSort) return -1;
+      if (!aSort && bSort) return 1;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+  }
+
+  private parseRowCursor(cursor?: string): number {
+    if (!cursor) return 0;
+    const parsed = Number(cursor);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new BadRequestException('cursor must be a non-negative row offset');
+    }
+    return parsed;
+  }
+
+  private buildBuckets(
+    fromDate: Date,
+    periods: number,
+    scale: ActivityScheduleGanttScale,
+  ) {
+    return Array.from({ length: periods }, (_, index) => {
+      const start = this.addPeriods(fromDate, index, scale);
+      const end = this.addDays(this.addPeriods(start, 1, scale), -1);
+      return {
+        index,
+        startDate: this.formatDate(start),
+        endDate: this.formatDate(end),
+        label: this.bucketLabel(start, scale),
+        month: start.toLocaleString('en-US', {
+          month: 'short',
+          timeZone: 'UTC',
+        }),
+      };
+    });
+  }
+
+  private bucketSpans(
+    buckets: Array<{ index: number; startDate: string; endDate: string }>,
+    startDate: string | null,
+    finishDate: string | null,
+    progress: number,
+  ) {
+    if (!startDate || !finishDate) return [];
+    const spans: Array<{
+      bucketIndex: number;
+      startOffset: number;
+      endOffset: number;
+      status: GanttBucketStatus;
+    }> = [];
+    for (const bucket of buckets) {
+      if (bucket.endDate < startDate || bucket.startDate > finishDate) {
+        continue;
+      }
+      const bucketStart = this.parseDate(bucket.startDate);
+      const bucketEnd = this.parseDate(bucket.endDate);
+      const rowStart = this.parseDate(startDate);
+      const rowFinish = this.parseDate(finishDate);
+      const bucketDays = Math.max(
+        1,
+        this.daysBetween(bucketStart, bucketEnd) + 1,
+      );
+      const startsInside =
+        startDate > bucket.startDate
+          ? this.daysBetween(bucketStart, rowStart) / bucketDays
+          : 0;
+      const endsInside =
+        finishDate < bucket.endDate
+          ? (this.daysBetween(bucketStart, rowFinish) + 1) / bucketDays
+          : 1;
+      spans.push({
+        bucketIndex: bucket.index,
+        startOffset: this.round(startsInside),
+        endOffset: this.round(endsInside),
+        status:
+          this.bucketForWeek(
+            bucket.startDate,
+            bucket.endDate,
+            startDate,
+            finishDate,
+            progress,
+          ).status ?? 'planned',
+      });
+    }
+    return spans;
+  }
+
+  private async loadGanttViewMeta(
+    taskIds: string[],
+  ): Promise<Map<string, Record<string, unknown>>> {
+    const rows = await this.viewMetadataRepo.find({
+      where: { taskId: In(taskIds), viewType: ViewType.GANTT },
+    });
+    return new Map(rows.map((row) => [row.taskId, row.metaJson ?? {}]));
+  }
+
+  private async canUpdateProjectTasks(
+    projectId: string,
+    requestUser: RequestUser,
+  ): Promise<boolean> {
+    try {
+      await this.authSvc.verifyProjectPermission(
+        projectId,
+        requestUser,
+        'update',
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private isCriticalDependency(
+    dependency: TaskDependency,
+    scheduleByTaskId: Map<string, ScheduleWithTask>,
+  ): boolean {
+    const predecessor = scheduleByTaskId.get(dependency.dependsOnTaskId);
+    const successor = scheduleByTaskId.get(dependency.taskId);
+    return Boolean(predecessor?.isCritical && successor?.isCritical);
+  }
+
+  private taskGanttSummary(
+    schedules: ScheduleWithTask[],
+    visibleRowCount: number,
+  ) {
+    const milestones = schedules.filter(
+      (schedule) => schedule.task.scheduleType === ScheduleType.MILESTONE,
+    );
+    const summary = this.summary(schedules);
+    const dates = schedules
+      .flatMap((schedule) => [
+        this.rowStartDate(schedule),
+        this.rowFinishDate(schedule),
+      ])
+      .filter((date): date is string => Boolean(date))
+      .sort();
+    return {
+      rows: visibleRowCount,
+      activities: summary.activities,
+      milestones: milestones.length,
+      started: summary.started,
+      complete: summary.complete,
+      overdue: summary.overdue,
+      critical: schedules.filter((schedule) => schedule.isCritical).length,
+      progress: summary.progress,
+      earliestStartDate: dates[0] ?? null,
+      latestFinishDate: dates[dates.length - 1] ?? null,
+    };
+  }
+
+  private hierarchyLevel(wbsCode: string | null): number {
+    if (!wbsCode) return 1;
+    return wbsCode.split('.').filter(Boolean).length;
+  }
+
+  private taskTrack(task?: Task | null): string | null {
+    return task?.taskType?.key ?? task?.taskType?.name ?? null;
+  }
+
+  private matchesTrackFilter(task: Task, track: string): boolean {
+    const normalizedTrack = track.trim().toLowerCase();
+    return [task.taskType?.key, task.taskType?.name]
+      .filter((value): value is string => Boolean(value))
+      .some((value) => value.toLowerCase() === normalizedTrack);
   }
 
   private async loadScheduleRows(

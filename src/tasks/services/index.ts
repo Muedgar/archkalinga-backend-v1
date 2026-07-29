@@ -26,6 +26,7 @@ export { TaskResourceAllocationService } from './task-resource-allocation.servic
 export { TaskResourceReportImportService } from './task-resource-report-import.service';
 export { TaskResourceReportService } from './task-resource-report.service';
 export { TaskSyncEventsService } from './task-sync-events.service';
+export { TaskViewMetadataService } from './task-view-metadata.service';
 export { TaskWbsService } from './task-wbs.service';
 export type {
   MaterialReportResponse,
