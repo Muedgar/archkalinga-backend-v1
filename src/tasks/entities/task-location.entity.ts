@@ -67,7 +67,7 @@ export class TaskLocation extends AppBaseEntity {
   @Column({ name: 'order_index', type: 'int', default: 0 })
   orderIndex: number;
 
-  @Column({ type: 'boolean', default: true })
+  @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
   @OneToMany(() => TaskLocationProgress, (progress) => progress.location)

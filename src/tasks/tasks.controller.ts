@@ -44,6 +44,7 @@ import {
   ActivityScheduleImportDto,
   ActivityScheduleImportMode,
   BranchChecklistItemDto,
+  BulkTaskViewMetadataDto,
   BulkUpdateTasksDto,
   ChangeRequestFiltersDto,
   CreateChangeRequestDto,
@@ -76,6 +77,8 @@ import {
   TaskDocumentFiltersDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
+  TaskGanttQueryDto,
+  TaskMindmapQueryDto,
   TaskSnapshotQueryDto,
   TaskSyncEventsDto,
   TaskTimelineQueryDto,
@@ -133,7 +136,12 @@ import {
   PROJECT_CRITICAL_PATH_FETCHED,
   TASK_FETCHED,
   TASK_FIELD_WORK_QUEUE_FETCHED,
+  TASK_GANTT_CHECKS_FETCHED,
+  TASK_GANTT_FETCHED,
+  TASK_MINDMAP_CHECKS_FETCHED,
+  TASK_MINDMAP_FETCHED,
   TASK_TREE_FETCHED,
+  TASK_VIEW_METADATA_SAVED,
   TASK_LABEL_ADDED,
   TASK_LABEL_REMOVED,
   TASK_LABELS_FETCHED,
@@ -324,6 +332,35 @@ export class TasksController {
     @GetUser() user: RequestUser,
   ) {
     return this.tasksService.bulkUpdateTasks(projectId, dto, user);
+  }
+
+  @Patch('tasks/view-metadata')
+  @ApiOperation({
+    summary: 'Bulk save task view layout metadata',
+    description:
+      'Updates non-authoritative Mindmap or Gantt layout metadata only. Does not mutate task content, schedule dates, status, progress, checklist state, dependencies, or ownership.',
+  })
+  @ApiResponse({ status: 200, description: 'Task view metadata saved' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Validation error, duplicate task ID, or one or more tasks are missing from the project',
+  })
+  @ApiResponse({ status: 403, description: 'Insufficient project permission' })
+  @ResponseMessage(TASK_VIEW_METADATA_SAVED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'bulk-save:task-view-metadata',
+    resource: 'task-view-metadata',
+    includeBody: true,
+  })
+  bulkSaveTaskViewMetadata(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Body() dto: BulkTaskViewMetadataDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.bulkSaveTaskViewMetadata(projectId, dto, user);
   }
 
   @Get('resource-report')
@@ -994,6 +1031,110 @@ export class TasksController {
     @GetUser() user: RequestUser,
   ) {
     return this.tasksService.getTaskTree(
+      projectId,
+      taskId,
+      query,
+      user,
+      req.projectMembership,
+    );
+  }
+
+  @Get('tasks/:taskId/gantt')
+  @ApiOperation({
+    summary: 'Get a task subtree Gantt projection',
+    description:
+      'Returns schedule rows, visible timeline buckets, dependency arrows, milestone markers, critical path task IDs, and Gantt view metadata for the visible subtree under one task.',
+  })
+  @ApiResponse({ status: 200, description: 'Task Gantt fetched' })
+  @ResponseMessage(TASK_GANTT_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskGantt(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: TaskGanttQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskGantt(
+      projectId,
+      taskId,
+      query,
+      user,
+      req.projectMembership,
+    );
+  }
+
+  @Get('tasks/:taskId/gantt/checks')
+  @ApiOperation({
+    summary: 'Validate a task subtree Gantt projection',
+    description:
+      'Returns schedule and dependency diagnostics for the visible subtree under one task.',
+  })
+  @ApiResponse({ status: 200, description: 'Task Gantt checks fetched' })
+  @ResponseMessage(TASK_GANTT_CHECKS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskGanttChecks(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: TaskGanttQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskGanttChecks(
+      projectId,
+      taskId,
+      query,
+      user,
+      req.projectMembership,
+    );
+  }
+
+  @Get('tasks/:taskId/mindmap')
+  @ApiOperation({
+    summary: 'Get a task subtree Mindmap projection',
+    description:
+      'Returns task nodes, structural edges, branched checklist edges, flat checklist items, request counters, permissions, and Mindmap view metadata for the visible subtree under one task.',
+  })
+  @ApiResponse({ status: 200, description: 'Task Mindmap fetched' })
+  @ResponseMessage(TASK_MINDMAP_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskMindmap(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: TaskMindmapQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskMindmap(
+      projectId,
+      taskId,
+      query,
+      user,
+      req.projectMembership,
+    );
+  }
+
+  @Get('tasks/:taskId/mindmap/checks')
+  @ApiOperation({
+    summary: 'Validate a task subtree Mindmap projection',
+    description:
+      'Returns recursive structure, checklist branching, duplicate WBS, and truncation diagnostics for the visible subtree under one task.',
+  })
+  @ApiResponse({ status: 200, description: 'Task Mindmap checks fetched' })
+  @ResponseMessage(TASK_MINDMAP_CHECKS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskMindmapChecks(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: TaskMindmapQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskMindmapChecks(
       projectId,
       taskId,
       query,
