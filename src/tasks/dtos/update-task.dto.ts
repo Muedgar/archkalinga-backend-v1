@@ -22,6 +22,7 @@ import { ScheduleType } from '../entities';
 import {
   CreateTaskChecklistItemDto,
   TaskAssignedMemberDto,
+  TaskDependencyInputDto,
   TaskReporteeDto,
   TaskViewMetaDto,
 } from './create-task.dto';
@@ -202,11 +203,26 @@ export class UpdateTaskDto {
   @Type(() => CreateTaskChecklistItemDto)
   checklistItems?: CreateTaskChecklistItemDto[];
 
-  @ApiPropertyOptional({ type: [String], description: 'Predecessor task ids' })
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Legacy shorthand predecessor task ids. Each id is treated as FS with zero lag. Do not send with dependencies.',
+  })
   @IsOptional()
   @IsArray()
   @IsUUID('all', { each: true })
   dependencyIds?: string[];
+
+  @ApiPropertyOptional({
+    type: () => [TaskDependencyInputDto],
+    description:
+      'Predecessor dependencies with explicit relationship type and signed lag. Prefer this over dependencyIds.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TaskDependencyInputDto)
+  dependencies?: TaskDependencyInputDto[];
 
   @ApiPropertyOptional({
     type: [String],

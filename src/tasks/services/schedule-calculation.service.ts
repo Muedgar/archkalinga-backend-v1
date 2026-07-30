@@ -35,11 +35,16 @@ type CpmNode = {
   freeFloat: number;
   isCritical: boolean;
   isSummaryRollup: boolean;
+  manualPlannedStartOffset: number | null;
+  manualPlannedEndOffset: number | null;
   drivingPredecessorIds: Set<string>;
   successorPressureIds: Set<string>;
 };
 
-type ScheduledTask = Pick<Task, 'id' | 'parentTaskId' | 'scheduleType'>;
+type ScheduledTask = Pick<
+  Task,
+  'id' | 'parentTaskId' | 'scheduleType' | 'startDate' | 'endDate'
+>;
 
 type CalendarContext = {
   projectStartDate: string | null;
@@ -122,7 +127,7 @@ export class ScheduleCalculationService {
   }> {
     const tasks = await this.taskRepo.find({
       where: { projectId, deletedAt: IsNull() },
-      select: ['id', 'parentTaskId', 'scheduleType'],
+      select: ['id', 'parentTaskId', 'scheduleType', 'startDate', 'endDate'],
     });
     const taskIds = tasks.map((task) => task.id);
     if (!taskIds.length) {
@@ -135,10 +140,10 @@ export class ScheduleCalculationService {
       };
     }
 
-    const calendar = await this.loadCalendarContext(projectId);
     const schedules = await this.scheduleRepo.find({
       where: { taskId: In(taskIds) },
     });
+    const calendar = await this.loadCalendarContext(projectId, tasks, schedules);
     const nodes = this.buildNodes(schedules, calendar);
     if (!nodes.size) {
       return {
@@ -181,8 +186,6 @@ export class ScheduleCalculationService {
       node.schedule.earlyFinishOffset = earlyFinish;
       node.schedule.lateStartOffset = lateStart;
       node.schedule.lateFinishOffset = lateFinish;
-      node.schedule.plannedStartOffset = earlyStart;
-      node.schedule.plannedEndOffset = earlyFinish;
       node.schedule.earlyStartDate = this.offsetToWorkingDate(
         earlyStart,
         calendar,
@@ -200,11 +203,31 @@ export class ScheduleCalculationService {
         calendar,
       );
       if (node.schedule.isManuallyScheduled) {
-        node.schedule.plannedStartDate =
-          node.schedule.plannedStartDate ?? node.schedule.earlyStartDate;
-        node.schedule.plannedEndDate =
-          node.schedule.plannedEndDate ?? node.schedule.earlyFinishDate;
+        const plannedStart =
+          node.manualPlannedStartOffset ??
+          (node.manualPlannedEndOffset !== null
+            ? node.manualPlannedEndOffset - duration
+            : null) ??
+          earlyStart;
+        const plannedEnd =
+          node.manualPlannedEndOffset ??
+          (node.manualPlannedStartOffset !== null
+            ? node.manualPlannedStartOffset + duration
+            : null) ??
+          earlyFinish;
+        node.schedule.plannedStartOffset = this.round(plannedStart);
+        node.schedule.plannedEndOffset = this.round(plannedEnd);
+        node.schedule.plannedStartDate = this.offsetToWorkingDate(
+          plannedStart,
+          calendar,
+        );
+        node.schedule.plannedEndDate = this.offsetToWorkingDate(
+          plannedEnd,
+          calendar,
+        );
       } else {
+        node.schedule.plannedStartOffset = earlyStart;
+        node.schedule.plannedEndOffset = earlyFinish;
         node.schedule.plannedStartDate = node.schedule.earlyStartDate;
         node.schedule.plannedEndDate = node.schedule.earlyFinishDate;
       }
@@ -237,6 +260,18 @@ export class ScheduleCalculationService {
 
     await this.scheduleRepo.manager.transaction(async (tx) => {
       await tx.save(TaskActivitySchedule, schedulesToSave);
+      await Promise.all(
+        schedulesToSave.map((schedule) =>
+          tx.update(
+            Task,
+            { id: schedule.taskId },
+            {
+              startDate: schedule.plannedStartDate,
+              endDate: schedule.plannedEndDate,
+            },
+          ),
+        ),
+      );
       await tx.delete(TaskScheduleExplanation, { calculationRunId });
       await tx.save(TaskScheduleExplanation, explanations);
     });
@@ -260,15 +295,28 @@ export class ScheduleCalculationService {
   ): Map<string, CpmNode> {
     return new Map(
       schedules.map((schedule) => {
-        const duration = Math.max(0, schedule.durationDays ?? 0);
+        const scheduledDuration = Math.max(0, schedule.durationDays ?? 0);
+        const manualPlannedStartOffset = schedule.isManuallyScheduled
+          ? (this.workingDateToOffset(schedule.plannedStartDate, calendar) ??
+            schedule.plannedStartOffset ??
+            null)
+          : null;
+        const manualPlannedEndOffset = schedule.isManuallyScheduled
+          ? (this.workingDateToOffset(schedule.plannedEndDate, calendar) ??
+            schedule.plannedEndOffset ??
+            null)
+          : null;
+        const duration =
+          schedule.isManuallyScheduled &&
+          manualPlannedStartOffset !== null &&
+          manualPlannedEndOffset !== null
+            ? Math.max(0, manualPlannedEndOffset - manualPlannedStartOffset)
+            : scheduledDuration;
         const pinnedStart = schedule.isManuallyScheduled
-          ? (schedule.plannedStartOffset ??
-            this.workingDateToOffset(schedule.plannedStartDate, calendar) ??
-            this.finishDateToStartOffset(
-              schedule.plannedEndDate,
-              calendar,
-              duration,
-            ) ??
+          ? (manualPlannedStartOffset ??
+            (manualPlannedEndOffset !== null
+              ? manualPlannedEndOffset - duration
+              : null) ??
             0)
           : 0;
         const node: CpmNode = {
@@ -283,6 +331,8 @@ export class ScheduleCalculationService {
           freeFloat: 0,
           isCritical: false,
           isSummaryRollup: false,
+          manualPlannedStartOffset,
+          manualPlannedEndOffset,
           drivingPredecessorIds: new Set<string>(),
           successorPressureIds: new Set<string>(),
         };
@@ -594,6 +644,8 @@ export class ScheduleCalculationService {
 
   private async loadCalendarContext(
     projectId: string,
+    tasks: ScheduledTask[],
+    schedules: TaskActivitySchedule[],
   ): Promise<CalendarContext> {
     const [project, calendar] = await Promise.all([
       this.projectRepo.findOne({
@@ -621,10 +673,33 @@ export class ScheduleCalculationService {
     }
 
     return {
-      projectStartDate: project?.startDate ?? null,
+      projectStartDate:
+        project?.startDate ??
+        this.firstAvailableScheduleAnchor(tasks, schedules),
       workingWeekdays,
       exceptions,
     };
+  }
+
+  private firstAvailableScheduleAnchor(
+    tasks: ScheduledTask[],
+    schedules: TaskActivitySchedule[],
+  ): string | null {
+    const dates = [
+      ...tasks.flatMap((task) => [task.startDate, task.endDate]),
+      ...schedules.flatMap((schedule) => [
+        schedule.plannedStartDate,
+        schedule.plannedEndDate,
+        schedule.earlyStartDate,
+        schedule.earlyFinishDate,
+        schedule.lateStartDate,
+        schedule.lateFinishDate,
+        schedule.actualStartDate,
+        schedule.actualEndDate,
+      ]),
+    ].filter((date): date is string => Boolean(date));
+
+    return dates.sort()[0] ?? null;
   }
 
   private offsetToWorkingDate(

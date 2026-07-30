@@ -4,6 +4,8 @@ export const TASK_PROJECT_ACCESS_DENIED =
 export const TASK_NOT_FOUND = 'Task not found';
 export const INVALID_TASK_DATE_RANGE =
   'startDate must be before or equal to endDate';
+export const INVALID_TASK_SCHEDULE_PROJECT_START_REQUIRED =
+  'Project start date is required before task schedule can be calculated';
 export const INVALID_TASK_INCLUDE = 'Invalid task include parameter';
 export const INVALID_TASK_PARENT =
   'Parent task must belong to the same project and be active';

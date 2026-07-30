@@ -361,11 +361,8 @@ export class TaskChangeRequestsService {
       const result = await this.changeRequestRepo.manager.transaction(
         async (tx) => {
           const changeRequest = tx.create(ChangeRequest, {
-            project: task.project,
             projectId: task.projectId,
-            task,
             taskId: task.id,
-            createdByUser: actorUser,
             createdByUserId: actorUser.id,
             status: ChangeRequestStatus.NEW,
             title: dto.title.trim(),
@@ -389,13 +386,9 @@ export class TaskChangeRequestsService {
           savedChangeRequest.affectedDocuments = affectedDocuments;
 
           const thread = tx.create(ChangeRequestThread, {
-            changeRequest: savedChangeRequest,
             changeRequestId: savedChangeRequest.id,
-            task,
             taskId: task.id,
-            project: task.project,
             projectId: task.projectId,
-            createdByUser: actorUser,
             createdByUserId: actorUser.id,
           });
           const savedThread = await tx.save(thread);
@@ -551,11 +544,8 @@ export class TaskChangeRequestsService {
         }
 
         const review = tx.create(ChangeRequestReview, {
-          changeRequest,
           changeRequestId: changeRequest.id,
-          reviewerUser: reviewer,
           reviewerUserId: reviewer.id,
-          assignedByUser: actorUser,
           assignedByUserId: actorUser.id,
           role: this.cleanNullableString(dto.role),
           status: ChangeRequestReviewStatus.PENDING,
@@ -1127,11 +1117,8 @@ export class TaskChangeRequestsService {
     },
   ): Promise<ChangeRequestThreadMessage> {
     const message = tx.create(ChangeRequestThreadMessage, {
-      changeRequest: input.changeRequest,
       changeRequestId: input.changeRequest.id,
-      thread: input.thread,
       threadId: input.thread.id,
-      authorUser: input.actorUser,
       authorUserId: input.actorUser.id,
       type: input.type,
       body: this.cleanNullableString(input.body),
@@ -1141,9 +1128,7 @@ export class TaskChangeRequestsService {
     const savedMessage = await tx.save(message);
 
     if (input.uploadedAttachment) {
-      input.uploadedAttachment.message = savedMessage;
       input.uploadedAttachment.messageId = savedMessage.id;
-      input.uploadedAttachment.changeRequest = input.changeRequest;
       input.uploadedAttachment.changeRequestId = input.changeRequest.id;
       savedMessage.attachments = [await tx.save(input.uploadedAttachment)];
     } else {
@@ -1532,7 +1517,6 @@ export class TaskChangeRequestsService {
       originalName: uploaded.originalName,
       mimeType: uploaded.mimeType,
       sizeBytes: String(uploaded.size),
-      createdByUser: actorUser,
       createdByUserId: actorUser.id,
       notes: this.cleanNullableString(dto.attachmentNotes),
     });
@@ -1588,9 +1572,7 @@ export class TaskChangeRequestsService {
   ): Promise<void> {
     await tx.save(
       tx.create(ChangeRequestAuditEntry, {
-        changeRequest: input.changeRequest,
         changeRequestId: input.changeRequest.id,
-        actorUser: input.actorUser,
         actorUserId: input.actorUser.id,
         action: input.action,
         fromStatus: input.fromStatus ?? null,

@@ -95,6 +95,31 @@ class TaskAssignedMemberDto {
   projectRoleId?: string;
 }
 
+class TaskDependencyInputDto {
+  @ApiProperty({ example: '57975d05-f54e-40d0-b7f7-f339a0be451f' })
+  @IsUUID()
+  dependsOnTaskId: string;
+
+  @ApiPropertyOptional({
+    enum: DependencyType,
+    example: DependencyType.FINISH_TO_START,
+    description:
+      'Dependency relationship type. Defaults to finish-to-start when omitted.',
+  })
+  @IsOptional()
+  @IsEnum(DependencyType)
+  dependencyType?: DependencyType;
+
+  @ApiPropertyOptional({
+    example: -2,
+    description:
+      'Signed lag in days. Positive values delay the successor; negative values are lead time.',
+  })
+  @IsOptional()
+  @IsInt()
+  lagDays?: number;
+}
+
 class TaskReporteeDto {
   @ApiProperty({ example: '57975d05-f54e-40d0-b7f7-f339a0be451f' })
   @IsUUID()
@@ -305,11 +330,26 @@ export class CreateTaskDto {
   @Type(() => CreateTaskChecklistItemDto)
   checklistItems?: CreateTaskChecklistItemDto[];
 
-  @ApiPropertyOptional({ type: [String], description: 'Predecessor task ids' })
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Legacy shorthand predecessor task ids. Each id is treated as FS with zero lag. Do not send with dependencies.',
+  })
   @IsOptional()
   @IsArray()
   @IsUUID('all', { each: true })
   dependencyIds?: string[];
+
+  @ApiPropertyOptional({
+    type: () => [TaskDependencyInputDto],
+    description:
+      'Predecessor dependencies with explicit relationship type and signed lag. Prefer this over dependencyIds.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TaskDependencyInputDto)
+  dependencies?: TaskDependencyInputDto[];
 
   @ApiPropertyOptional({ type: () => TaskViewMetaDto })
   @IsOptional()
@@ -324,6 +364,7 @@ export {
   GanttMetaDto,
   MindmapMetaDto,
   TaskAssignedMemberDto,
+  TaskDependencyInputDto,
   TaskReporteeDto,
   TaskViewMetaDto,
 };
