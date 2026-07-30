@@ -16,6 +16,7 @@ import {
   UpdateTaskDto,
 } from '../dtos';
 import {
+  DependencyType,
   Task,
   TaskActionType,
   TaskActivitySchedule,
@@ -42,7 +43,14 @@ import { TaskAuthService } from './task-auth.service';
 import { TaskMembersService } from './task-members.service';
 import { TaskRankingService } from './task-ranking.service';
 import { TaskRelationsService } from './task-relations.service';
+import { ScheduleCalculationService } from './schedule-calculation.service';
 import { TaskWbsService } from './task-wbs.service';
+
+type NormalizedTaskDependencyInput = {
+  dependsOnTaskId: string;
+  dependencyType: DependencyType;
+  lagDays: number;
+};
 
 @Injectable()
 export class TaskCrudService {
@@ -70,6 +78,7 @@ export class TaskCrudService {
     private readonly activitySvc: TaskActivityService,
     private readonly membersSvc: TaskMembersService,
     private readonly relationsSvc: TaskRelationsService,
+    private readonly scheduleCalculationSvc: ScheduleCalculationService,
     private readonly wbsSvc: TaskWbsService,
   ) {}
 
@@ -89,6 +98,7 @@ export class TaskCrudService {
       requestUser,
       'create',
     );
+    const dependencyInputs = this.normalizeDependencyInputs(dto) ?? [];
 
     const [parent, reporteeMembership, dependencyTasks, actorUser] =
       await Promise.all([
@@ -98,10 +108,13 @@ export class TaskCrudService {
           : Promise.resolve(null),
         this.relationsSvc.ensureDependencyTasks(
           projectId,
-          dto.dependencyIds ?? [],
+          dependencyInputs.map((dependency) => dependency.dependsOnTaskId),
         ),
         this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
       ]);
+    const dependencyTaskById = new Map(
+      dependencyTasks.map((task) => [task.id, task]),
+    );
 
     this.authSvc.ensureDateRange(dto.startDate, dto.endDate);
     this.ensureScheduleDto(dto);
@@ -218,13 +231,16 @@ export class TaskCrudService {
         );
       }
 
-      for (const depTask of dependencyTasks) {
+      for (const dependency of dependencyInputs) {
+        const depTask = dependencyTaskById.get(dependency.dependsOnTaskId)!;
         await tx.save(
           tx.create(TaskDependency, {
             task: saved,
             taskId: saved.id,
             dependsOnTask: depTask,
             dependsOnTaskId: depTask.id,
+            dependencyType: dependency.dependencyType,
+            lagDays: dependency.lagDays,
           }),
         );
       }
@@ -240,6 +256,12 @@ export class TaskCrudService {
 
       return saved;
     });
+
+    await this.recalculateProjectSchedule(
+      projectId,
+      savedTask.id,
+      'task-create',
+    );
 
     return getTask(projectId, savedTask.id, requestUser, membership);
   }
@@ -269,6 +291,7 @@ export class TaskCrudService {
     // - newStatus: pre-load outside the tx to avoid a sequential query inside it.
     //
     // Net: one wave instead of 3+ sequential round-trips.
+    const dependencyInputs = this.normalizeDependencyInputs(dto);
     const [
       { membership },
       task,
@@ -285,8 +308,11 @@ export class TaskCrudService {
       dto.reportee !== undefined
         ? this.membersSvc.ensureReporteeMember(projectId, dto.reportee)
         : Promise.resolve(undefined),
-      dto.dependencyIds !== undefined
-        ? this.relationsSvc.ensureDependencyTasks(projectId, dto.dependencyIds)
+      dependencyInputs !== undefined
+        ? this.relationsSvc.ensureDependencyTasks(
+            projectId,
+            dependencyInputs.map((dependency) => dependency.dependsOnTaskId),
+          )
         : Promise.resolve(undefined),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
       dto.statusId
@@ -297,6 +323,12 @@ export class TaskCrudService {
         : Promise.resolve(null),
     ]);
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
+    const dependencyTaskById = new Map(
+      (dependencyTasks ?? []).map((dependencyTask) => [
+        dependencyTask.id,
+        dependencyTask,
+      ]),
+    );
 
     const nextStartDate =
       dto.startDate !== undefined ? (dto.startDate ?? null) : task.startDate;
@@ -447,21 +479,34 @@ export class TaskCrudService {
         changedFields.push('checklistItems');
       }
 
-      if (dto.dependencyIds !== undefined) {
+      if (dependencyInputs !== undefined) {
         const existingDeps = await tx.find(TaskDependency, {
           where: { taskId: task.id },
         });
         const existingMap = new Map(
           existingDeps.map((d) => [d.dependsOnTaskId, d]),
         );
-        const desiredIds = new Set(dto.dependencyIds);
+        const desiredMap = new Map(
+          dependencyInputs.map((dependency) => [
+            dependency.dependsOnTaskId,
+            dependency,
+          ]),
+        );
+        const desiredIds = new Set(desiredMap.keys());
         const toRemove = existingDeps
           .filter((d) => !desiredIds.has(d.dependsOnTaskId))
           .map((d) => d.id);
         if (toRemove.length)
           await tx.delete(TaskDependency, { id: In(toRemove) });
-        for (const depTask of dependencyTasks ?? []) {
-          if (existingMap.has(depTask.id)) continue;
+        for (const dependency of dependencyInputs) {
+          const existing = existingMap.get(dependency.dependsOnTaskId);
+          if (existing) {
+            existing.dependencyType = dependency.dependencyType;
+            existing.lagDays = dependency.lagDays;
+            await tx.save(existing);
+            continue;
+          }
+          const depTask = dependencyTaskById.get(dependency.dependsOnTaskId)!;
           await this.relationsSvc.ensureNoDependencyCycle(
             tx,
             task.id,
@@ -473,10 +518,14 @@ export class TaskCrudService {
               taskId: task.id,
               dependsOnTask: depTask,
               dependsOnTaskId: depTask.id,
+              dependencyType: dependency.dependencyType,
+              lagDays: dependency.lagDays,
             }),
           );
         }
-        changedFields.push('dependencyIds');
+        changedFields.push(
+          dto.dependencies !== undefined ? 'dependencies' : 'dependencyIds',
+        );
       }
 
       if (dto.labelIds !== undefined) {
@@ -531,12 +580,60 @@ export class TaskCrudService {
       );
     });
 
+    await this.recalculateProjectSchedule(projectId, task.id, 'task-update');
+
     return getTask(projectId, task.id, requestUser, membership);
   }
 
   private ensureScheduleDto(dto: CreateTaskDto | UpdateTaskDto): void {
     this.authSvc.ensureDateRange(dto.plannedStartDate, dto.plannedEndDate);
     this.authSvc.ensureDateRange(dto.actualStartDate, dto.actualEndDate);
+  }
+
+  private async recalculateProjectSchedule(
+    projectId: string,
+    triggerTaskId: string,
+    triggerType: string,
+  ): Promise<void> {
+    await this.scheduleCalculationSvc.recalculateProject(projectId, {
+      triggerTaskId,
+      triggerType,
+    });
+  }
+
+  private normalizeDependencyInputs(
+    dto: CreateTaskDto | UpdateTaskDto,
+  ): NormalizedTaskDependencyInput[] | undefined {
+    if (dto.dependencies !== undefined && dto.dependencyIds !== undefined) {
+      throw new BadRequestException(
+        'Send either dependencies or dependencyIds, not both',
+      );
+    }
+
+    const dependencies =
+      dto.dependencies !== undefined
+        ? dto.dependencies.map((dependency) => ({
+            dependsOnTaskId: dependency.dependsOnTaskId,
+            dependencyType:
+              dependency.dependencyType ?? DependencyType.FINISH_TO_START,
+            lagDays: dependency.lagDays ?? 0,
+          }))
+        : dto.dependencyIds?.map((dependsOnTaskId) => ({
+            dependsOnTaskId,
+            dependencyType: DependencyType.FINISH_TO_START,
+            lagDays: 0,
+          }));
+
+    if (dependencies === undefined) return undefined;
+
+    const uniquePredecessorIds = new Set(
+      dependencies.map((dependency) => dependency.dependsOnTaskId),
+    );
+    if (uniquePredecessorIds.size !== dependencies.length) {
+      throw new BadRequestException('Duplicate task dependencies are not allowed');
+    }
+
+    return dependencies;
   }
 
   private async upsertActivitySchedule(

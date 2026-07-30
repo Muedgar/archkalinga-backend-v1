@@ -97,7 +97,7 @@ export class TaskActivityService {
         manager.create(TaskActivityLog, {
           projectId: task.projectId,
           taskId: task.id,
-          actorUser,
+          actorUser: { pkid: actorUser.pkid },
           actorUserId: actorUser.id,
           actorName,
           actionType,
@@ -106,9 +106,11 @@ export class TaskActivityService {
       ),
       manager.save(
         manager.create(ProjectActivityLog, {
-          project: task.project,
+          project: task.project?.pkid
+            ? { pkid: task.project.pkid }
+            : undefined,
           projectId: task.projectId,
-          user: actorUser,
+          user: { pkid: actorUser.pkid },
           userId: actorUser.id,
           taskId: task.id,
           actionType,
@@ -161,7 +163,7 @@ export class TaskActivityService {
         manager.create(TaskActivityLog, {
           projectId: task.projectId,
           taskId: task.id,
-          actorUser,
+          actorUser: { pkid: actorUser.pkid },
           actorUserId: actorUser.id,
           actorName,
           actionType,
@@ -171,9 +173,11 @@ export class TaskActivityService {
 
       projectLogs.push(
         manager.create(ProjectActivityLog, {
-          project: task.project,
+          project: task.project?.pkid
+            ? { pkid: task.project.pkid }
+            : undefined,
           projectId: task.projectId,
-          user: actorUser,
+          user: { pkid: actorUser.pkid },
           userId: actorUser.id,
           taskId: task.id,
           actionType,

@@ -123,6 +123,27 @@ The backend should support:
 10. Summary rows and rollups for Gantt.
 11. Import from an activity schedule workbook.
 
+### 2.1 Confirmed Scheduling Contract
+
+This contract defines how task schedule fields are owned, computed, and kept consistent when users create or update tasks.
+
+1. Project `startDate` is required before activity schedule calculation can run. If a create/update operation requires schedule calculation and the project has no `startDate`, reject the operation with a clear validation error.
+2. Task create and task update must both participate in automatic scheduling. Even when the user does not provide planned dates, the backend should create/update the task activity schedule row and calculate dates from project `startDate`, duration, dependencies, lag, and project calendar rules.
+3. If `durationDays` is not provided, default duration is enough to calculate an initial schedule:
+   - `TASK` and `ACTIVITY` default to `1` working day.
+   - summary-like rows default to `0` and can roll up from children when applicable.
+4. For non-manually scheduled tasks, calculated planned dates mirror early dates:
+   - `plannedStartDate = earlyStartDate`
+   - `plannedEndDate = earlyFinishDate`
+   - `plannedStartOffset = earlyStartOffset`
+   - `plannedEndOffset = earlyFinishOffset`
+5. Main task dates mirror the active planned schedule. After recalculation, `tasks.startDate` and `tasks.endDate` should match `task_activity_schedules.plannedStartDate` and `task_activity_schedules.plannedEndDate`.
+6. Manual schedule dates are constraints, not a bypass of the schedule engine. When `isManuallyScheduled=true`, user-provided planned dates pin that task, then the whole project recalculates around the pinned task so downstream tasks, floats, and critical-path values remain coherent.
+7. Manual planned date changes require a `manualScheduleReason`. Planned dates cannot be manually changed while `isManuallyScheduled=false`.
+8. Schedule-impacting create/update operations recalculate the whole project schedule. This includes task creation, duration changes, planned manual date changes, schedule type changes, dependency changes, project start date changes, and calendar changes.
+9. Task create/update should support dependency type and lag directly. Keep `dependencyIds` as a backward-compatible shorthand for finish-to-start dependencies with zero lag, but add a richer dependency payload for `FS`, `SS`, `FF`, `SF`, and signed `lagDays`.
+10. Schedule calculations must continue to store both offsets and calendar dates. Offsets preserve Excel/CPM compatibility; dates power Gantt, task lists, and user-facing timelines.
+
 ---
 
 ## 3. Data Model
