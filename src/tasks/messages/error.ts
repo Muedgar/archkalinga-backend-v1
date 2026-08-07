@@ -1,6 +1,8 @@
 export const TASK_PROJECT_NOT_FOUND = 'Project not found';
 export const TASK_PROJECT_ACCESS_DENIED =
   'You do not have access to this project';
+export const TASK_CHANGE_REQUEST_REQUIRED =
+  'You need to create a change request for this change.';
 export const TASK_NOT_FOUND = 'Task not found';
 export const INVALID_TASK_DATE_RANGE =
   'startDate must be before or equal to endDate';

@@ -19,6 +19,7 @@ export * from './reopen-change-request.dto';
 export * from './resolve-change-request.dto';
 export * from './submit-change-request-revision.dto';
 export * from './change-request-filters.dto';
+export * from './change-request-impact-map-query.dto';
 export * from './create-task-material.dto';
 export * from './update-task-material.dto';
 export * from './task-material-filters.dto';

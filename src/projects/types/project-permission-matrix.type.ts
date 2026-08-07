@@ -16,6 +16,10 @@
  *
  * Domains cover only resources that live inside a project:
  *   - taskManagement          → tasks and subtasks
+ *   - taskChecklistManagement → checklist items and checklist groups on tasks/subtasks
+ *   - taskScheduleManagement  → task/subtask schedule attributes and activity schedule rows
+ *   - taskTeamAssigneeManagement → assigned team members on tasks/subtasks
+ *   - taskTeamReporteeManagement → reportee ownership on tasks/subtasks
  *   - documentManagement      → project documents
  *   - changeRequestManagement → change requests
  *   - projectRoleManagement   → project-scoped roles
@@ -32,6 +36,10 @@
  */
 export const PROJECT_PERMISSION_DOMAINS = [
   'taskManagement',
+  'taskChecklistManagement',
+  'taskScheduleManagement',
+  'taskTeamAssigneeManagement',
+  'taskTeamReporteeManagement',
   'documentManagement',
   'changeRequestManagement',
   'projectRoleManagement',
@@ -78,6 +86,10 @@ export type ProjectPermissionMatrix = {
      */
     viewScope: TaskViewScope;
   };
+  taskChecklistManagement: ProjectCrudPermissionSet;
+  taskScheduleManagement: ProjectCrudPermissionSet;
+  taskTeamAssigneeManagement: ProjectCrudPermissionSet;
+  taskTeamReporteeManagement: ProjectCrudPermissionSet;
   documentManagement: ProjectCrudPermissionSet;
   changeRequestManagement: ProjectCrudPermissionSet;
   projectRoleManagement: ProjectCrudPermissionSet;
@@ -91,66 +103,90 @@ export type ProjectPermissionMatrix = {
 
 // Owner — full control, sees all tasks
 export const FULL_PROJECT_ACCESS_MATRIX: ProjectPermissionMatrix = {
-  canManageProject:        true,
-  taskManagement:          { create: true,  update: true,  view: true, delete: true,  viewScope: 'all' },
-  documentManagement:      { create: true,  update: true,  view: true, delete: true  },
-  changeRequestManagement: { create: true,  update: true,  view: true, delete: true  },
-  projectRoleManagement:   { create: true,  update: true,  view: true, delete: true  },
-  projectConfigManagement: { create: true,  update: true,  view: true, delete: true  },
-  projectMemberManagement: { create: true,  update: true,  view: true, delete: true  },
+  canManageProject:             true,
+  taskManagement:               { create: true,  update: true,  view: true, delete: true,  viewScope: 'all' },
+  taskChecklistManagement:      { create: true,  update: true,  view: true, delete: true  },
+  taskScheduleManagement:       { create: true,  update: true,  view: true, delete: true  },
+  taskTeamAssigneeManagement:   { create: true,  update: true,  view: true, delete: true  },
+  taskTeamReporteeManagement:   { create: true,  update: true,  view: true, delete: true  },
+  documentManagement:           { create: true,  update: true,  view: true, delete: true  },
+  changeRequestManagement:      { create: true,  update: true,  view: true, delete: true  },
+  projectRoleManagement:        { create: true,  update: true,  view: true, delete: true  },
+  projectConfigManagement:      { create: true,  update: true,  view: true, delete: true  },
+  projectMemberManagement:      { create: true,  update: true,  view: true, delete: true  },
 };
 
 // Manager — full task access, no delete, sees all tasks
 export const MANAGE_PROJECT_ACCESS_MATRIX: ProjectPermissionMatrix = {
-  canManageProject:        true,
-  taskManagement:          { create: true,  update: true,  view: true, delete: false, viewScope: 'all' },
-  documentManagement:      { create: true,  update: true,  view: true, delete: false },
-  changeRequestManagement: { create: true,  update: true,  view: true, delete: false },
-  projectRoleManagement:   { create: true,  update: true,  view: true, delete: true  },
-  projectConfigManagement: { create: true,  update: true,  view: true, delete: true  },
-  projectMemberManagement: { create: true,  update: true,  view: true, delete: true  },
+  canManageProject:             true,
+  taskManagement:               { create: true,  update: true,  view: true, delete: false, viewScope: 'all' },
+  taskChecklistManagement:      { create: true,  update: true,  view: true, delete: false },
+  taskScheduleManagement:       { create: true,  update: true,  view: true, delete: false },
+  taskTeamAssigneeManagement:   { create: true,  update: true,  view: true, delete: false },
+  taskTeamReporteeManagement:   { create: true,  update: true,  view: true, delete: false },
+  documentManagement:           { create: true,  update: true,  view: true, delete: false },
+  changeRequestManagement:      { create: true,  update: true,  view: true, delete: false },
+  projectRoleManagement:        { create: true,  update: true,  view: true, delete: true  },
+  projectConfigManagement:      { create: true,  update: true,  view: true, delete: true  },
+  projectMemberManagement:      { create: true,  update: true,  view: true, delete: true  },
 };
 
 // Contributor — can create and update tasks, sees all tasks
 export const CONTRIBUTOR_PROJECT_ACCESS_MATRIX: ProjectPermissionMatrix = {
-  canManageProject:        false,
-  taskManagement:          { create: true,  update: true,  view: true, delete: false, viewScope: 'all' },
-  documentManagement:      { create: true,  update: true,  view: true, delete: false },
-  changeRequestManagement: { create: true,  update: true,  view: true, delete: false },
-  projectRoleManagement:   { create: false, update: false, view: false, delete: false },
-  projectConfigManagement: { create: false, update: false, view: true,  delete: false },
-  projectMemberManagement: { create: false, update: false, view: true,  delete: false },
+  canManageProject:             false,
+  taskManagement:               { create: true,  update: true,  view: true, delete: false, viewScope: 'all' },
+  taskChecklistManagement:      { create: true,  update: true,  view: true, delete: false },
+  taskScheduleManagement:       { create: true,  update: true,  view: true, delete: false },
+  taskTeamAssigneeManagement:   { create: true,  update: true,  view: true, delete: false },
+  taskTeamReporteeManagement:   { create: true,  update: true,  view: true, delete: false },
+  documentManagement:           { create: true,  update: true,  view: true, delete: false },
+  changeRequestManagement:      { create: true,  update: true,  view: true, delete: false },
+  projectRoleManagement:        { create: false, update: false, view: false, delete: false },
+  projectConfigManagement:      { create: false, update: false, view: true,  delete: false },
+  projectMemberManagement:      { create: false, update: false, view: true,  delete: false },
 };
 
 // Reviewer — can update and review tasks, sees all tasks
 export const REVIEWER_PROJECT_ACCESS_MATRIX: ProjectPermissionMatrix = {
-  canManageProject:        false,
-  taskManagement:          { create: false, update: true,  view: true, delete: false, viewScope: 'all' },
-  documentManagement:      { create: false, update: true,  view: true, delete: false },
-  changeRequestManagement: { create: true,  update: true,  view: true, delete: false },
-  projectRoleManagement:   { create: false, update: false, view: false, delete: false },
-  projectConfigManagement: { create: false, update: false, view: true,  delete: false },
-  projectMemberManagement: { create: false, update: false, view: true,  delete: false },
+  canManageProject:             false,
+  taskManagement:               { create: false, update: true,  view: true, delete: false, viewScope: 'all' },
+  taskChecklistManagement:      { create: false, update: true,  view: true, delete: false },
+  taskScheduleManagement:       { create: false, update: true,  view: true, delete: false },
+  taskTeamAssigneeManagement:   { create: false, update: true,  view: true, delete: false },
+  taskTeamReporteeManagement:   { create: false, update: true,  view: true, delete: false },
+  documentManagement:           { create: false, update: true,  view: true, delete: false },
+  changeRequestManagement:      { create: true,  update: true,  view: true, delete: false },
+  projectRoleManagement:        { create: false, update: false, view: false, delete: false },
+  projectConfigManagement:      { create: false, update: false, view: true,  delete: false },
+  projectMemberManagement:      { create: false, update: false, view: true,  delete: false },
 };
 
 // Viewer — read-only, sees ONLY their own assigned/reportee tasks
 export const VIEWER_PROJECT_ACCESS_MATRIX: ProjectPermissionMatrix = {
-  canManageProject:        false,
-  taskManagement:          { create: false, update: false, view: true, delete: false, viewScope: 'assigned' },
-  documentManagement:      { create: false, update: false, view: true, delete: false },
-  changeRequestManagement: { create: false, update: false, view: true, delete: false },
-  projectRoleManagement:   { create: false, update: false, view: false, delete: false },
-  projectConfigManagement: { create: false, update: false, view: true,  delete: false },
-  projectMemberManagement: { create: false, update: false, view: false, delete: false },
+  canManageProject:             false,
+  taskManagement:               { create: false, update: false, view: true, delete: false, viewScope: 'assigned' },
+  taskChecklistManagement:      { create: false, update: false, view: true, delete: false },
+  taskScheduleManagement:       { create: false, update: false, view: true, delete: false },
+  taskTeamAssigneeManagement:   { create: false, update: false, view: true, delete: false },
+  taskTeamReporteeManagement:   { create: false, update: false, view: true, delete: false },
+  documentManagement:           { create: false, update: false, view: true, delete: false },
+  changeRequestManagement:      { create: false, update: false, view: true, delete: false },
+  projectRoleManagement:        { create: false, update: false, view: false, delete: false },
+  projectConfigManagement:      { create: false, update: false, view: true,  delete: false },
+  projectMemberManagement:      { create: false, update: false, view: false, delete: false },
 };
 
 // Empty — no access
 export const EMPTY_PROJECT_ACCESS_MATRIX: ProjectPermissionMatrix = {
-  canManageProject:        false,
-  taskManagement:          { create: false, update: false, view: false, delete: false, viewScope: 'assigned' },
-  documentManagement:      { create: false, update: false, view: false, delete: false },
-  changeRequestManagement: { create: false, update: false, view: false, delete: false },
-  projectRoleManagement:   { create: false, update: false, view: false, delete: false },
-  projectConfigManagement: { create: false, update: false, view: false, delete: false },
-  projectMemberManagement: { create: false, update: false, view: false, delete: false },
+  canManageProject:             false,
+  taskManagement:               { create: false, update: false, view: false, delete: false, viewScope: 'assigned' },
+  taskChecklistManagement:      { create: false, update: false, view: false, delete: false },
+  taskScheduleManagement:       { create: false, update: false, view: false, delete: false },
+  taskTeamAssigneeManagement:   { create: false, update: false, view: false, delete: false },
+  taskTeamReporteeManagement:   { create: false, update: false, view: false, delete: false },
+  documentManagement:           { create: false, update: false, view: false, delete: false },
+  changeRequestManagement:      { create: false, update: false, view: false, delete: false },
+  projectRoleManagement:        { create: false, update: false, view: false, delete: false },
+  projectConfigManagement:      { create: false, update: false, view: false, delete: false },
+  projectMemberManagement:      { create: false, update: false, view: false, delete: false },
 };

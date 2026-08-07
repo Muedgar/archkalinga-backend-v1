@@ -92,6 +92,8 @@ export const TASK_DOCUMENT_UPDATED = 'Task document updated successfully';
 export const TASK_DOCUMENT_DELETED = 'Task document deleted successfully';
 export const TASK_CHANGE_REQUESTS_FETCHED =
   'Task change requests fetched successfully';
+export const TASK_CHANGE_REQUEST_IMPACT_MAP_FETCHED =
+  'Task change request impact map fetched successfully';
 export const TASK_CHANGE_REQUEST_FETCHED =
   'Task change request fetched successfully';
 export const TASK_CHANGE_REQUEST_CREATED =

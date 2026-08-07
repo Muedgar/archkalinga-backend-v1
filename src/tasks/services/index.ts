@@ -12,6 +12,8 @@ export { TaskCommentsService } from './task-comments.service';
 export { TaskCrudService } from './task-crud.service';
 export { TaskDashboardSummaryService } from './task-dashboard-summary.service';
 export { TaskChangeRequestsService } from './task-change-requests.service';
+export { TaskChangeRequestImpactMapService } from './task-change-request-impact-map.service';
+export { applyChangeRequestNeedsMyAttentionScope } from './change-request-query-scopes';
 export { TaskDocumentsService } from './task-documents.service';
 export { TaskFieldWorkQueueService } from './task-field-work-queue.service';
 export { TaskLocationsService } from './task-locations.service';
@@ -20,6 +22,7 @@ export { TaskMaterialsReportImportService } from './task-materials-report-import
 export { TaskMaterialsReportService } from './task-materials-report.service';
 export { TaskMaterialsService } from './task-materials.service';
 export { TaskQueryService } from './task-query.service';
+export { TaskProgressService } from './task-progress.service';
 export { TaskRankingService } from './task-ranking.service';
 export { TaskRelationsService } from './task-relations.service';
 export { TaskResourceAllocationService } from './task-resource-allocation.service';

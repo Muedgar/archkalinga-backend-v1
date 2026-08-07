@@ -79,7 +79,9 @@ class InviteSnippet extends BaseSerializer {
   @Expose()
   @Transform(({ obj }) =>
     obj?.inviteeUser
-      ? plainToInstance(_InviteeSnippet, obj.inviteeUser, { excludeExtraneousValues: true })
+      ? plainToInstance(_InviteeSnippet, obj.inviteeUser, {
+          excludeExtraneousValues: true,
+        })
       : null,
   )
   invitee: _InviteeSnippet | null;
@@ -88,7 +90,9 @@ class InviteSnippet extends BaseSerializer {
   @Expose()
   @Transform(({ obj }) =>
     obj?.projectRole
-      ? plainToInstance(_InviteRoleSnippet, obj.projectRole, { excludeExtraneousValues: true })
+      ? plainToInstance(_InviteRoleSnippet, obj.projectRole, {
+          excludeExtraneousValues: true,
+        })
       : null,
   )
   role: _InviteRoleSnippet | null;
@@ -124,6 +128,7 @@ export class ProjectListItemSerializer extends BaseSerializer {
   @Expose() endDate: string | null;
   @Expose() type: string;
   @Expose() status: string;
+  @Expose() progress: number;
   @Expose() archivedAt: Date | null;
 
   @Expose()
@@ -144,6 +149,7 @@ export class ProjectSerializer extends BaseSerializer {
   @Expose() endDate: string | null;
   @Expose() type: string;
   @Expose() status: string;
+  @Expose() progress: number;
   @Expose() archivedAt: Date | null;
   @Expose() createdByUserId: string;
 
@@ -238,7 +244,9 @@ export class ProjectSerializer extends BaseSerializer {
     (obj?.activeInvites ?? obj?.invites ?? [])
       .filter((i: { status: string }) => i.status === 'PENDING')
       .map((invite: Record<string, unknown>) =>
-        plainToInstance(InviteSnippet, invite, { excludeExtraneousValues: true }),
+        plainToInstance(InviteSnippet, invite, {
+          excludeExtraneousValues: true,
+        }),
       ),
   )
   @Type(() => InviteSnippet)

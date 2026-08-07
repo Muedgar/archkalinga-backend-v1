@@ -30,6 +30,50 @@ Project permission domain summary:
 | `projectConfigManagement.*` | Project statuses, priorities, severities, task types, and labels |
 | `projectMemberManagement.*` | Project members and sent project invites |
 | `taskManagement.*` | Tasks, subtasks, task board/list/detail, and task-owned operations |
+| `taskChecklistManagement.*` | Task/subtask checklist item and checklist group create/update/delete |
+| `taskScheduleManagement.*` | Task/subtask schedule field and activity schedule row create/update/delete |
+| `taskTeamAssigneeManagement.*` | Task/subtask assignee add/change/remove |
+| `taskTeamReporteeManagement.*` | Task/subtask reportee set/change/remove |
+| `changeRequestManagement.*` | Task change request list/detail/workflow and mindmap impact overlay |
+
+Task subresource mutation contract:
+
+- Route-level task mutation endpoints still require the existing broad `taskManagement.update` project permission.
+- Checklist, schedule, assignee, and reportee mutations also run task-aware checks in `TaskAuthService`.
+- Backend allows the mutation when the caller created the target task, created any ancestor task, or has the matching granular project permission.
+- There is no admin bypass in the task-aware subresource check; explicit creator/ancestor/granular permission logic decides the result.
+- Creating a task may include initial checklist, schedule, assignee, and reportee values because the actor becomes the task creator immediately.
+
+Granular frontend permission keys:
+
+| Frontend key | Backend project role domain/action |
+|--------------|------------------------------------|
+| `task.checklist.create` | `taskChecklistManagement.create` |
+| `task.checklist.update` | `taskChecklistManagement.update` |
+| `task.checklist.delete` | `taskChecklistManagement.delete` |
+| `task.schedule.create` | `taskScheduleManagement.create` |
+| `task.schedule.update` | `taskScheduleManagement.update` |
+| `task.schedule.delete` | `taskScheduleManagement.delete` |
+| `task.team.assignee.create` | `taskTeamAssigneeManagement.create` |
+| `task.team.assignee.update` | `taskTeamAssigneeManagement.update` |
+| `task.team.assignee.delete` | `taskTeamAssigneeManagement.delete` |
+| `task.team.reportee.create` | `taskTeamReporteeManagement.create` |
+| `task.team.reportee.update` | `taskTeamReporteeManagement.update` |
+| `task.team.reportee.delete` | `taskTeamReporteeManagement.delete` |
+
+When a task-aware subresource mutation is denied, the frontend should prompt the user to create a change request instead of showing a generic forbidden state:
+
+```json
+{
+  "statusCode": 403,
+  "code": "CHANGE_REQUEST_REQUIRED",
+  "message": "You need to create a change request for this change.",
+  "changeRequestRequired": true,
+  "resource": "task.checklist",
+  "action": "update",
+  "taskId": "task-uuid"
+}
+```
 
 ---
 
@@ -971,6 +1015,138 @@ fetchTaskDocuments({
 4. Show each deliverable with `name`, `description`, `updatedAt`, and active attachment filename.
 5. Submit `createStarterFromDeliverable`.
 6. After success, refetch the target task's `STARTER` list so sorting, traceability, and active attachment state come from the backend.
+
+## Change Request Mindmap Overlay
+
+Use this endpoint when the user switches the existing task mindmap into Change Requests mode.
+
+```http
+GET /projects/:projectId/tasks/:taskId/change-request-impact-map
+```
+
+Auth:
+
+- JWT
+- Project role permission: `changeRequestManagement.view`
+
+Recommended frontend flow:
+
+1. Load the normal task mindmap first:
+
+```http
+GET /projects/:projectId/tasks/:taskId/mindmap
+```
+
+2. When Change Requests mode is enabled, fetch the impact overlay:
+
+```http
+GET /projects/:projectId/tasks/:taskId/change-request-impact-map?includeItems=true&itemLimitPerTask=3
+```
+
+3. Merge `data.taskSummaries[node.id]` onto the existing mindmap nodes.
+4. Render CR badges, heat/intensity, and filters from the overlay response.
+5. When a user opens an affected task, fetch full task-scoped CR details through the existing CR list endpoint:
+
+```http
+GET /projects/:projectId/tasks/:taskId/change-requests?includeSummary=true&includeMessages=true
+```
+
+Query params:
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `depth` | number or `all` | existing tree default | Descendant depth under the root task |
+| `limit` | number | existing tree default | Maximum task nodes considered, max `1000` |
+| `includeCompleted` | boolean | existing tree default | Include completed tasks in the subtree |
+| `includeDeleted` | boolean | `false` | Honored only where backend task tree rules allow it |
+| `includeSuperseded` | boolean | `false` | Include superseded tasks |
+| `collapsedMode` | `respect \| ignore` | `respect` | Whether collapsed mindmap nodes hide descendant impact summaries |
+| `status` | `ChangeRequestStatus` | none | Filter CRs before summary/preview computation |
+| `impactType` | `ChangeRequestImpactType` | none | Filter by scope/cost/schedule/etc. |
+| `priority` | `ChangeRequestPriority` | none | Filter by priority |
+| `createdByUserId` | UUID | none | Supports "My requests" |
+| `escalatedToUserId` | UUID | none | Supports escalated-to-me views |
+| `reviewerUserId` | UUID | none | Supports reviewer views |
+| `needsMyAttention` | boolean | none | When `true`, returns only CRs needing action from the current user |
+| `includeItems` | boolean | `false` | Include lightweight preview CR cards per task |
+| `itemLimitPerTask` | number | `3` | Max preview items per task, valid range `1-25` |
+
+Response `200`:
+
+```ts
+type ChangeRequestImpactIntensity = 'none' | 'low' | 'medium' | 'high';
+
+type ChangeRequestImpactMapResponse = {
+  meta: {
+    projectId: string;
+    rootTaskId: string;
+    depth: number | 'all';
+    limit: number;
+    truncated: boolean;
+    collapsedMode: 'respect' | 'ignore';
+    filters: {
+      status: ChangeRequestStatus | null;
+      impactType: ChangeRequestImpactType | null;
+      priority: ChangeRequestPriority | null;
+      createdByUserId: string | null;
+      escalatedToUserId: string | null;
+      reviewerUserId: string | null;
+      needsMyAttention: boolean | null;
+      includeItems: boolean;
+      itemLimitPerTask: number;
+    };
+    generatedAt: string;
+  };
+  summary: {
+    affectedTaskCount: number;
+    total: number;
+    open: number;
+    final: number;
+    escalated: number;
+    needsMyAttention: number;
+    critical: number;
+    byStatus: Partial<Record<ChangeRequestStatus, number>>;
+    byImpactType: Partial<Record<ChangeRequestImpactType, number>>;
+    byPriority: Partial<Record<ChangeRequestPriority, number>>;
+  };
+  data: {
+    taskSummaries: Record<string, {
+      taskId: string;
+      total: number;
+      open: number;
+      final: number;
+      escalated: number;
+      critical: number;
+      needsMyAttention: number;
+      latestStatus: ChangeRequestStatus | null;
+      latestUpdatedAt: string | null;
+      intensity: ChangeRequestImpactIntensity;
+      byStatus: Partial<Record<ChangeRequestStatus, number>>;
+      byImpactType: Partial<Record<ChangeRequestImpactType, number>>;
+      byPriority: Partial<Record<ChangeRequestPriority, number>>;
+    }>;
+    itemsByTaskId?: Record<string, Array<{
+      id: string;
+      taskId: string;
+      title: string;
+      status: ChangeRequestStatus;
+      impactType: ChangeRequestImpactType | null;
+      priority: ChangeRequestPriority | null;
+      createdById: string;
+      escalatedToUserId: string | null;
+      updatedAt: string;
+    }>>;
+  };
+};
+```
+
+Frontend rendering notes:
+
+- `affectedTaskCount` counts tasks with matching CRs, not all visible mindmap tasks.
+- `intensity` is already computed by the backend; use it directly for heat styling.
+- `itemsByTaskId` is only a preview list. It does not include full threads, messages, attachment metadata, or download URLs.
+- Full messages and attachments remain on the existing task-scoped CR list/detail APIs.
+- Refetch this overlay when CR filters change or after create/escalate/reopen/resolve/revise actions.
 
 ## Frontend Cache And Sorting Notes
 

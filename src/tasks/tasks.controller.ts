@@ -47,6 +47,7 @@ import {
   BulkTaskViewMetadataDto,
   BulkUpdateTasksDto,
   ChangeRequestFiltersDto,
+  ChangeRequestImpactMapQueryDto,
   CreateChangeRequestDto,
   CreateChangeRequestMessageDto,
   CreateChangeRequestReviewDto,
@@ -170,6 +171,7 @@ import {
   TASK_CHANGE_REQUEST_CREATED,
   TASK_CHANGE_REQUEST_ESCALATED,
   TASK_CHANGE_REQUEST_FETCHED,
+  TASK_CHANGE_REQUEST_IMPACT_MAP_FETCHED,
   TASK_CHANGE_REQUEST_MESSAGE_CREATED,
   TASK_CHANGE_REQUEST_REVIEW_ASSIGNED,
   TASK_CHANGE_REQUEST_REVIEW_DECIDED,
@@ -1463,6 +1465,36 @@ export class TasksController {
       taskId,
       materialId,
       user,
+    );
+  }
+
+  @Get('tasks/:taskId/change-request-impact-map')
+  @ApiOperation({
+    summary: 'Get task subtree change request impact map',
+    description:
+      'Returns change-request summary buckets and optional preview items for the visible task subtree under one task.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Task change request impact map fetched',
+  })
+  @ResponseMessage(TASK_CHANGE_REQUEST_IMPACT_MAP_FETCHED)
+  @Throttle({ default: { ttl: 60000, limit: 300 } })
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('changeRequestManagement', 'view')
+  getTaskChangeRequestImpactMap(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: ChangeRequestImpactMapQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskChangeRequestImpactMap(
+      projectId,
+      taskId,
+      query,
+      user,
+      req.projectMembership,
     );
   }
 

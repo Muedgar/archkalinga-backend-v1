@@ -32,6 +32,7 @@ import {
 } from '../serializers';
 import { TaskAuthService } from './task-auth.service';
 import { TaskMembersService } from './task-members.service';
+import { TaskProgressService } from './task-progress.service';
 
 const TASK_TREE_INCLUDE_KEYS = new Set([
   'assignees',
@@ -136,6 +137,7 @@ export class TaskQueryService {
     private readonly relationRepo: Repository<TaskRelation>,
     private readonly authSvc: TaskAuthService,
     private readonly membersSvc: TaskMembersService,
+    private readonly progressSvc: TaskProgressService,
   ) {}
 
   async getTask(
@@ -1286,21 +1288,32 @@ export class TaskQueryService {
 
   private applyTreeRollups(node: TaskTreeNode): void {
     let descendantCount = 0;
-    let progressTotal = node.progress.self ?? 0;
-    let progressCount = node.progress.self === null ? 0 : 1;
+    const childProgressByTaskId = new Map<string, number>();
 
     for (const child of node.children) {
       this.applyTreeRollups(child);
       descendantCount += 1 + child.counts.descendantCount;
-      if (child.progress.rollup !== null) {
-        progressTotal += child.progress.rollup;
-        progressCount += 1;
-      }
+      childProgressByTaskId.set(child.task.id, child.progress.rollup ?? 0);
+    }
+
+    for (const item of node.checklistItems) {
+      if (!item.branchedTaskId) continue;
+      const childProgress = childProgressByTaskId.get(item.branchedTaskId);
+      if (childProgress !== undefined) item.completed = childProgress >= 100;
     }
 
     node.counts.descendantCount = descendantCount;
-    node.progress.rollup =
-      progressCount > 0 ? Math.round(progressTotal / progressCount) : null;
+    node.counts.completedChecklistItemCount = node.checklistItems.filter(
+      (item) => item.completed,
+    ).length;
+
+    const derivedProgress = this.progressSvc.calculateTaskProgress(
+      { id: node.task.id, completed: node.progress.completed },
+      new Map([[node.task.id, node.checklistItems]]),
+      childProgressByTaskId,
+    );
+    node.progress.self = derivedProgress;
+    node.progress.rollup = derivedProgress;
   }
 
   private buildTreeSummary(root: TaskTreeNode): TaskTreeResponse['summary'] {
