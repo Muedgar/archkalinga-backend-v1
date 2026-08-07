@@ -38,6 +38,11 @@ export class TaskActivityScheduleService {
     return schedule ? this.serialize(schedule) : null;
   }
 
+  async existsForTask(taskId: string): Promise<boolean> {
+    const count = await this.scheduleRepo.count({ where: { taskId } });
+    return count > 0;
+  }
+
   async upsertForTask(
     task: Task,
     actorUser: User,

@@ -39,6 +39,7 @@ import { TaskActivityService } from './task-activity.service';
 import { TaskAuthService } from './task-auth.service';
 import { TaskMembersService } from './task-members.service';
 import { TaskRankingService } from './task-ranking.service';
+import { TaskProgressService } from './task-progress.service';
 import { TaskWbsService } from './task-wbs.service';
 
 @Injectable()
@@ -52,6 +53,7 @@ export class TaskChecklistService {
     private readonly authSvc: TaskAuthService,
     private readonly membersSvc: TaskMembersService,
     private readonly rankingSvc: TaskRankingService,
+    private readonly progressSvc: TaskProgressService,
     private readonly wbsSvc: TaskWbsService,
   ) {}
 
@@ -219,6 +221,7 @@ export class TaskChecklistService {
           operation: 'checklist_item_added',
         },
       );
+      await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
 
       return this.serializeItem(saved);
     });
@@ -254,20 +257,21 @@ export class TaskChecklistService {
       if (dto.orderIndex !== undefined) {
         await this.reorderItems(tx, task.id, saved.id, dto.orderIndex);
       }
-      const refreshed = await tx.findOneByOrFail(TaskChecklistItem, {
-        id: saved.id,
-        taskId: task.id,
-      });
       await this.activitySvc.log(
         tx,
         task,
         actorUser,
         TaskActionType.CHECKLIST_UPDATED,
         {
-          itemId: refreshed.id,
+          itemId: saved.id,
           operation: 'checklist_item_updated',
         },
       );
+      await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
+      const refreshed = await tx.findOneByOrFail(TaskChecklistItem, {
+        id: saved.id,
+        taskId: task.id,
+      });
       return this.serializeItem(refreshed);
     });
   }
@@ -278,6 +282,12 @@ export class TaskChecklistService {
     actorUser: User,
     dto: BranchChecklistItemDto,
   ): Promise<TaskChecklistItemDetailSerializer> {
+    if (dto.progress !== undefined) {
+      throw new BadRequestException(
+        'Task progress is automatically derived from checklist completion',
+      );
+    }
+
     this.authSvc.ensureDateRange(dto.startDate, dto.endDate);
 
     return this.checklistRepo.manager.transaction(async (tx) => {
@@ -358,7 +368,7 @@ export class TaskChecklistService {
           description: null,
           startDate: dto.startDate ?? null,
           endDate: dto.endDate ?? null,
-          progress: dto.progress ?? null,
+          progress: 0,
           completed: status.isTerminal,
           scheduleType: ScheduleType.TASK,
           wbsCode: initialWbs.wbsCode,
@@ -417,8 +427,13 @@ export class TaskChecklistService {
           sourceChecklistItemId: savedItem.id,
         },
       );
+      await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
+      const refreshedItem = await tx.findOneByOrFail(TaskChecklistItem, {
+        id: savedItem.id,
+        taskId: task.id,
+      });
 
-      return this.serializeItem(savedItem);
+      return this.serializeItem(refreshedItem);
     });
   }
 
@@ -442,6 +457,7 @@ export class TaskChecklistService {
           operation: 'checklist_item_deleted',
         },
       );
+      await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
     });
 
     return { id: itemId, success: true };

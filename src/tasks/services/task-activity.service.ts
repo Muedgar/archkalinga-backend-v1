@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
 import { OutboxService } from 'src/outbox/outbox.service';
-import { ProjectActivityLog } from 'src/projects/entities';
+import { Project, ProjectActivityLog } from 'src/projects/entities';
 import { User } from 'src/users/entities';
 import {
   TaskSnapshotQueryDto,
@@ -90,6 +90,7 @@ export class TaskActivityService {
     const actorName =
       [actorUser.firstName, actorUser.lastName].filter(Boolean).join(' ') ||
       actorUser.email;
+    const projectRef = await this.resolveProjectPkidRef(manager, task);
 
     // Save both log rows concurrently (independent inserts — no FK between them)
     await Promise.all([
@@ -106,9 +107,7 @@ export class TaskActivityService {
       ),
       manager.save(
         manager.create(ProjectActivityLog, {
-          project: task.project?.pkid
-            ? { pkid: task.project.pkid }
-            : undefined,
+          project: projectRef,
           projectId: task.projectId,
           user: { pkid: actorUser.pkid },
           userId: actorUser.id,
@@ -153,6 +152,10 @@ export class TaskActivityService {
 
     const taskLogs: TaskActivityLog[] = [];
     const projectLogs: ProjectActivityLog[] = [];
+    const projectRefByProjectId = await this.resolveProjectPkidRefs(
+      manager,
+      entries.map((entry) => entry.task),
+    );
 
     for (const { task, actorUser, actionType, actionMeta } of entries) {
       const actorName =
@@ -173,9 +176,7 @@ export class TaskActivityService {
 
       projectLogs.push(
         manager.create(ProjectActivityLog, {
-          project: task.project?.pkid
-            ? { pkid: task.project.pkid }
-            : undefined,
+          project: projectRefByProjectId.get(task.projectId),
           projectId: task.projectId,
           user: { pkid: actorUser.pkid },
           userId: actorUser.id,
@@ -206,6 +207,51 @@ export class TaskActivityService {
         },
       });
     }
+  }
+
+  private async resolveProjectPkidRef(
+    manager: EntityManager,
+    task: Pick<Task, 'projectId'> & Partial<Pick<Task, 'project'>>,
+  ): Promise<Pick<Project, 'pkid'>> {
+    if (task.project?.pkid) return { pkid: task.project.pkid };
+
+    const project = await manager.findOne(Project, {
+      where: { id: task.projectId },
+      select: ['pkid'],
+    });
+    if (!project) {
+      throw new BadRequestException('Project not found for task activity log');
+    }
+
+    return { pkid: project.pkid };
+  }
+
+  private async resolveProjectPkidRefs(
+    manager: EntityManager,
+    tasks: Array<Pick<Task, 'projectId'> & Partial<Pick<Task, 'project'>>>,
+  ): Promise<Map<string, Pick<Project, 'pkid'>>> {
+    const refs = new Map<string, Pick<Project, 'pkid'>>();
+    const missingProjectIds = new Set<string>();
+
+    for (const task of tasks) {
+      if (task.project?.pkid) {
+        refs.set(task.projectId, { pkid: task.project.pkid });
+      } else {
+        missingProjectIds.add(task.projectId);
+      }
+    }
+
+    for (const projectId of missingProjectIds) {
+      if (refs.has(projectId)) continue;
+      refs.set(
+        projectId,
+        await this.resolveProjectPkidRef(manager, {
+          projectId,
+        }),
+      );
+    }
+
+    return refs;
   }
 
   // ── Paginated activity list for a single task ─────────────────────────────

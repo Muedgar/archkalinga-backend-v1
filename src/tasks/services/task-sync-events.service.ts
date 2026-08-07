@@ -16,6 +16,7 @@ import {
 import { TaskSyncEventDto, TaskSyncEventsDto } from '../dtos';
 import { INVALID_TASK_SYNC_EVENT, TASK_NOT_FOUND } from '../messages';
 import { TaskActivityService } from './task-activity.service';
+import { TaskProgressService } from './task-progress.service';
 
 type TaskSyncEventResult = {
   clientEventId: string;
@@ -44,6 +45,7 @@ export class TaskSyncEventsService {
     @InjectRepository(Task)
     private readonly taskRepo: Repository<Task>,
     private readonly activitySvc: TaskActivityService,
+    private readonly progressSvc: TaskProgressService,
   ) {}
 
   async process(
@@ -194,6 +196,8 @@ export class TaskSyncEventsService {
       },
     );
 
+    await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
+
     return { checklistItemId: saved.id, completed: saved.completed };
   }
 
@@ -203,39 +207,13 @@ export class TaskSyncEventsService {
     event: TaskSyncEventDto,
     actorUser: User,
   ): Promise<Record<string, unknown>> {
-    const progress = this.optionalNumberPayload(event.payload, 'progress');
-    const completed = this.optionalBooleanPayload(event.payload, 'completed');
-    if (progress === undefined && completed === undefined) {
-      throw new BadRequestException(INVALID_TASK_SYNC_EVENT);
-    }
-
-    if (progress !== undefined) {
-      if (progress !== null && (progress < 0 || progress > 100)) {
-        throw new BadRequestException(INVALID_TASK_SYNC_EVENT);
-      }
-      task.progress = progress;
-    }
-    if (completed !== undefined) task.completed = completed;
-    const saved = await tx.save(Task, task);
-
-    await this.activitySvc.log(
-      tx,
-      task,
-      actorUser,
-      TaskActionType.TASK_UPDATED,
-      {
-        operation: 'offline_task_progress_updated',
-        progress: saved.progress,
-        completed: saved.completed,
-        clientEventId: event.clientEventId,
-      },
+    void tx;
+    void task;
+    void actorUser;
+    void event;
+    throw new BadRequestException(
+      'Task progress is automatically derived from checklist completion',
     );
-
-    return {
-      taskId: saved.id,
-      progress: saved.progress,
-      completed: saved.completed,
-    };
   }
 
   private async applySiteNote(

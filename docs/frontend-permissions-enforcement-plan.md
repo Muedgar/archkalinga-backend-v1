@@ -100,6 +100,30 @@ type ProjectPermissionMatrix = {
     view: boolean;
     delete: boolean;
   };
+  taskChecklistManagement: {
+    create: boolean;
+    update: boolean;
+    view: boolean;
+    delete: boolean;
+  };
+  taskScheduleManagement: {
+    create: boolean;
+    update: boolean;
+    view: boolean;
+    delete: boolean;
+  };
+  taskTeamAssigneeManagement: {
+    create: boolean;
+    update: boolean;
+    view: boolean;
+    delete: boolean;
+  };
+  taskTeamReporteeManagement: {
+    create: boolean;
+    update: boolean;
+    view: boolean;
+    delete: boolean;
+  };
 };
 ```
 
@@ -132,10 +156,47 @@ Use project permissions inside a selected project:
 | `projectMemberManagement.create` | Assign/invite project members |
 | `projectMemberManagement.update` | Update member role and resend project invites |
 | `projectMemberManagement.delete` | Cancel project invites; remove members if/when supported |
+| `taskChecklistManagement.create/update/delete` | Task/subtask checklist item and checklist group mutations |
+| `taskScheduleManagement.create/update/delete` | Task/subtask schedule attributes and activity schedule row mutations |
+| `taskTeamAssigneeManagement.create/update/delete` | Task/subtask assignee add/change/remove |
+| `taskTeamReporteeManagement.create/update/delete` | Task/subtask reportee set/change/remove |
 
 If `taskManagement.viewScope === 'assigned'`, the frontend must not pretend the user can see all project tasks. Let the backend filter the dataset, and adjust UI copy/counts so they read as "your visible tasks" rather than "all project tasks".
 
 Live controller note: the current task-document endpoints in `src/tasks/tasks.controller.ts` are guarded with `taskManagement.view` for reads and `taskManagement.update` for create/update/delete document operations. Until the backend changes those decorators to `documentManagement`, task-document buttons and menus must follow the live `taskManagement` checks.
+
+Task subresource mutation note: route-level task mutation endpoints still use broad `taskManagement.update`, but checklist, schedule, assignee, and reportee writes also run task-aware checks in `TaskAuthService`. The backend allows these writes when the caller created the target task, created any ancestor task, or has the matching granular subresource permission. There is no admin bypass in this task-aware check. If denied, the backend returns a `CHANGE_REQUEST_REQUIRED` 403 and the frontend should prompt the user to create a change request.
+
+Denied task subresource response:
+
+```json
+{
+  "statusCode": 403,
+  "code": "CHANGE_REQUEST_REQUIRED",
+  "message": "You need to create a change request for this change.",
+  "changeRequestRequired": true,
+  "resource": "task.schedule",
+  "action": "update",
+  "taskId": "task-uuid"
+}
+```
+
+Frontend resource keys map to project-role domains like this:
+
+| Frontend key | Project role permission |
+| --- | --- |
+| `task.checklist.create` | `taskChecklistManagement.create` |
+| `task.checklist.update` | `taskChecklistManagement.update` |
+| `task.checklist.delete` | `taskChecklistManagement.delete` |
+| `task.schedule.create` | `taskScheduleManagement.create` |
+| `task.schedule.update` | `taskScheduleManagement.update` |
+| `task.schedule.delete` | `taskScheduleManagement.delete` |
+| `task.team.assignee.create` | `taskTeamAssigneeManagement.create` |
+| `task.team.assignee.update` | `taskTeamAssigneeManagement.update` |
+| `task.team.assignee.delete` | `taskTeamAssigneeManagement.delete` |
+| `task.team.reportee.create` | `taskTeamReporteeManagement.create` |
+| `task.team.reportee.update` | `taskTeamReporteeManagement.update` |
+| `task.team.reportee.delete` | `taskTeamReporteeManagement.delete` |
 
 ## Implementation Phases
 
@@ -298,13 +359,15 @@ Every protected route should also have a page guard. Navigation hiding is not en
 | Edit task fields | Project `taskManagement.update` |
 | Move task between columns/statuses | Project `taskManagement.update` |
 | Drag/drop reorder | Project `taskManagement.update` |
-| Assign/unassign members | Project `taskManagement.update` |
+| Add assignee | Project `taskManagement.update` plus task-aware `taskTeamAssigneeManagement.create` unless caller is task/ancestor creator |
+| Remove assignee | Project `taskManagement.update` plus task-aware `taskTeamAssigneeManagement.delete` unless caller is task/ancestor creator |
+| Change reportee | Project `taskManagement.update` plus task-aware `taskTeamReporteeManagement.create/update/delete` unless caller is task/ancestor creator |
 | Add/remove labels | Project `taskManagement.update` |
 | Add/update/delete comments | Project `taskManagement.update` |
-| Add/update/delete checklist groups/items | Project `taskManagement.update` |
+| Add/update/delete checklist groups/items | Project `taskManagement.update` plus task-aware `taskChecklistManagement.create/update/delete` unless caller is task/ancestor creator |
 | Add/remove watchers | Project `taskManagement.update` |
 | Add/update/delete task relations/dependencies | Project `taskManagement.update` |
-| Recalculate/update schedule | Project `taskManagement.update` |
+| Update task schedule fields | Project `taskManagement.update` plus task-aware `taskScheduleManagement.update` unless caller is task/ancestor creator |
 | Delete task | Project `taskManagement.delete` |
 | Create starter/deliverable task from another task | Project `taskManagement.create` and usually `taskManagement.update` on the source flow |
 
@@ -315,7 +378,8 @@ Every protected route should also have a page guard. Navigation hiding is not en
 | View Gantt/activity schedule | Project `taskManagement.view` |
 | Export schedule/report | Project `taskManagement.view` unless backend adds a stricter export permission |
 | Import schedule rows | Project `taskManagement.update`; require `taskManagement.create` too if import can create tasks |
-| Update activity schedule fields | Project `taskManagement.update` |
+| Create activity schedule row | Project `taskManagement.update` plus task-aware `taskScheduleManagement.create` unless caller is task/ancestor creator |
+| Update activity schedule fields | Project `taskManagement.update` plus task-aware `taskScheduleManagement.update` unless caller is task/ancestor creator |
 | Add/update/delete dependencies | Project `taskManagement.update` |
 
 #### Materials And Resource Allocation

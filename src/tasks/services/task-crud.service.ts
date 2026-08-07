@@ -20,6 +20,7 @@ import {
   Task,
   TaskActionType,
   TaskActivitySchedule,
+  TaskChecklistBranchStatus,
   TaskAssignee,
   TaskChecklistItem,
   TaskDependency,
@@ -44,6 +45,7 @@ import { TaskMembersService } from './task-members.service';
 import { TaskRankingService } from './task-ranking.service';
 import { TaskRelationsService } from './task-relations.service';
 import { ScheduleCalculationService } from './schedule-calculation.service';
+import { TaskProgressService } from './task-progress.service';
 import { TaskWbsService } from './task-wbs.service';
 
 type NormalizedTaskDependencyInput = {
@@ -73,12 +75,15 @@ export class TaskCrudService {
     private readonly taskLabelRepo: Repository<TaskLabel>,
     @InjectRepository(ProjectLabel)
     private readonly projectLabelRepo: Repository<ProjectLabel>,
+    @InjectRepository(TaskActivitySchedule)
+    private readonly activityScheduleRepo: Repository<TaskActivitySchedule>,
     private readonly authSvc: TaskAuthService,
     private readonly rankingSvc: TaskRankingService,
     private readonly activitySvc: TaskActivityService,
     private readonly membersSvc: TaskMembersService,
     private readonly relationsSvc: TaskRelationsService,
     private readonly scheduleCalculationSvc: ScheduleCalculationService,
+    private readonly progressSvc: TaskProgressService,
     private readonly wbsSvc: TaskWbsService,
   ) {}
 
@@ -93,11 +98,19 @@ export class TaskCrudService {
       membership?: ProjectMembership | null,
     ) => Promise<TaskSerializer>,
   ): Promise<TaskSerializer> {
+    if (dto.progress !== undefined) {
+      throw new BadRequestException(
+        'Task progress is automatically derived from checklist completion',
+      );
+    }
+
     const { project, membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
       'create',
     );
+    // Initial checklist, schedule, assignee, and reportee values are allowed as
+    // part of creation because the actor becomes the task creator immediately.
     const dependencyInputs = this.normalizeDependencyInputs(dto) ?? [];
 
     const [parent, reporteeMembership, dependencyTasks, actorUser] =
@@ -187,7 +200,7 @@ export class TaskCrudService {
         description: dto.description ?? null,
         startDate: dto.startDate ?? null,
         endDate: dto.endDate ?? null,
-        progress: dto.progress ?? null,
+        progress: 0,
         completed: defaultStatus.isTerminal,
         scheduleType: dto.scheduleType ?? ScheduleType.TASK,
         wbsCode: initialWbs.wbsCode,
@@ -202,6 +215,12 @@ export class TaskCrudService {
       const saved = await tx.save(task);
       await this.wbsSvc.reserveExistingTaskCode(tx, saved, actorUser.id);
       await this.upsertActivitySchedule(tx, saved, dto);
+      await this.createParentChecklistItemForSubtask(
+        tx,
+        parent,
+        saved,
+        actorUser,
+      );
 
       if (assignedUsers.length) {
         await tx.save(
@@ -253,6 +272,7 @@ export class TaskCrudService {
         TaskActionType.TASK_CREATED,
         { title: saved.title },
       );
+      await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
 
       return saved;
     });
@@ -278,6 +298,12 @@ export class TaskCrudService {
       membership?: ProjectMembership | null,
     ) => Promise<TaskSerializer>,
   ): Promise<TaskSerializer> {
+    if (dto.progress !== undefined) {
+      throw new BadRequestException(
+        'Task progress is automatically derived from checklist completion',
+      );
+    }
+
     // Wave 1: fire all independent queries simultaneously.
     //
     // - verifyProjectPermission: 2 parallel queries internally (project + membership)
@@ -323,6 +349,21 @@ export class TaskCrudService {
         : Promise.resolve(null),
     ]);
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
+    await this.assertScheduleMutationAllowedForTaskUpdate(
+      projectId,
+      task.id,
+      dto,
+      requestUser,
+      membership,
+    );
+    await this.assertTeamMutationAllowedForTaskUpdate(
+      projectId,
+      task,
+      dto,
+      requestUser,
+      membership,
+      reporteeMembership?.userId,
+    );
     const dependencyTaskById = new Map(
       (dependencyTasks ?? []).map((dependencyTask) => [
         dependencyTask.id,
@@ -373,10 +414,6 @@ export class TaskCrudService {
     if (dto.endDate !== undefined) {
       task.endDate = dto.endDate ?? null;
       changedFields.push('endDate');
-    }
-    if (dto.progress !== undefined) {
-      task.progress = dto.progress ?? null;
-      changedFields.push('progress');
     }
     if (dto.scheduleType !== undefined) {
       task.scheduleType = dto.scheduleType;
@@ -578,6 +615,7 @@ export class TaskCrudService {
         TaskActionType.TASK_UPDATED,
         { changedFields },
       );
+      await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
     });
 
     await this.recalculateProjectSchedule(projectId, task.id, 'task-update');
@@ -590,6 +628,146 @@ export class TaskCrudService {
     this.authSvc.ensureDateRange(dto.actualStartDate, dto.actualEndDate);
   }
 
+  private async assertScheduleMutationAllowedForTaskUpdate(
+    projectId: string,
+    taskId: string,
+    dto: UpdateTaskDto,
+    requestUser: RequestUser,
+    membership: ProjectMembership | null,
+  ): Promise<void> {
+    if (!this.hasScheduleFieldChange(dto)) return;
+
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'schedule',
+      action: 'update',
+      membership,
+    });
+
+    const existingScheduleCount = await this.activityScheduleRepo.count({
+      where: { taskId },
+    });
+    if (existingScheduleCount > 0) return;
+
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'schedule',
+      action: 'create',
+      membership,
+    });
+  }
+
+  private hasScheduleFieldChange(
+    dto: UpdateTaskDto | BulkUpdateTasksDto['items'][number],
+  ): boolean {
+    return (
+      this.hasTaskScheduleFieldChange(dto) ||
+      ('durationDays' in dto && dto.durationDays !== undefined) ||
+      ('plannedStartDate' in dto && dto.plannedStartDate !== undefined) ||
+      ('plannedEndDate' in dto && dto.plannedEndDate !== undefined) ||
+      ('actualStartDate' in dto && dto.actualStartDate !== undefined) ||
+      ('actualEndDate' in dto && dto.actualEndDate !== undefined)
+    );
+  }
+
+  private hasTaskScheduleFieldChange(
+    dto: UpdateTaskDto | BulkUpdateTasksDto['items'][number],
+  ): boolean {
+    return (
+      dto.startDate !== undefined ||
+      dto.endDate !== undefined ||
+      dto.scheduleType !== undefined ||
+      dto.isManuallyScheduled !== undefined ||
+      dto.manualScheduleReason !== undefined
+    );
+  }
+
+  private async assertTeamMutationAllowedForTaskUpdate(
+    projectId: string,
+    task: Task,
+    dto: UpdateTaskDto,
+    requestUser: RequestUser,
+    membership: ProjectMembership | null,
+    nextReporteeUserId?: string,
+  ): Promise<void> {
+    await this.assertAssigneeMutationAllowedForTaskUpdate(
+      projectId,
+      task.id,
+      dto,
+      requestUser,
+      membership,
+    );
+
+    if (dto.reportee === undefined) return;
+    if (!nextReporteeUserId || nextReporteeUserId === task.reporteeUserId) {
+      return;
+    }
+
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId: task.id,
+      requestUser,
+      resource: 'team.reportee',
+      action: task.reporteeUserId ? 'update' : 'create',
+      membership,
+    });
+  }
+
+  private async assertAssigneeMutationAllowedForTaskUpdate(
+    projectId: string,
+    taskId: string,
+    dto: UpdateTaskDto,
+    requestUser: RequestUser,
+    membership: ProjectMembership | null,
+  ): Promise<void> {
+    if (dto.assignedMembers === undefined) return;
+
+    const currentAssignees = await this.taskAssigneeRepo.find({
+      where: { taskId },
+      select: ['id', 'userId'],
+    });
+    const currentUserIds = new Set(
+      currentAssignees.map((assignee) => assignee.userId),
+    );
+    const desiredUserIds = new Set(
+      dto.assignedMembers.map((member) => member.userId),
+    );
+
+    const hasAdditions = [...desiredUserIds].some(
+      (userId) => !currentUserIds.has(userId),
+    );
+    const hasRemovals = [...currentUserIds].some(
+      (userId) => !desiredUserIds.has(userId),
+    );
+
+    if (hasAdditions) {
+      await this.authSvc.assertTaskSubresourceMutationAllowed({
+        projectId,
+        taskId,
+        requestUser,
+        resource: 'team.assignee',
+        action: 'create',
+        membership,
+      });
+    }
+
+    if (hasRemovals) {
+      await this.authSvc.assertTaskSubresourceMutationAllowed({
+        projectId,
+        taskId,
+        requestUser,
+        resource: 'team.assignee',
+        action: 'delete',
+        membership,
+      });
+    }
+
+  }
+
   private async recalculateProjectSchedule(
     projectId: string,
     triggerTaskId: string,
@@ -599,6 +777,50 @@ export class TaskCrudService {
       triggerTaskId,
       triggerType,
     });
+  }
+
+  private async createParentChecklistItemForSubtask(
+    tx: EntityManager,
+    parent: Task | null,
+    subtask: Task,
+    actorUser: User,
+  ): Promise<void> {
+    if (!parent) return;
+
+    const orderIndex = await tx.count(TaskChecklistItem, {
+      where: { taskId: parent.id },
+    });
+    const checklistItem = await tx.save(
+      tx.create(TaskChecklistItem, {
+        task: parent,
+        taskId: parent.id,
+        text: subtask.title,
+        orderIndex,
+        completed: false,
+        completedByUserId: null,
+        completedAt: null,
+        checklistGroupId: null,
+        itemCode: null,
+        branchedTask: subtask,
+        branchedTaskId: subtask.id,
+        branchStatus: TaskChecklistBranchStatus.BRANCHED,
+        branchedByUser: actorUser,
+        branchedByUserId: actorUser.id,
+        branchedAt: new Date(),
+      }),
+    );
+
+    await this.activitySvc.log(
+      tx,
+      parent,
+      actorUser,
+      TaskActionType.CHECKLIST_UPDATED,
+      {
+        itemId: checklistItem.id,
+        branchedTaskId: subtask.id,
+        operation: 'subtask_checklist_item_created',
+      },
+    );
   }
 
   private normalizeDependencyInputs(
@@ -630,7 +852,9 @@ export class TaskCrudService {
       dependencies.map((dependency) => dependency.dependsOnTaskId),
     );
     if (uniquePredecessorIds.size !== dependencies.length) {
-      throw new BadRequestException('Duplicate task dependencies are not allowed');
+      throw new BadRequestException(
+        'Duplicate task dependencies are not allowed',
+      );
     }
 
     return dependencies;
@@ -897,10 +1121,16 @@ export class TaskCrudService {
     dto: BulkUpdateTasksDto,
     requestUser: RequestUser,
   ): Promise<TaskListItemSerializer[]> {
+    if (dto.items.some((item) => item.progress !== undefined)) {
+      throw new BadRequestException(
+        'Task progress is automatically derived from checklist completion',
+      );
+    }
+
     const requestedIds = [...new Set(dto.items.map((item) => item.taskId))];
 
     // Three independent queries — fire in one wave
-    const [, actorUser, tasks] = await Promise.all([
+    const [{ membership }, actorUser, tasks] = await Promise.all([
       this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
       this.taskRepo.find({
@@ -911,6 +1141,19 @@ export class TaskCrudService {
 
     const taskMap = new Map(tasks.map((t) => [t.id, t]));
     const updatedTaskIds: string[] = [];
+
+    for (const item of dto.items) {
+      const task = taskMap.get(item.taskId);
+      if (!task || !this.hasTaskScheduleFieldChange(item)) continue;
+      await this.authSvc.assertTaskSubresourceMutationAllowed({
+        projectId,
+        taskId: task.id,
+        requestUser,
+        resource: 'schedule',
+        action: 'update',
+        membership,
+      });
+    }
 
     await this.taskRepo.manager.transaction(async (tx) => {
       // Collect activity log entries for batch-saving at the end of the transaction.
@@ -962,7 +1205,6 @@ export class TaskCrudService {
         if (item.taskTypeId !== undefined) task.taskTypeId = item.taskTypeId;
         if (item.severityId !== undefined)
           task.severityId = item.severityId ?? null;
-        if (item.progress !== undefined) task.progress = item.progress;
         if (item.scheduleType !== undefined)
           task.scheduleType = item.scheduleType;
         const hasWbsChange =
@@ -1019,7 +1261,6 @@ export class TaskCrudService {
             : TaskActionType.TASK_UPDATED,
           actionMeta: {
             statusId: task.statusId,
-            progress: item.progress,
             scheduleType: item.scheduleType,
             wbsCode: item.wbsCode,
             wbsSortKey: item.wbsSortKey,
@@ -1037,6 +1278,7 @@ export class TaskCrudService {
 
       // Single batch INSERT for all activity logs (2 statements instead of 2N)
       await this.activitySvc.logBatch(tx, activityEntries);
+      await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
     });
 
     return this.authSvc.loadTasksForList(updatedTaskIds, projectId);
@@ -1101,6 +1343,7 @@ export class TaskCrudService {
         TaskActionType.TASK_DELETED,
         { deletedCount: toDelete.size },
       );
+      await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
     });
 
     return { id: taskId, success: true, deletedTaskCount: toDelete.size };

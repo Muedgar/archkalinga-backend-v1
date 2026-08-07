@@ -69,6 +69,7 @@ import {
   ChangeRequestMessageSerializer,
   ChangeRequestSerializer,
 } from '../serializers';
+import { applyChangeRequestNeedsMyAttentionScope } from './change-request-query-scopes';
 import { TaskActivityService } from './task-activity.service';
 import { TaskAuthService } from './task-auth.service';
 
@@ -257,7 +258,7 @@ export class TaskChangeRequestsService {
     }
 
     if (filters.needsMyAttention === true) {
-      this.applyNeedsMyAttentionScope(qb, requestUser.id);
+      applyChangeRequestNeedsMyAttentionScope(qb, requestUser.id);
     }
 
     if (filters.search) {
@@ -1210,39 +1211,6 @@ export class TaskChangeRequestsService {
     return documentIds.map((documentId) => byId.get(documentId)!);
   }
 
-  private applyNeedsMyAttentionScope(
-    qb: SelectQueryBuilder<ChangeRequest>,
-    userId: string,
-  ): void {
-    qb.andWhere(
-      new Brackets((attentionQb) => {
-        attentionQb
-          .where(
-            'review.reviewerUserId = :attentionUserId AND review.status = :pendingReviewStatus',
-            {
-              attentionUserId: userId,
-              pendingReviewStatus: ChangeRequestReviewStatus.PENDING,
-            },
-          )
-          .orWhere(
-            'changeRequest.status = :returnedForRevisionStatus AND (changeRequest.createdByUserId = :attentionUserId OR task.reporteeUserId = :attentionUserId OR taskAssignee.userId = :attentionUserId)',
-            {
-              attentionUserId: userId,
-              returnedForRevisionStatus:
-                ChangeRequestStatus.RETURNED_FOR_REVISION,
-            },
-          )
-          .orWhere(
-            'changeRequest.status = :escalatedStatus AND changeRequest.escalatedToUserId = :attentionUserId',
-            {
-              attentionUserId: userId,
-              escalatedStatus: ChangeRequestStatus.ESCALATED,
-            },
-          );
-      }),
-    );
-  }
-
   private async buildListSummary(
     qb: SelectQueryBuilder<ChangeRequest>,
     userId: string,
@@ -1354,7 +1322,7 @@ export class TaskChangeRequestsService {
     userId: string,
   ): Promise<number> {
     const countQb = qb.clone();
-    this.applyNeedsMyAttentionScope(countQb, userId);
+    applyChangeRequestNeedsMyAttentionScope(countQb, userId);
     return this.countDistinct(countQb);
   }
 

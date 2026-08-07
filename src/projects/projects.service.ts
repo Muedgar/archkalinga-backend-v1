@@ -16,11 +16,7 @@ import { OutboxService } from 'src/outbox/outbox.service';
 import { Workspace } from 'src/workspaces/entities/workspace.entity';
 import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
 import { Template, TemplateTask } from 'src/templates/entities';
-import {
-  Task,
-  TaskActionType,
-  TaskActivityLog,
-} from 'src/tasks/entities';
+import { Task, TaskActionType, TaskActivityLog } from 'src/tasks/entities';
 import {
   ProjectStatus as ProjectStatusConfig,
   ProjectTaskType as ProjectTaskTypeConfig,
@@ -41,7 +37,6 @@ import {
   INVALID_PROJECT_MEMBER_ROLE,
   PROJECT_ACCESS_DENIED,
   PROJECT_MEMBER_NOT_FOUND,
-  PROJECT_MEMBER_ROLE_CHANGE_FORBIDDEN,
   PROJECT_NOT_FOUND,
   PROJECT_TEMPLATE_CHANGE_FORBIDDEN,
 } from './messages';
@@ -104,8 +99,8 @@ interface ProjectMemberAssignmentResult {
 }
 
 const RANK_WIDTH = 10;
-const RANK_BASE  = 36n;
-const RANK_STEP  = 1024n;
+const RANK_BASE = 36n;
+const RANK_STEP = 1024n;
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
@@ -143,7 +138,9 @@ export class ProjectsService {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  private isWorkspaceAdmin(workspaceMember: WorkspaceMember | undefined): boolean {
+  private isWorkspaceAdmin(
+    workspaceMember: WorkspaceMember | undefined,
+  ): boolean {
     return workspaceMember?.workspaceRole?.slug === 'admin';
   }
 
@@ -163,7 +160,11 @@ export class ProjectsService {
       return true;
     }
 
-    return workspaceMember?.workspaceRole?.permissions?.projectManagement?.[action] === true;
+    return (
+      workspaceMember?.workspaceRole?.permissions?.projectManagement?.[
+        action
+      ] === true
+    );
   }
 
   private toSerializer(
@@ -172,6 +173,47 @@ export class ProjectsService {
     return plainToInstance(ProjectSerializer, project, {
       excludeExtraneousValues: true,
     });
+  }
+
+  private async loadProjectProgressMap(
+    projectIds: string[],
+  ): Promise<Map<string, number>> {
+    const uniqueProjectIds = [...new Set(projectIds)].filter(Boolean);
+    if (!uniqueProjectIds.length) return new Map();
+
+    const rows = await this.taskRepo
+      .createQueryBuilder('task')
+      .select('task.projectId', 'projectId')
+      .addSelect(
+        'COALESCE(ROUND(AVG(COALESCE(task.progress, 0))), 0)',
+        'progress',
+      )
+      .where('task.projectId IN (:...projectIds)', {
+        projectIds: uniqueProjectIds,
+      })
+      .andWhere('task.deletedAt IS NULL')
+      .groupBy('task.projectId')
+      .getRawMany<{ projectId: string; progress: string | number | null }>();
+
+    return new Map(
+      uniqueProjectIds.map((projectId) => {
+        const row = rows.find((candidate) => candidate.projectId === projectId);
+        return [projectId, Number(row?.progress ?? 0)];
+      }),
+    );
+  }
+
+  private async attachProjectProgress<T extends Project>(
+    projects: T[],
+  ): Promise<Array<T & { progress: number }>> {
+    const progressByProjectId = await this.loadProjectProgressMap(
+      projects.map((project) => project.id),
+    );
+    return projects.map((project) =>
+      Object.assign(project, {
+        progress: progressByProjectId.get(project.id) ?? 0,
+      }),
+    );
   }
 
   private ensureDateRange(
@@ -210,7 +252,10 @@ export class ProjectsService {
     );
   }
 
-  private async loadProjectOrFail(projectId: string, workspaceId: string): Promise<Project> {
+  private async loadProjectOrFail(
+    projectId: string,
+    workspaceId: string,
+  ): Promise<Project> {
     const project = await this.projectRepo.findOne({
       where: { id: projectId, workspaceId },
     });
@@ -257,7 +302,11 @@ export class ProjectsService {
 
     const membershipPromise = canUseWorkspacePermission
       ? Promise.resolve<ProjectMembership | null>(null)
-      : this.loadMembershipForUser(projectId, requestUser.id, prefetchedMembership);
+      : this.loadMembershipForUser(
+          projectId,
+          requestUser.id,
+          prefetchedMembership,
+        );
 
     const [project, membership] = await Promise.all([
       projectPromise,
@@ -349,24 +398,26 @@ export class ProjectsService {
     manager: EntityManager,
     project: Project,
   ): Promise<Map<string, ProjectRole>> {
-    const existing = await manager.find(ProjectRole, { where: { projectId: project.id } });
+    const existing = await manager.find(ProjectRole, {
+      where: { projectId: project.id },
+    });
     const roleMap = new Map(existing.map((role) => [role.slug, role]));
 
     // Build all missing roles as entities and batch-save in one round-trip
-    const toCreate = DEFAULT_PROJECT_ROLE_DEFINITIONS
-      .filter((def) => !roleMap.has(def.slug))
-      .map((def) =>
-        manager.create(ProjectRole, {
-          project,
-          projectId: project.id,
-          name: def.name,
-          slug: def.slug,
-          status: true,
-          isSystem: def.isSystem,
-          isProtected: def.isProtected,
-          permissions: def.permissions,
-        }),
-      );
+    const toCreate = DEFAULT_PROJECT_ROLE_DEFINITIONS.filter(
+      (def) => !roleMap.has(def.slug),
+    ).map((def) =>
+      manager.create(ProjectRole, {
+        project,
+        projectId: project.id,
+        name: def.name,
+        slug: def.slug,
+        status: true,
+        isSystem: def.isSystem,
+        isProtected: def.isProtected,
+        permissions: def.permissions,
+      }),
+    );
 
     if (toCreate.length > 0) {
       const saved = await manager.save(toCreate);
@@ -452,7 +503,7 @@ export class ProjectsService {
         createdByUser: actorUser,
         createdByUserId: actorUser.id,
         title: templateTask.name.trim(),
-        description: null,   // template tasks have text descriptions — not yet JSONB
+        description: null, // template tasks have text descriptions — not yet JSONB
         startDate: null,
         endDate: null,
         progress: null,
@@ -541,13 +592,17 @@ export class ProjectsService {
     }
 
     // Batch-save all activity logs in two single INSERT statements
-    if (taskLogs.length > 0)    await manager.save(TaskActivityLog, taskLogs);
-    if (projectLogs.length > 0) await manager.save(ProjectActivityLog, projectLogs);
+    if (taskLogs.length > 0) await manager.save(TaskActivityLog, taskLogs);
+    if (projectLogs.length > 0)
+      await manager.save(ProjectActivityLog, projectLogs);
 
     return createdCount;
   }
 
-  private async loadFull(projectId: string, workspaceId: string): Promise<Project> {
+  private async loadFull(
+    projectId: string,
+    workspaceId: string,
+  ): Promise<Project> {
     // Keep GET /projects/:id intentionally lean: select only fields emitted by
     // ProjectSerializer, avoid relation Cartesian products, and avoid loading
     // removed members / non-pending invites that the response never exposes.
@@ -616,7 +671,9 @@ export class ProjectsService {
         'projectRole.permissions',
       ])
       .where('membership.projectId = :projectId', { projectId })
-      .andWhere('membership.status = :status', { status: MembershipStatus.ACTIVE })
+      .andWhere('membership.status = :status', {
+        status: MembershipStatus.ACTIVE,
+      })
       .orderBy('membership.joinedAt', 'ASC')
       .getMany();
 
@@ -678,8 +735,8 @@ export class ProjectsService {
 
     if (!project) throw new NotFoundException(PROJECT_NOT_FOUND);
 
-    project.memberships  = memberships;
-    project.invites      = invites;
+    project.memberships = memberships;
+    project.invites = invites;
     project.activityLogs = activityLogs;
 
     return project;
@@ -690,7 +747,10 @@ export class ProjectsService {
    * Skips activity logs entirely — the caller just created them and doesn't need
    * them in the creation response. The full log is available via getProject().
    */
-  private async loadForCreate(projectId: string, workspaceId: string): Promise<Project> {
+  private async loadForCreate(
+    projectId: string,
+    workspaceId: string,
+  ): Promise<Project> {
     // Same split strategy as loadFull — avoids Cartesian product from nested joins.
     // Skips invites and activityLogs entirely (not needed in the creation response).
     const [project, memberships] = await Promise.all([
@@ -706,9 +766,9 @@ export class ProjectsService {
     ]);
 
     if (!project) throw new NotFoundException(PROJECT_NOT_FOUND);
-    project.memberships  = memberships;
+    project.memberships = memberships;
     project.activityLogs = [];
-    project.invites      = [];
+    project.invites = [];
     return project;
   }
 
@@ -736,7 +796,8 @@ export class ProjectsService {
       this.workspaceRepo.findOneOrFail({ where: { id: workspaceId } }),
       this.userRepo.findOneOrFail({ where: { id: userId } }),
     ]);
-    if (dto.templateId && !template) throw new NotFoundException(TEMPLATE_NOT_IN_WORKSPACE);
+    if (dto.templateId && !template)
+      throw new NotFoundException(TEMPLATE_NOT_IN_WORKSPACE);
 
     const project = await this.projectRepo.manager.transaction(async (tx) => {
       const proj = tx.create(Project, {
@@ -758,8 +819,9 @@ export class ProjectsService {
 
       // Seed all default project roles (Owner, Manager, Contributor, Reviewer, Viewer)
       const projectRoles = await this.ensureDefaultProjectRoles(tx, savedProj);
-      const ownerRole    = projectRoles.get(DEFAULT_OWNER_PROJECT_ROLE_SLUG);
-      if (!ownerRole) throw new NotFoundException(DEFAULT_PROJECT_ROLE_SETUP_FAILED);
+      const ownerRole = projectRoles.get(DEFAULT_OWNER_PROJECT_ROLE_SLUG);
+      if (!ownerRole)
+        throw new NotFoundException(DEFAULT_PROJECT_ROLE_SETUP_FAILED);
 
       // Creator is always the sole initial member with the Owner project role
       await tx.save(
@@ -783,53 +845,58 @@ export class ProjectsService {
     await this.projectConfigService.seedDefaults(project);
 
     // Seed template tasks now that config defaults exist for the project.
-    const seededTaskCount = await this.projectRepo.manager.transaction(async (tx) => {
-      const count = template
-        ? await this.seedProjectTasksFromTemplate(
-            tx,
-            project,
-            creatorUser,
-            template,
-          )
-        : 0;
+    const seededTaskCount = await this.projectRepo.manager.transaction(
+      async (tx) => {
+        const count = template
+          ? await this.seedProjectTasksFromTemplate(
+              tx,
+              project,
+              creatorUser,
+              template,
+            )
+          : 0;
 
-      await tx.save(
-        tx.create(ProjectActivityLog, {
-          project,
-          projectId: project.id,
-          user: creatorUser,
-          userId,
-          taskId: null,
-          actionType: ProjectActionType.PROJECT_CREATED,
-          actionMeta: {
+        await tx.save(
+          tx.create(ProjectActivityLog, {
+            project,
+            projectId: project.id,
+            user: creatorUser,
+            userId,
+            taskId: null,
+            actionType: ProjectActionType.PROJECT_CREATED,
+            actionMeta: {
+              title: dto.title,
+              seededTaskCount: count,
+            },
+          }),
+        );
+
+        await this.outboxService.record(tx, {
+          aggregateType: 'project',
+          aggregateId: project.id,
+          eventType: 'project.created',
+          payload: {
+            projectId: project.id,
+            workspaceId,
+            actorUserId: userId,
             title: dto.title,
+            type: dto.type,
+            templateId: dto.templateId ?? null,
             seededTaskCount: count,
           },
-        }),
-      );
+        });
 
-      await this.outboxService.record(tx, {
-        aggregateType: 'project',
-        aggregateId: project.id,
-        eventType: 'project.created',
-        payload: {
-          projectId: project.id,
-          workspaceId,
-          actorUserId: userId,
-          title: dto.title,
-          type: dto.type,
-          templateId: dto.templateId ?? null,
-          seededTaskCount: count,
-        },
-      });
-
-      return count;
-    });
+        return count;
+      },
+    );
     void seededTaskCount; // used for activity log above
 
     // Use a lean load — activity logs are not needed in the creation response
     // and loading them immediately would fetch all the seeded task logs back.
-    return this.toSerializer(await this.loadForCreate(project.id, workspaceId));
+    const [projectWithProgress] = await this.attachProjectProgress([
+      await this.loadForCreate(project.id, workspaceId),
+    ]);
+    return this.toSerializer(projectWithProgress);
   }
 
   // ---------------------------------------------------------------------------
@@ -872,24 +939,29 @@ export class ProjectsService {
       // If tasks exist we throw immediately (the template result is discarded).
       const [existingTaskCount, newTemplate] = await Promise.all([
         this.taskRepo.count({ where: { projectId, deletedAt: IsNull() } }),
-        this.templateRepo.findOne({ where: { id: dto.templateId, workspaceId } }),
+        this.templateRepo.findOne({
+          where: { id: dto.templateId, workspaceId },
+        }),
       ]);
-      if (existingTaskCount > 0) throw new ConflictException(PROJECT_TEMPLATE_CHANGE_FORBIDDEN);
+      if (existingTaskCount > 0)
+        throw new ConflictException(PROJECT_TEMPLATE_CHANGE_FORBIDDEN);
       if (!newTemplate) throw new NotFoundException(TEMPLATE_NOT_IN_WORKSPACE);
-      project.template   = newTemplate;
+      project.template = newTemplate;
       project.templateId = dto.templateId;
     }
 
-    if (dto.title       !== undefined) project.title       = dto.title;
-    if (dto.description !== undefined) project.description = dto.description ?? null;
-    if (dto.startDate   !== undefined) project.startDate   = dto.startDate ?? null;
-    if (dto.endDate     !== undefined) project.endDate     = dto.endDate ?? null;
-    if (dto.type        !== undefined) project.type        = dto.type;
-    if (dto.status      !== undefined) {
-      project.status     = dto.status;
-      project.archivedAt = dto.status === ProjectStatus.ARCHIVED
-        ? project.archivedAt ?? new Date()
-        : null;
+    if (dto.title !== undefined) project.title = dto.title;
+    if (dto.description !== undefined)
+      project.description = dto.description ?? null;
+    if (dto.startDate !== undefined) project.startDate = dto.startDate ?? null;
+    if (dto.endDate !== undefined) project.endDate = dto.endDate ?? null;
+    if (dto.type !== undefined) project.type = dto.type;
+    if (dto.status !== undefined) {
+      project.status = dto.status;
+      project.archivedAt =
+        dto.status === ProjectStatus.ARCHIVED
+          ? (project.archivedAt ?? new Date())
+          : null;
     }
 
     const activeMemberCountPromise = this.membershipRepo.count({
@@ -909,7 +981,10 @@ export class ProjectsService {
             userId,
             taskId: null,
             actionType: ProjectActionType.STATUS_CHANGED,
-            actionMeta: { status: project.status, archivedAt: project.archivedAt },
+            actionMeta: {
+              status: project.status,
+              archivedAt: project.archivedAt,
+            },
           }),
         );
       }
@@ -944,7 +1019,10 @@ export class ProjectsService {
       });
     });
 
-    return this.toSerializer(await this.loadFull(projectId, workspaceId));
+    const [projectWithProgress] = await this.attachProjectProgress([
+      await this.loadFull(projectId, workspaceId),
+    ]);
+    return this.toSerializer(projectWithProgress);
   }
 
   // ---------------------------------------------------------------------------
@@ -970,8 +1048,12 @@ export class ProjectsService {
     }
 
     const project = await this.loadFull(projectId, workspaceId);
+    const [projectWithProgress] = await this.attachProjectProgress([project]);
     const recentContributions = project.activityLogs.slice(0, 20);
-    return this.toSerializer({ ...project, recentContributions } as unknown as Project);
+    return this.toSerializer({
+      ...projectWithProgress,
+      recentContributions,
+    } as unknown as Project);
   }
 
   // ---------------------------------------------------------------------------
@@ -985,7 +1067,16 @@ export class ProjectsService {
     workspaceMember?: WorkspaceMember,
   ): Promise<FilterResponse<ProjectListItemSerializer>> {
     const { id: userId } = requestUser;
-    const { page, limit, search, type, status, templateId, orderBy, sortOrder } = filters;
+    const {
+      page,
+      limit,
+      search,
+      type,
+      status,
+      templateId,
+      orderBy,
+      sortOrder,
+    } = filters;
     const isAdmin = this.isWorkspaceAdmin(workspaceMember);
 
     const qb = this.projectRepo
@@ -1005,8 +1096,8 @@ export class ProjectsService {
       qb.andWhere('access_role.status = true');
     }
 
-    if (type)       qb.andWhere('p.type = :type', { type });
-    if (status)     qb.andWhere('p.status = :status', { status });
+    if (type) qb.andWhere('p.type = :type', { type });
+    if (status) qb.andWhere('p.status = :status', { status });
     if (templateId) qb.andWhere('p.templateId = :templateId', { templateId });
     if (search) {
       qb.andWhere('(p.title ILIKE :search OR p.description ILIKE :search)', {
@@ -1014,17 +1105,22 @@ export class ProjectsService {
       });
     }
 
-    const col = orderBy && ['title', 'status', 'type', 'createdAt', 'updatedAt'].includes(orderBy)
-      ? `p.${orderBy}`
-      : 'p.createdAt';
+    const col =
+      orderBy &&
+      ['title', 'status', 'type', 'createdAt', 'updatedAt'].includes(orderBy)
+        ? `p.${orderBy}`
+        : 'p.createdAt';
     qb.orderBy(col, sortOrder ?? 'DESC');
 
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, count] = await qb.getManyAndCount();
+    const dataWithProgress = await this.attachProjectProgress(data);
 
     return {
-      items: plainToInstance(ProjectListItemSerializer, data, { excludeExtraneousValues: true }),
+      items: plainToInstance(ProjectListItemSerializer, dataWithProgress, {
+        excludeExtraneousValues: true,
+      }),
       count,
       pages: Math.ceil(count / limit),
       previousPage: page > 1 ? page - 1 : null,
@@ -1103,7 +1199,11 @@ export class ProjectsService {
       email: m.user?.email ?? null,
       title: m.user?.title ?? null,
       projectRole: m.projectRole
-        ? { id: m.projectRole.id, name: m.projectRole.name, slug: m.projectRole.slug }
+        ? {
+            id: m.projectRole.id,
+            name: m.projectRole.name,
+            slug: m.projectRole.slug,
+          }
         : null,
     }));
   }
@@ -1143,30 +1243,100 @@ export class ProjectsService {
 
     if (!inviteeUser) throw new NotFoundException(INVITEE_ACCOUNT_NOT_FOUND);
 
-    const assignmentResult = await this.projectRepo.manager.transaction<ProjectMemberAssignmentResult>(
-      async (tx) => {
-        const nextRole = await tx.findOne(ProjectRole, {
-          where: { id: dto.projectRoleId, projectId, status: true },
-        });
-        if (!nextRole) throw new BadRequestException(INVALID_PROJECT_MEMBER_ROLE);
+    const assignmentResult =
+      await this.projectRepo.manager.transaction<ProjectMemberAssignmentResult>(
+        async (tx) => {
+          const nextRole = await tx.findOne(ProjectRole, {
+            where: { id: dto.projectRoleId, projectId, status: true },
+          });
+          if (!nextRole)
+            throw new BadRequestException(INVALID_PROJECT_MEMBER_ROLE);
 
-        const activeMembership = await tx.findOne(ProjectMembership, {
-          where: {
-            projectId,
-            userId: inviteeUser.id,
-            status: MembershipStatus.ACTIVE,
-          },
-          relations: ['projectRole'],
-        });
+          const activeMembership = await tx.findOne(ProjectMembership, {
+            where: {
+              projectId,
+              userId: inviteeUser.id,
+              status: MembershipStatus.ACTIVE,
+            },
+            relations: ['projectRole'],
+          });
 
-        if (activeMembership) {
-          if (activeMembership.projectRole?.isProtected === true) {
-            throw new BadRequestException(PROJECT_MEMBER_ROLE_CHANGE_FORBIDDEN);
+          if (activeMembership) {
+            activeMembership.projectRole = nextRole;
+            activeMembership.projectRoleId = nextRole.id;
+            await tx.save(activeMembership);
+
+            await tx.save(
+              tx.create(ProjectActivityLog, {
+                project,
+                projectId,
+                user: actorUser,
+                userId: actorUserId,
+                taskId: null,
+                actionType: ProjectActionType.PROJECT_UPDATED,
+                actionMeta: {
+                  assignmentFlow: 'project_member',
+                  updatedMemberId: inviteeUser.id,
+                  projectRoleId: nextRole.id,
+                  projectRoleSlug: nextRole.slug,
+                },
+              }),
+            );
+
+            await this.outboxService.record(tx, {
+              aggregateType: 'project-member',
+              aggregateId: inviteeUser.id,
+              eventType: 'project.member.role.updated',
+              payload: {
+                projectId,
+                workspaceId,
+                actorUserId,
+                memberId: inviteeUser.id,
+                projectRoleId: nextRole.id,
+                projectRoleSlug: nextRole.slug,
+                assignmentFlow: 'project_member',
+              },
+            });
+
+            return {
+              status: 'member_updated',
+              projectRoleId: nextRole.id,
+              inviteId: null,
+              notifyInvite: null,
+            };
           }
 
-          activeMembership.projectRole = nextRole;
-          activeMembership.projectRoleId = nextRole.id;
-          await tx.save(activeMembership);
+          const existingPendingInvite = await tx.findOne(ProjectInvite, {
+            where: {
+              projectId,
+              inviteeUserId: inviteeUser.id,
+              status: InviteStatus.PENDING,
+            },
+          });
+
+          const invite =
+            existingPendingInvite ??
+            tx.create(ProjectInvite, {
+              project,
+              projectId,
+              inviterUser: actorUser,
+              inviterUserId: actorUserId,
+              inviteeUser,
+              inviteeUserId: inviteeUser.id,
+              token: this.generateInviteToken(),
+              status: InviteStatus.PENDING,
+              expiresAt: this.inviteExpiresAt(),
+              acceptedAt: null,
+            });
+
+          invite.projectRole = nextRole;
+          invite.projectRoleId = nextRole.id;
+          invite.message = dto.message ?? invite.message ?? null;
+          if (!existingPendingInvite) {
+            invite.expiresAt = this.inviteExpiresAt();
+          }
+
+          const savedInvite = await tx.save(invite);
 
           await tx.save(
             tx.create(ProjectActivityLog, {
@@ -1175,25 +1345,30 @@ export class ProjectsService {
               user: actorUser,
               userId: actorUserId,
               taskId: null,
-              actionType: ProjectActionType.PROJECT_UPDATED,
+              actionType: ProjectActionType.INVITE_SENT,
               actionMeta: {
                 assignmentFlow: 'project_member',
-                updatedMemberId: inviteeUser.id,
+                inviteeUserId: inviteeUser.id,
+                inviteeEmail: inviteeUser.email,
                 projectRoleId: nextRole.id,
                 projectRoleSlug: nextRole.slug,
+                inviteUpdated: Boolean(existingPendingInvite),
               },
             }),
           );
 
           await this.outboxService.record(tx, {
-            aggregateType: 'project-member',
-            aggregateId: inviteeUser.id,
-            eventType: 'project.member.role.updated',
+            aggregateType: 'project-invite',
+            aggregateId: savedInvite.id,
+            eventType: existingPendingInvite
+              ? 'project.invite.updated'
+              : 'project.invite.created',
             payload: {
               projectId,
               workspaceId,
               actorUserId,
-              memberId: inviteeUser.id,
+              inviteId: savedInvite.id,
+              inviteeUserId: inviteeUser.id,
               projectRoleId: nextRole.id,
               projectRoleSlug: nextRole.slug,
               assignmentFlow: 'project_member',
@@ -1201,92 +1376,17 @@ export class ProjectsService {
           });
 
           return {
-            status: 'member_updated',
+            status: existingPendingInvite ? 'invite_updated' : 'invite_created',
             projectRoleId: nextRole.id,
-            inviteId: null,
-            notifyInvite: null,
-          };
-        }
-
-        const existingPendingInvite = await tx.findOne(ProjectInvite, {
-          where: {
-            projectId,
-            inviteeUserId: inviteeUser.id,
-            status: InviteStatus.PENDING,
-          },
-        });
-
-        const invite = existingPendingInvite ?? tx.create(ProjectInvite, {
-          project,
-          projectId,
-          inviterUser: actorUser,
-          inviterUserId: actorUserId,
-          inviteeUser,
-          inviteeUserId: inviteeUser.id,
-          token: this.generateInviteToken(),
-          status: InviteStatus.PENDING,
-          expiresAt: this.inviteExpiresAt(),
-          acceptedAt: null,
-        });
-
-        invite.projectRole = nextRole;
-        invite.projectRoleId = nextRole.id;
-        invite.message = dto.message ?? invite.message ?? null;
-        if (!existingPendingInvite) {
-          invite.expiresAt = this.inviteExpiresAt();
-        }
-
-        const savedInvite = await tx.save(invite);
-
-        await tx.save(
-          tx.create(ProjectActivityLog, {
-            project,
-            projectId,
-            user: actorUser,
-            userId: actorUserId,
-            taskId: null,
-            actionType: ProjectActionType.INVITE_SENT,
-            actionMeta: {
-              assignmentFlow: 'project_member',
-              inviteeUserId: inviteeUser.id,
-              inviteeEmail: inviteeUser.email,
-              projectRoleId: nextRole.id,
-              projectRoleSlug: nextRole.slug,
-              inviteUpdated: Boolean(existingPendingInvite),
-            },
-          }),
-        );
-
-        await this.outboxService.record(tx, {
-          aggregateType: 'project-invite',
-          aggregateId: savedInvite.id,
-          eventType: existingPendingInvite
-            ? 'project.invite.updated'
-            : 'project.invite.created',
-          payload: {
-            projectId,
-            workspaceId,
-            actorUserId,
             inviteId: savedInvite.id,
-            inviteeUserId: inviteeUser.id,
-            projectRoleId: nextRole.id,
-            projectRoleSlug: nextRole.slug,
-            assignmentFlow: 'project_member',
-          },
-        });
-
-        return {
-          status: existingPendingInvite ? 'invite_updated' : 'invite_created',
-          projectRoleId: nextRole.id,
-          inviteId: savedInvite.id,
-          notifyInvite: {
-            id: savedInvite.id,
-            roleId: nextRole.id,
-            roleName: nextRole.name,
-          },
-        };
-      },
-    );
+            notifyInvite: {
+              id: savedInvite.id,
+              roleId: nextRole.id,
+              roleName: nextRole.name,
+            },
+          };
+        },
+      );
 
     if (assignmentResult.notifyInvite) {
       void this.notificationsService
@@ -1306,12 +1406,16 @@ export class ProjectsService {
         .catch(() => void 0);
     }
 
+    const [projectWithProgress] = await this.attachProjectProgress([
+      await this.loadFull(projectId, workspaceId),
+    ]);
+
     return {
       status: assignmentResult.status,
       userId: inviteeUser.id,
       projectRoleId: assignmentResult.projectRoleId,
       inviteId: assignmentResult.inviteId,
-      project: this.toSerializer(await this.loadFull(projectId, workspaceId)),
+      project: this.toSerializer(projectWithProgress),
     };
   }
 
@@ -1350,16 +1454,13 @@ export class ProjectsService {
       });
 
       if (!membership) throw new NotFoundException(PROJECT_MEMBER_NOT_FOUND);
-      if (membership.projectRole?.isProtected === true) {
-        throw new BadRequestException(PROJECT_MEMBER_ROLE_CHANGE_FORBIDDEN);
-      }
 
       const nextRole = await tx.findOne(ProjectRole, {
         where: { id: dto.projectRoleId, projectId, status: true },
       });
       if (!nextRole) throw new BadRequestException(INVALID_PROJECT_MEMBER_ROLE);
 
-      membership.projectRole   = nextRole;
+      membership.projectRole = nextRole;
       membership.projectRoleId = nextRole.id;
       await tx.save(membership);
 
@@ -1394,6 +1495,9 @@ export class ProjectsService {
       });
     });
 
-    return this.toSerializer(await this.loadFull(projectId, workspaceId));
+    const [projectWithProgress] = await this.attachProjectProgress([
+      await this.loadFull(projectId, workspaceId),
+    ]);
+    return this.toSerializer(projectWithProgress);
   }
 }

@@ -61,6 +61,7 @@ import {
   TaskDocumentFiltersDto,
   TaskDashboardSummaryQueryDto,
   ChangeRequestFiltersDto,
+  ChangeRequestImpactMapQueryDto,
   TaskMaterialFiltersDto,
   TaskFiltersDto,
   TaskGanttQueryDto,
@@ -98,6 +99,7 @@ import {
   TaskActivityService,
   TaskAuthService,
   TaskChecklistService,
+  TaskChangeRequestImpactMapService,
   TaskChangeRequestsService,
   TaskCommentsService,
   TaskCrudService,
@@ -140,6 +142,7 @@ export class TasksService {
     private readonly rankingSvc: TaskRankingService,
     private readonly commentsSvc: TaskCommentsService,
     private readonly changeRequestsSvc: TaskChangeRequestsService,
+    private readonly changeRequestImpactMapSvc: TaskChangeRequestImpactMapService,
     private readonly checklistSvc: TaskChecklistService,
     private readonly relationsSvc: TaskRelationsService,
     private readonly locationsSvc: TaskLocationsService,
@@ -713,6 +716,15 @@ export class TasksService {
       requestUser,
       'update',
     );
+    const scheduleExists = await this.activityScheduleSvc.existsForTask(taskId);
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'schedule',
+      action: scheduleExists ? 'update' : 'create',
+      membership,
+    });
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
         requestUser,
@@ -1136,6 +1148,34 @@ export class TasksService {
   }
 
   // ── Change requests ──────────────────────────────────────────────────────
+
+  async getTaskChangeRequestImpactMap(
+    projectId: string,
+    taskId: string,
+    query: ChangeRequestImpactMapQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    const membership =
+      prefetchedMembership === undefined
+        ? (
+            await this.authSvc.verifyProjectPermission(
+              projectId,
+              requestUser,
+              'view',
+              'changeRequestManagement',
+            )
+          ).membership
+        : prefetchedMembership;
+
+    return this.changeRequestImpactMapSvc.getTaskChangeRequestImpactMap(
+      projectId,
+      taskId,
+      query,
+      requestUser,
+      membership,
+    );
+  }
 
   async listTaskChangeRequests(
     projectId: string,
@@ -1617,6 +1657,14 @@ export class TasksService {
       requestUser,
       'update',
     );
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'checklist',
+      action: 'update',
+      membership,
+    });
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
         requestUser,
@@ -1639,6 +1687,14 @@ export class TasksService {
       requestUser,
       'update',
     );
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'checklist',
+      action: 'update',
+      membership,
+    });
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
         requestUser,
@@ -1667,6 +1723,14 @@ export class TasksService {
       requestUser,
       'update',
     );
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'checklist',
+      action: 'update',
+      membership,
+    });
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
         requestUser,
@@ -1688,6 +1752,14 @@ export class TasksService {
       requestUser,
       'update',
     );
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'checklist',
+      action: 'delete',
+      membership,
+    });
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
         requestUser,
@@ -1794,6 +1866,14 @@ export class TasksService {
       requestUser,
       'update',
     );
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'checklist',
+      action: 'create',
+      membership,
+    });
     const task = await this.authSvc.ensureTaskForSubresource(
       projectId,
       taskId,
@@ -1817,6 +1897,14 @@ export class TasksService {
       requestUser,
       'update',
     );
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'checklist',
+      action: 'update',
+      membership,
+    });
     await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
       requestUser,
       membership,
@@ -1835,6 +1923,14 @@ export class TasksService {
       requestUser,
       'update',
     );
+    await this.authSvc.assertTaskSubresourceMutationAllowed({
+      projectId,
+      taskId,
+      requestUser,
+      resource: 'checklist',
+      action: 'delete',
+      membership,
+    });
     await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
       requestUser,
       membership,

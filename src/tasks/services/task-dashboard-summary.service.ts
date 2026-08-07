@@ -17,6 +17,7 @@ import {
 import { TaskDashboardSummaryQueryDto } from '../dtos';
 import { TASK_NOT_FOUND, TASK_PROJECT_ACCESS_DENIED } from '../messages';
 import { TaskAuthService } from './task-auth.service';
+import { TaskProgressService } from './task-progress.service';
 
 type TaskDashboardBranchSummary = {
   taskId: string;
@@ -97,6 +98,7 @@ export class TaskDashboardSummaryService {
     @InjectRepository(TaskMaterial)
     private readonly materialRepo: Repository<TaskMaterial>,
     private readonly authSvc: TaskAuthService,
+    private readonly progressSvc: TaskProgressService,
   ) {}
 
   async getSummary(
@@ -292,6 +294,7 @@ export class TaskDashboardSummaryService {
       .createQueryBuilder('task')
       .leftJoinAndSelect('task.assignees', 'assignees')
       .leftJoinAndSelect('task.status', 'status')
+      .leftJoinAndSelect('task.checklistItems', 'checklistItems')
       .where(`task.${field} IN (:...ids)`, { ids })
       .andWhere('task.projectId = :projectId', { projectId });
 
@@ -509,10 +512,19 @@ export class TaskDashboardSummaryService {
   private computeRollupProgress(
     root: Task & { children: Task[] },
   ): number | null {
-    const tasks = this.flatten(root).filter((task) => task.progress !== null);
-    if (!tasks.length) return null;
-    const total = tasks.reduce((sum, task) => sum + (task.progress ?? 0), 0);
-    return Math.round(total / tasks.length);
+    const childProgressByTaskId = new Map<string, number>();
+    for (const child of root.children ?? []) {
+      childProgressByTaskId.set(
+        child.id,
+        this.computeRollupProgress(child) ?? 0,
+      );
+    }
+
+    return this.progressSvc.calculateTaskProgress(
+      root,
+      new Map([[root.id, root.checklistItems ?? []]]),
+      childProgressByTaskId,
+    );
   }
 
   private isOverdue(task: Task, schedule?: TaskActivitySchedule): boolean {

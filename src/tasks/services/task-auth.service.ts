@@ -37,6 +37,7 @@ import { ProjectStatus } from '../project-config';
 import {
   INVALID_CHANGE_REQUEST_ESCALATION_PARENT_REPORTEE,
   INVALID_CHANGE_REQUEST_ESCALATION_ROOT_TASK,
+  TASK_CHANGE_REQUEST_REQUIRED,
   TASK_CHANGE_REQUEST_ACCESS_DENIED,
   INVALID_TASK_DATE_RANGE,
   INVALID_TASK_INCLUDE,
@@ -73,6 +74,44 @@ type ChangeRequestAccess = Pick<
   ChangeRequest,
   'createdByUserId' | 'escalatedToUserId'
 >;
+
+export type TaskSubresourceMutationResource =
+  | 'checklist'
+  | 'schedule'
+  | 'team.assignee'
+  | 'team.reportee';
+
+export type TaskSubresourceMutationAction = Exclude<
+  ProjectPermissionAction,
+  'view'
+>;
+
+type TaskSubresourcePermissionConfig = {
+  domain: ProjectPermissionDomain;
+  frontendResource: string;
+};
+
+const TASK_SUBRESOURCE_PERMISSION_CONFIG: Record<
+  TaskSubresourceMutationResource,
+  TaskSubresourcePermissionConfig
+> = {
+  checklist: {
+    domain: 'taskChecklistManagement',
+    frontendResource: 'task.checklist',
+  },
+  schedule: {
+    domain: 'taskScheduleManagement',
+    frontendResource: 'task.schedule',
+  },
+  'team.assignee': {
+    domain: 'taskTeamAssigneeManagement',
+    frontendResource: 'task.team.assignee',
+  },
+  'team.reportee': {
+    domain: 'taskTeamReporteeManagement',
+    frontendResource: 'task.team.reportee',
+  },
+};
 
 @Injectable()
 export class TaskAuthService {
@@ -198,6 +237,115 @@ export class TaskAuthService {
       membership.projectRole?.status === true &&
       membership.projectRole.permissions?.[domain]?.[action] === true
     );
+  }
+
+  async canMutateTaskSubresource(params: {
+    projectId: string;
+    taskId: string;
+    requestUser: RequestUser;
+    resource: TaskSubresourceMutationResource;
+    action: TaskSubresourceMutationAction;
+    membership?: ProjectMembership | null;
+  }): Promise<boolean> {
+    const { projectId, taskId, requestUser, resource, action } = params;
+    const permissionConfig = TASK_SUBRESOURCE_PERMISSION_CONFIG[resource];
+
+    const targetTask = await this.taskRepo.findOne({
+      where: { id: taskId, projectId, deletedAt: IsNull() },
+      select: ['id', 'parentTaskId', 'createdByUserId'],
+    });
+
+    if (!targetTask) {
+      throw new NotFoundException(TASK_NOT_FOUND);
+    }
+
+    if (
+      await this.isTaskOrAncestorCreator(
+        projectId,
+        targetTask,
+        requestUser.id,
+      )
+    ) {
+      return true;
+    }
+
+    const membership =
+      params.membership ??
+      (await this.membershipRepo.findOne({
+        where: {
+          projectId,
+          userId: requestUser.id,
+          status: MembershipStatus.ACTIVE,
+        },
+        relations: ['projectRole'],
+      }));
+
+    return this.membershipHasTaskPermission(
+      membership,
+      action,
+      permissionConfig.domain,
+    );
+  }
+
+  async assertTaskSubresourceMutationAllowed(params: {
+    projectId: string;
+    taskId: string;
+    requestUser: RequestUser;
+    resource: TaskSubresourceMutationResource;
+    action: TaskSubresourceMutationAction;
+    membership?: ProjectMembership | null;
+  }): Promise<void> {
+    const allowed = await this.canMutateTaskSubresource(params);
+    if (allowed) return;
+
+    const permissionConfig =
+      TASK_SUBRESOURCE_PERMISSION_CONFIG[params.resource];
+
+    throw new ForbiddenException({
+      code: 'CHANGE_REQUEST_REQUIRED',
+      message: TASK_CHANGE_REQUEST_REQUIRED,
+      changeRequestRequired: true,
+      resource: permissionConfig.frontendResource,
+      action: params.action,
+      taskId: params.taskId,
+    });
+  }
+
+  private async isTaskOrAncestorCreator(
+    projectId: string,
+    task: Pick<Task, 'id' | 'parentTaskId' | 'createdByUserId'>,
+    userId: string,
+  ): Promise<boolean> {
+    if (task.createdByUserId === userId) {
+      return true;
+    }
+
+    const visitedTaskIds = new Set<string>([task.id]);
+    let parentTaskId = task.parentTaskId;
+
+    while (parentTaskId) {
+      if (visitedTaskIds.has(parentTaskId)) {
+        return false;
+      }
+      visitedTaskIds.add(parentTaskId);
+
+      const parentTask = await this.taskRepo.findOne({
+        where: { id: parentTaskId, projectId, deletedAt: IsNull() },
+        select: ['id', 'parentTaskId', 'createdByUserId'],
+      });
+
+      if (!parentTask) {
+        return false;
+      }
+
+      if (parentTask.createdByUserId === userId) {
+        return true;
+      }
+
+      parentTaskId = parentTask.parentTaskId;
+    }
+
+    return false;
   }
 
   async canViewAllProjectTasks(

@@ -25,8 +25,6 @@ export const PROJECT_MEMBER_ROLE_UPDATED =
   'Project member role updated successfully';
 export const PROJECT_MEMBER_ASSIGNED =
   'Project member assignment processed successfully';
-export const PROJECT_MEMBER_ROLE_CHANGE_FORBIDDEN =
-  'Protected member roles cannot be reassigned through this endpoint';
 
 export const PROJECT_ROLE_CREATED = 'Project role created successfully';
 export const PROJECT_ROLE_UPDATED = 'Project role updated successfully';
