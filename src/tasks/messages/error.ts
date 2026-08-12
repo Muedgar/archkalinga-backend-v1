@@ -88,6 +88,12 @@ export const INVALID_TASK_DOCUMENT_SOURCE_ACTIVE_ATTACHMENT =
 export const TASK_DEPENDENCY_NOT_FOUND = 'Task dependency not found';
 export const TOO_MANY_TASK_INCLUDES =
   'Too many include values requested for task list';
+export const TASK_DONE_BLOCKED_BY_OPEN_WORK_ITEMS =
+  'Task cannot be moved to Done until required work items are complete.';
+export const INVALID_DONE_STATUS =
+  'Target status is not configured as a Done status.';
+export const INVALID_REOPEN_STATUS =
+  'Target status must be an active non-Done status.';
 
 export const TASK_CHECKLIST_GROUP_NOT_FOUND = 'Task checklist group not found';
 export const TASK_CHECKLIST_GROUP_MISMATCH =
@@ -117,3 +123,17 @@ export const TASK_STATUS_WIP_LIMIT_EXCEEDED =
   'This status has reached its WIP limit. Move or complete existing tasks before adding more.';
 export const TASK_CHECKLIST_ITEM_CODE_ALREADY_EXISTS =
   'This checklist item code already exists on the task';
+export const TASK_CHECKLIST_MANAGEMENT_OWNER_REQUIRED =
+  'Only the task or ancestor task creator can manage this checklist';
+export const TASK_CHECKLIST_BRANCH_FORBIDDEN =
+  'Only the task creator, ancestor task creator, or assignee can branch this checklist item';
+export const TASK_CHECKLIST_MOVE_FORBIDDEN =
+  'Only the task creator, ancestor task creator, or assignee can move this checklist item';
+export const TASK_CHECKLIST_UPDATE_FORBIDDEN =
+  'Only the task creator, ancestor task creator, assignee, or reportee can update this checklist item. Reportees can update text only.';
+export const CHECKLIST_DONE_BLOCKED_BY_DESCENDANT_WORK =
+  'Branched checklist item cannot be completed until all descendant checklist items are complete.';
+export const CHECKLIST_DONE_BLOCKED_BY_EMPTY_BRANCH =
+  'Branched checklist item cannot be completed before its branched task has checklist items.';
+export const CHECKLIST_STATUS_NOT_FOUND =
+  'Checklist status is invalid for this project';

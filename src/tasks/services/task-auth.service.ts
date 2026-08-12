@@ -45,6 +45,10 @@ import {
   TASK_NOT_FOUND,
   TASK_PROJECT_ACCESS_DENIED,
   TASK_PROJECT_NOT_FOUND,
+  TASK_CHECKLIST_MANAGEMENT_OWNER_REQUIRED,
+  TASK_CHECKLIST_BRANCH_FORBIDDEN,
+  TASK_CHECKLIST_MOVE_FORBIDDEN,
+  TASK_CHECKLIST_UPDATE_FORBIDDEN,
   TASK_STATUS_WIP_LIMIT_EXCEEDED,
   TOO_MANY_TASK_INCLUDES,
 } from '../messages';
@@ -260,11 +264,7 @@ export class TaskAuthService {
     }
 
     if (
-      await this.isTaskOrAncestorCreator(
-        projectId,
-        targetTask,
-        requestUser.id,
-      )
+      await this.isTaskOrAncestorCreator(projectId, targetTask, requestUser.id)
     ) {
       return true;
     }
@@ -307,6 +307,177 @@ export class TaskAuthService {
       changeRequestRequired: true,
       resource: permissionConfig.frontendResource,
       action: params.action,
+      taskId: params.taskId,
+    });
+  }
+
+  async canManageTaskOwnedChecklist(
+    projectId: string,
+    taskId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const targetTask = await this.taskRepo.findOne({
+      where: { id: taskId, projectId, deletedAt: IsNull() },
+      select: ['id', 'parentTaskId', 'createdByUserId'],
+    });
+
+    if (!targetTask) {
+      throw new NotFoundException(TASK_NOT_FOUND);
+    }
+
+    return this.isTaskOrAncestorCreator(projectId, targetTask, userId);
+  }
+
+  async assertTaskOwnedChecklistManagementAllowed(params: {
+    projectId: string;
+    taskId: string;
+    requestUser: RequestUser;
+  }): Promise<void> {
+    const allowed = await this.canManageTaskOwnedChecklist(
+      params.projectId,
+      params.taskId,
+      params.requestUser.id,
+    );
+    if (allowed) return;
+
+    throw new ForbiddenException({
+      code: 'TASK_CHECKLIST_MANAGEMENT_OWNER_REQUIRED',
+      message: TASK_CHECKLIST_MANAGEMENT_OWNER_REQUIRED,
+      resource: 'task.checklist',
+      action: 'manage',
+      taskId: params.taskId,
+    });
+  }
+
+  private async loadChecklistAuthTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<
+    Pick<
+      Task,
+      | 'pkid'
+      | 'id'
+      | 'parentTaskId'
+      | 'createdByUserId'
+      | 'reporteeUserId'
+      | 'assignees'
+    >
+  > {
+    const targetTask = await this.taskRepo.findOne({
+      where: { id: taskId, projectId, deletedAt: IsNull() },
+      relations: ['assignees'],
+      select: {
+        pkid: true,
+        id: true,
+        parentTaskId: true,
+        createdByUserId: true,
+        reporteeUserId: true,
+        assignees: {
+          id: true,
+          userId: true,
+        },
+      },
+    });
+
+    if (!targetTask) {
+      throw new NotFoundException(TASK_NOT_FOUND);
+    }
+
+    return targetTask;
+  }
+
+  async canBranchTaskChecklistItem(
+    projectId: string,
+    taskId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const targetTask = await this.loadChecklistAuthTask(projectId, taskId);
+
+    return (
+      (await this.isTaskOrAncestorCreator(projectId, targetTask, userId)) ||
+      this.isTaskAssignee(targetTask, userId)
+    );
+  }
+
+  async assertTaskChecklistBranchAllowed(params: {
+    projectId: string;
+    taskId: string;
+    requestUser: RequestUser;
+  }): Promise<void> {
+    const allowed = await this.canBranchTaskChecklistItem(
+      params.projectId,
+      params.taskId,
+      params.requestUser.id,
+    );
+    if (allowed) return;
+
+    throw new ForbiddenException({
+      code: 'TASK_CHECKLIST_BRANCH_FORBIDDEN',
+      message: TASK_CHECKLIST_BRANCH_FORBIDDEN,
+      resource: 'task.checklist',
+      action: 'branch',
+      taskId: params.taskId,
+    });
+  }
+
+  async assertTaskChecklistExecutionAllowed(params: {
+    projectId: string;
+    taskId: string;
+    requestUser: RequestUser;
+  }): Promise<void> {
+    const allowed = await this.canBranchTaskChecklistItem(
+      params.projectId,
+      params.taskId,
+      params.requestUser.id,
+    );
+    if (allowed) return;
+
+    throw new ForbiddenException({
+      code: 'TASK_CHECKLIST_MOVE_FORBIDDEN',
+      message: TASK_CHECKLIST_MOVE_FORBIDDEN,
+      resource: 'task.checklist',
+      action: 'move',
+      taskId: params.taskId,
+    });
+  }
+
+  async canUpdateTaskChecklistItem(
+    projectId: string,
+    taskId: string,
+    userId: string,
+    textOnly: boolean,
+  ): Promise<boolean> {
+    const targetTask = await this.loadChecklistAuthTask(projectId, taskId);
+
+    if (
+      (await this.isTaskOrAncestorCreator(projectId, targetTask, userId)) ||
+      this.isTaskAssignee(targetTask, userId)
+    ) {
+      return true;
+    }
+
+    return textOnly && this.isTaskReportee(targetTask, userId);
+  }
+
+  async assertTaskChecklistUpdateAllowed(params: {
+    projectId: string;
+    taskId: string;
+    requestUser: RequestUser;
+    textOnly: boolean;
+  }): Promise<void> {
+    const allowed = await this.canUpdateTaskChecklistItem(
+      params.projectId,
+      params.taskId,
+      params.requestUser.id,
+      params.textOnly,
+    );
+    if (allowed) return;
+
+    throw new ForbiddenException({
+      code: 'TASK_CHECKLIST_UPDATE_FORBIDDEN',
+      message: TASK_CHECKLIST_UPDATE_FORBIDDEN,
+      resource: 'task.checklist',
+      action: 'update',
       taskId: params.taskId,
     });
   }
@@ -681,6 +852,8 @@ export class TaskAuthService {
           'task.endDate',
           'task.progress',
           'task.completed',
+          'task.completedAt',
+          'task.completedByUserId',
           'task.rank',
           'task.createdByUserId',
           'task.reporteeUserId',
@@ -700,6 +873,8 @@ export class TaskAuthService {
           'status.color',
           'status.category',
           'status.isTerminal',
+          'status.isDone',
+          'status.completionPolicy',
           'priority.pkid',
           'priority.id',
           'priority.name',
@@ -741,11 +916,13 @@ export class TaskAuthService {
         .getMany(),
       this.checklistItemRepo
         .createQueryBuilder('item')
+        .leftJoinAndSelect('item.status', 'itemStatus')
         .select([
           'item.pkid',
           'item.id',
           'item.taskId',
           'item.checklistGroupId',
+          'item.statusId',
           'item.itemCode',
           'item.branchedTaskId',
           'item.branchStatus',
@@ -754,8 +931,16 @@ export class TaskAuthService {
           'item.text',
           'item.completed',
           'item.orderIndex',
+          'item.rank',
           'item.completedByUserId',
           'item.completedAt',
+          'itemStatus.pkid',
+          'itemStatus.id',
+          'itemStatus.name',
+          'itemStatus.key',
+          'itemStatus.color',
+          'itemStatus.category',
+          'itemStatus.isDone',
         ])
         .where('item.taskId = :taskId', { taskId })
         .orderBy('item.orderIndex', 'ASC')
@@ -873,7 +1058,10 @@ export class TaskAuthService {
         where: { taskId: In(idSet) },
         relations: ['user'],
       }),
-      this.checklistItemRepo.find({ where: { taskId: In(idSet) } }),
+      this.checklistItemRepo.find({
+        where: { taskId: In(idSet) },
+        relations: ['status'],
+      }),
       this.commentRepo.find({
         where: { taskId: In(idSet), deletedAt: IsNull() },
       }),
@@ -934,7 +1122,7 @@ export class TaskAuthService {
       task.viewMetadataEntries = viewMetaMap.get(task.id) ?? [];
     }
 
-    // Wave 2: child counts + roleContext — both fire in parallel.
+    // Wave 2: summary counts + roleContext — all fire in parallel.
     //
     // commentCount is derived from the already-loaded comments (free, no extra query).
     // childCount needs a GROUP BY query (children are not loaded in this path).
@@ -946,7 +1134,7 @@ export class TaskAuthService {
       ),
     );
 
-    const [childRows, roleContext] = await Promise.all([
+    const [childRows, checklistSummaryRows, roleContext] = await Promise.all([
       this.taskRepo
         .createQueryBuilder('t')
         .select('t.parentTaskId', 'parentTaskId')
@@ -955,11 +1143,31 @@ export class TaskAuthService {
         .andWhere('t.deletedAt IS NULL')
         .groupBy('t.parentTaskId')
         .getRawMany<{ parentTaskId: string; cnt: string }>(),
+      this.checklistItemRepo
+        .createQueryBuilder('item')
+        .select('item.taskId', 'taskId')
+        .addSelect('COUNT(item.id)', 'total')
+        .addSelect(
+          'SUM(CASE WHEN item.completed = true THEN 1 ELSE 0 END)',
+          'completed',
+        )
+        .where('item.taskId IN (:...ids)', { ids: tasks.map((t) => t.id) })
+        .groupBy('item.taskId')
+        .getRawMany<{ taskId: string; total: string; completed: string }>(),
       this.membersSvc.loadProjectRoleContextMap(projectId, userIds),
     ]);
 
     const childCountMap = new Map(
       childRows.map((r) => [r.parentTaskId, Number(r.cnt)]),
+    );
+    const checklistSummaryMap = new Map(
+      checklistSummaryRows.map((row) => [
+        row.taskId,
+        {
+          total: Number(row.total),
+          completed: Number(row.completed ?? 0),
+        },
+      ]),
     );
 
     return tasks.map((task) =>
@@ -967,6 +1175,10 @@ export class TaskAuthService {
         this.membersSvc.buildTaskReadModel(task, roleContext, {
           childCount: childCountMap.get(task.id) ?? 0,
           commentCount: commentMap.get(task.id)?.length ?? 0, // in-memory, zero extra query
+          checklistItemCount: checklistSummaryMap.get(task.id)?.total ?? 0,
+          completedChecklistItemCount:
+            checklistSummaryMap.get(task.id)?.completed ?? 0,
+          rollupProgress: task.progress ?? null,
         }),
       ),
     );

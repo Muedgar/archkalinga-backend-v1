@@ -1,44 +1,30 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, IsNull, Repository } from 'typeorm';
-import { Task, TaskChecklistItem } from '../entities';
-
-type ChecklistProgressItem = Pick<
-  TaskChecklistItem,
-  'completed' | 'branchedTaskId'
->;
+import { Task } from '../entities';
 
 @Injectable()
 export class TaskProgressService {
   constructor(
     @InjectRepository(Task)
     private readonly taskRepo: Repository<Task>,
-    @InjectRepository(TaskChecklistItem)
-    private readonly checklistRepo: Repository<TaskChecklistItem>,
   ) {}
 
   calculateTaskProgress(
-    task: Pick<Task, 'id' | 'completed'>,
-    checklistByTaskId: Map<string, ChecklistProgressItem[]>,
+    task: Pick<Task, 'id' | 'completed' | 'progress'>,
+    childrenByParentId: Map<string | null, Pick<Task, 'id'>[]>,
     progressByTaskId: Map<string, number>,
   ): number {
-    const items = checklistByTaskId.get(task.id) ?? [];
-    if (!items.length) return task.completed ? 100 : 0;
+    const children = childrenByParentId.get(task.id) ?? [];
+    if (children.length > 0) {
+      const total = children.reduce(
+        (sum, child) => sum + (progressByTaskId.get(child.id) ?? 0),
+        0,
+      );
+      return Math.round(total / children.length);
+    }
 
-    const completedSlots = items.reduce((sum, item) => {
-      if (item.branchedTaskId) {
-        const childProgress = progressByTaskId.get(item.branchedTaskId);
-        return (
-          sum +
-          (childProgress === undefined
-            ? Number(item.completed)
-            : childProgress / 100)
-        );
-      }
-      return sum + Number(item.completed);
-    }, 0);
-
-    return Math.round((completedSlots / items.length) * 100);
+    return task.completed ? 100 : (task.progress ?? 0);
   }
 
   calculateProjectProgress(tasks: Pick<Task, 'progress'>[]): number {
@@ -52,39 +38,25 @@ export class TaskProgressService {
     manager: EntityManager,
     projectId: string,
   ): Promise<Map<string, number>> {
-    const [tasks, checklistItems] = await Promise.all([
-      manager.find(Task, {
-        where: { projectId, deletedAt: IsNull() },
-        select: [
-          'pkid',
-          'id',
-          'projectId',
-          'parentTaskId',
-          'progress',
-          'completed',
-        ],
-      }),
-      manager.find(TaskChecklistItem, {
-        where: { task: { projectId, deletedAt: IsNull() } },
-        relations: ['task'],
-      }),
-    ]);
+    const tasks = await manager.find(Task, {
+      where: { projectId, deletedAt: IsNull() },
+      select: [
+        'pkid',
+        'id',
+        'projectId',
+        'parentTaskId',
+        'progress',
+        'completed',
+      ],
+    });
 
-    const taskById = new Map(tasks.map((task) => [task.id, task]));
     const childrenByParentId = new Map<string | null, Task[]>();
-    const checklistByTaskId = new Map<string, TaskChecklistItem[]>();
     const progressByTaskId = new Map<string, number>();
 
     for (const task of tasks) {
       const bucket = childrenByParentId.get(task.parentTaskId ?? null) ?? [];
       bucket.push(task);
       childrenByParentId.set(task.parentTaskId ?? null, bucket);
-    }
-
-    for (const item of checklistItems) {
-      const bucket = checklistByTaskId.get(item.taskId) ?? [];
-      bucket.push(item);
-      checklistByTaskId.set(item.taskId, bucket);
     }
 
     const visited = new Set<string>();
@@ -98,7 +70,7 @@ export class TaskProgressService {
 
       const progress = this.calculateTaskProgress(
         task,
-        checklistByTaskId,
+        childrenByParentId,
         progressByTaskId,
       );
       progressByTaskId.set(task.id, progress);
@@ -114,25 +86,7 @@ export class TaskProgressService {
       task.progress = progressByTaskId.get(task.id) ?? 0;
     }
 
-    const itemsToSave = checklistItems.filter((item) => {
-      if (!item.branchedTaskId || !taskById.has(item.branchedTaskId)) {
-        return false;
-      }
-
-      const childComplete =
-        (progressByTaskId.get(item.branchedTaskId) ?? 0) >= 100;
-      if (item.completed === childComplete) return false;
-
-      item.completed = childComplete;
-      item.completedByUserId = null;
-      item.completedAt = childComplete
-        ? (item.completedAt ?? new Date())
-        : null;
-      return true;
-    });
-
     if (tasksToSave.length) await manager.save(Task, tasksToSave);
-    if (itemsToSave.length) await manager.save(TaskChecklistItem, itemsToSave);
 
     return progressByTaskId;
   }
@@ -166,6 +120,7 @@ export class TaskProgressService {
         projectIds: uniqueProjectIds,
       })
       .andWhere('task.deletedAt IS NULL')
+      .andWhere('task.parentTaskId IS NULL')
       .groupBy('task.projectId')
       .getRawMany<{ projectId: string; progress: string | number | null }>();
 

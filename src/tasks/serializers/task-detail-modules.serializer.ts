@@ -1,9 +1,23 @@
 import { Expose, Transform, Type } from 'class-transformer';
 import { BaseSerializer } from 'src/common/serializers';
 
+class TaskChecklistStatusSnippet extends BaseSerializer {
+  @Expose() declare id: string;
+  @Expose() name: string;
+  @Expose() key: string;
+  @Expose() color: string;
+  @Expose() category: string;
+  @Expose() isDone: boolean;
+}
+
 export class TaskChecklistItemDetailSerializer extends BaseSerializer {
   @Expose() taskId: string;
   @Expose() checklistGroupId: string | null;
+  @Expose() statusId: string;
+  @Expose()
+  @Transform(({ obj }) => obj?.status ?? null)
+  @Type(() => TaskChecklistStatusSnippet)
+  status: TaskChecklistStatusSnippet | null;
   @Expose() itemCode: string | null;
   @Expose() branchedTaskId: string | null;
   @Expose() branchStatus: string;
@@ -11,7 +25,11 @@ export class TaskChecklistItemDetailSerializer extends BaseSerializer {
   @Expose() branchedAt: Date | null;
   @Expose() text: string;
   @Expose() completed: boolean;
+  @Expose()
+  @Transform(({ obj }) => (obj?.completed ? 100 : 0))
+  progress: 0 | 100;
   @Expose() orderIndex: number;
+  @Expose() rank: string | null;
   @Expose() completedByUserId: string | null;
   @Expose() completedAt: Date | null;
 }

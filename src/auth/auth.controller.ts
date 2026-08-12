@@ -60,6 +60,12 @@ function getDeviceLabel(req: Request): string | null {
   return ua ? ua.slice(0, 250) : null;
 }
 
+function getBearerToken(req: Request): string | null {
+  const authorization = req.headers.authorization;
+  if (!authorization?.startsWith('Bearer ')) return null;
+  return authorization.slice(7).trim() || null;
+}
+
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
@@ -102,7 +108,12 @@ export class AuthController {
   @LogActivity({ action: 'login', resource: 'user' })
   @Throttle({ default: { ttl: 60000, limit: 10 } })
   login(@Body() loginDTO: LoginDto, @Req() req: Request) {
-    return this.authService.login(loginDTO, getIp(req), getDeviceLabel(req));
+    return this.authService.login(
+      loginDTO,
+      getIp(req),
+      getDeviceLabel(req),
+      getBearerToken(req),
+    );
   }
 
   @Post('validate-otp')
@@ -118,6 +129,7 @@ export class AuthController {
       otpDTO,
       getIp(req),
       getDeviceLabel(req),
+      getBearerToken(req),
     );
   }
 

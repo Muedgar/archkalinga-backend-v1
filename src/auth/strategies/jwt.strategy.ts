@@ -6,13 +6,16 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { User } from 'src/users/entities';
 import { Repository } from 'typeorm';
 import { JwtPayload } from '../interfaces';
-import { TOKEN_REVOKED, UNAUTHORIZED } from '../messages';
+import { UserSession } from '../entities/user-session.entity';
+import { INVALID_REFRESH_TOKEN, TOKEN_REVOKED, UNAUTHORIZED } from '../messages';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     configService: ConfigService,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(UserSession)
+    private readonly sessionRepo: Repository<UserSession>,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -42,6 +45,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       user.tokenVersion !== payload.tokenVersion
     ) {
       throw new UnauthorizedException(TOKEN_REVOKED);
+    }
+
+    if (payload.sessionId) {
+      const session = await this.sessionRepo.findOne({
+        where: { id: payload.sessionId },
+        relations: ['user'],
+      });
+
+      if (
+        !session ||
+        session.revokedAt ||
+        session.expiresAt < new Date() ||
+        session.user?.pkid !== user.pkid
+      ) {
+        throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
+      }
     }
 
     const { password: _pw, ...safeUser } = user;

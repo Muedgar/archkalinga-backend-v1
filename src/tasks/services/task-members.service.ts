@@ -40,7 +40,13 @@ import { NotFoundException } from '@nestjs/common';
 export interface TaskCounts {
   childCount: number;
   commentCount: number;
+  checklistItemCount?: number;
+  completedChecklistItemCount?: number;
+  rollupProgress?: number | null;
+  canUpdateTask?: boolean;
 }
+
+type ProgressEditBlockedReason = 'HAS_CHILDREN' | 'COMPLETED' | 'FORBIDDEN';
 
 export interface ProjectRoleContext {
   projectRoleId: string | null;
@@ -348,6 +354,19 @@ export class TaskMembersService {
     membershipRoleContext: Map<string, ProjectRoleContext>,
     counts?: Partial<TaskCounts>,
   ): Partial<Task> & Partial<TaskCounts> & Record<string, unknown> {
+    const checklistItems = task.checklistItems ?? [];
+    const checklistItemCount =
+      counts?.checklistItemCount ?? checklistItems.length;
+    const completedChecklistItemCount =
+      counts?.completedChecklistItemCount ??
+      checklistItems.filter((item) => item.completed).length;
+    const childCount = counts?.childCount ?? 0;
+    const progressEditBlockedReason = this.getProgressEditBlockedReason(
+      childCount,
+      task.completed,
+      counts?.canUpdateTask ?? true,
+    );
+
     const assignedMembers = (task.assignees ?? []).map((assignee) => {
       const roleContext = membershipRoleContext.get(assignee.userId);
       return {
@@ -382,9 +401,27 @@ export class TaskMembersService {
           }
         : null,
       dependencies: task.dependencyEdges ?? [],
-      childCount: counts?.childCount ?? 0,
+      childCount,
       commentCount: counts?.commentCount ?? 0,
+      checklistSummary: {
+        total: checklistItemCount,
+        completed: completedChecklistItemCount,
+      },
+      rollupProgress: counts?.rollupProgress ?? null,
+      canEditProgress: !progressEditBlockedReason,
+      progressEditBlockedReason: progressEditBlockedReason ?? null,
     };
+  }
+
+  private getProgressEditBlockedReason(
+    childCount: number,
+    completed: boolean,
+    canUpdateTask: boolean,
+  ): ProgressEditBlockedReason | null {
+    if (childCount > 0) return 'HAS_CHILDREN';
+    if (completed) return 'COMPLETED';
+    if (!canUpdateTask) return 'FORBIDDEN';
+    return null;
   }
 
   async computeCounts(

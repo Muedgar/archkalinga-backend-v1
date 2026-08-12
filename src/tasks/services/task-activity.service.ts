@@ -55,6 +55,10 @@ export class TaskActivityService {
         return 'task.updated';
       case TaskActionType.TASK_MOVED:
         return 'task.moved';
+      case TaskActionType.TASK_COMPLETED:
+        return 'task.completed';
+      case TaskActionType.TASK_PROGRESS_CHANGED:
+        return 'task.progress.changed';
       case TaskActionType.TASK_SUPERSEDED:
         return 'task.superseded';
       case TaskActionType.TASK_DELETED:

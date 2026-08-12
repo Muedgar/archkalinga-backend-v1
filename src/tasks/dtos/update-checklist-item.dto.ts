@@ -32,6 +32,26 @@ export class UpdateChecklistItemDto {
   @ApiPropertyOptional({
     example: 'a1b2c3d4-...',
     description:
+      'Project status UUID used for checklist Kanban column placement.',
+  })
+  @IsOptional()
+  @IsUUID()
+  statusId?: string;
+
+  @ApiPropertyOptional({
+    example: '0000001000',
+    nullable: true,
+    description: 'Checklist Kanban rank within the status column.',
+  })
+  @IsOptional()
+  @IsString()
+  @Length(1, 50)
+  @Type(() => String)
+  rank?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'a1b2c3d4-...',
+    description:
       'Move item to a different checklist group, or null to ungroupit',
   })
   @IsOptional()

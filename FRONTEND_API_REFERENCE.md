@@ -9,10 +9,10 @@
 
 ## Auth conventions
 
-| Header | Required on |
-|--------|-------------|
-| `Authorization: Bearer <token>` | Every authenticated endpoint |
-| `X-Workspace-Id: <uuid>` | All `/users/*` endpoints (uses WorkspaceGuard) |
+| Header                          | Required on                                    |
+| ------------------------------- | ---------------------------------------------- |
+| `Authorization: Bearer <token>` | Every authenticated endpoint                   |
+| `X-Workspace-Id: <uuid>`        | All `/users/*` endpoints (uses WorkspaceGuard) |
 
 Invite model summary:
 
@@ -23,18 +23,18 @@ Invite model summary:
 
 Project permission domain summary:
 
-| Domain | Frontend use |
-|--------|--------------|
-| `canManageProject` | Project settings/update/delete and rollout fallback for granular project-admin permissions |
-| `projectRoleManagement.*` | Project role list/create/update/delete |
-| `projectConfigManagement.*` | Project statuses, priorities, severities, task types, and labels |
-| `projectMemberManagement.*` | Project members and sent project invites |
-| `taskManagement.*` | Tasks, subtasks, task board/list/detail, and task-owned operations |
-| `taskChecklistManagement.*` | Task/subtask checklist item and checklist group create/update/delete |
-| `taskScheduleManagement.*` | Task/subtask schedule field and activity schedule row create/update/delete |
-| `taskTeamAssigneeManagement.*` | Task/subtask assignee add/change/remove |
-| `taskTeamReporteeManagement.*` | Task/subtask reportee set/change/remove |
-| `changeRequestManagement.*` | Task change request list/detail/workflow and mindmap impact overlay |
+| Domain                         | Frontend use                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `canManageProject`             | Project settings/update/delete and rollout fallback for granular project-admin permissions |
+| `projectRoleManagement.*`      | Project role list/create/update/delete                                                     |
+| `projectConfigManagement.*`    | Project statuses, priorities, severities, task types, and labels                           |
+| `projectMemberManagement.*`    | Project members and sent project invites                                                   |
+| `taskManagement.*`             | Tasks, subtasks, task board/list/detail, and task-owned operations                         |
+| `taskChecklistManagement.*`    | Task/subtask checklist item and checklist group create/update/delete                       |
+| `taskScheduleManagement.*`     | Task/subtask schedule field and activity schedule row create/update/delete                 |
+| `taskTeamAssigneeManagement.*` | Task/subtask assignee add/change/remove                                                    |
+| `taskTeamReporteeManagement.*` | Task/subtask reportee set/change/remove                                                    |
+| `changeRequestManagement.*`    | Task change request list/detail/workflow and mindmap impact overlay                        |
 
 Task subresource mutation contract:
 
@@ -46,14 +46,14 @@ Task subresource mutation contract:
 
 Granular frontend permission keys:
 
-| Frontend key | Backend project role domain/action |
-|--------------|------------------------------------|
-| `task.checklist.create` | `taskChecklistManagement.create` |
-| `task.checklist.update` | `taskChecklistManagement.update` |
-| `task.checklist.delete` | `taskChecklistManagement.delete` |
-| `task.schedule.create` | `taskScheduleManagement.create` |
-| `task.schedule.update` | `taskScheduleManagement.update` |
-| `task.schedule.delete` | `taskScheduleManagement.delete` |
+| Frontend key                | Backend project role domain/action  |
+| --------------------------- | ----------------------------------- |
+| `task.checklist.create`     | `taskChecklistManagement.create`    |
+| `task.checklist.update`     | `taskChecklistManagement.update`    |
+| `task.checklist.delete`     | `taskChecklistManagement.delete`    |
+| `task.schedule.create`      | `taskScheduleManagement.create`     |
+| `task.schedule.update`      | `taskScheduleManagement.update`     |
+| `task.schedule.delete`      | `taskScheduleManagement.delete`     |
 | `task.team.assignee.create` | `taskTeamAssigneeManagement.create` |
 | `task.team.assignee.update` | `taskTeamAssigneeManagement.update` |
 | `task.team.assignee.delete` | `taskTeamAssigneeManagement.delete` |
@@ -86,6 +86,7 @@ Permission: `projectManagement.create` on the caller's workspace role
 The creator is automatically made the **Owner** of the project — no member fields in the body. All 5 default project roles (Owner, Manager, Contributor, Reviewer, Viewer) are seeded per-project on creation.
 
 ### Request body
+
 ```json
 {
   "title": "Office Tower Fit-Out",
@@ -97,16 +98,17 @@ The creator is automatically made the **Owner** of the project — no member fie
 }
 ```
 
-| Field | Type | Required | Notes |
-|-------|------|----------|-------|
-| `title` | string | ✅ | |
-| `description` | string | ✅ | |
-| `startDate` | ISO date string | ✅ | |
-| `endDate` | ISO date string | ❌ | |
-| `type` | string enum | ✅ | e.g. `"CONSTRUCTION"` |
-| `templateId` | UUID | ❌ | Seeds tasks from template |
+| Field         | Type            | Required | Notes                     |
+| ------------- | --------------- | -------- | ------------------------- |
+| `title`       | string          | ✅       |                           |
+| `description` | string          | ✅       |                           |
+| `startDate`   | ISO date string | ✅       |                           |
+| `endDate`     | ISO date string | ❌       |                           |
+| `type`        | string enum     | ✅       | e.g. `"CONSTRUCTION"`     |
+| `templateId`  | UUID            | ❌       | Seeds tasks from template |
 
 ### Response `200`
+
 Full project object including the creator's `owner` membership and all seeded project roles.
 
 ---
@@ -118,19 +120,22 @@ Auth: JWT + `X-Workspace-Id`
 No additional permission required.
 
 Finds users whose profile is publicly discoverable:
+
 - `user.isPublicProfile = true`, OR
 - their workspace has `allowPublicProfiles = true`
 
 ### Query params
-| Param | Type | Required | Notes |
-|-------|------|----------|-------|
-| `q` | string (min 2, max 100) | ✅ | Searches first+last name, username, email, workspace name/slug |
-| `excludeProjectId` | UUID | ❌ | Omits users already active members of this project |
-| `excludeWorkspaceId` | UUID | ❌ | Omits users already active members of this workspace |
-| `page` | number | ❌ | Default `1` |
-| `limit` | number (max 50) | ❌ | Default `20` |
+
+| Param                | Type                    | Required | Notes                                                          |
+| -------------------- | ----------------------- | -------- | -------------------------------------------------------------- |
+| `q`                  | string (min 2, max 100) | ✅       | Searches first+last name, username, email, workspace name/slug |
+| `excludeProjectId`   | UUID                    | ❌       | Omits users already active members of this project             |
+| `excludeWorkspaceId` | UUID                    | ❌       | Omits users already active members of this workspace           |
+| `page`               | number                  | ❌       | Default `1`                                                    |
+| `limit`              | number (max 50)         | ❌       | Default `20`                                                   |
 
 ### Response `200`
+
 ```json
 {
   "data": {
@@ -177,6 +182,7 @@ Permission: `projectMemberManagement.create` on the caller's **project** role
 Invitee must already have an account — find them first via `GET /users/search`.
 
 #### Request body
+
 ```json
 {
   "projectId": "uuid",
@@ -186,22 +192,39 @@ Invitee must already have an account — find them first via `GET /users/search`
 }
 ```
 
-| Field | Type | Required | Notes |
-|-------|------|----------|-------|
-| `projectId` | UUID | ✅ | |
-| `inviteeUserId` | UUID | ✅ | Must be an existing user account |
-| `projectRoleId` | UUID | ✅ | Must belong to the project |
-| `message` | string | ❌ | Optional personal note |
+| Field           | Type   | Required | Notes                            |
+| --------------- | ------ | -------- | -------------------------------- |
+| `projectId`     | UUID   | ✅       |                                  |
+| `inviteeUserId` | UUID   | ✅       | Must be an existing user account |
+| `projectRoleId` | UUID   | ✅       | Must belong to the project       |
+| `message`       | string | ❌       | Optional personal note           |
 
 #### Response `201`
+
 ```json
 {
   "data": {
     "id": "uuid",
     "projectId": "uuid",
-    "projectRole": { "id": "uuid", "name": "Contributor", "slug": "contributor" },
-    "inviter": { "id": "uuid", "firstName": "John", "lastName": "Smith", "email": "john@example.com", "title": "PM" },
-    "invitee": { "id": "uuid", "firstName": "Jane", "lastName": "Doe", "email": "jane@example.com", "title": "Engineer" },
+    "projectRole": {
+      "id": "uuid",
+      "name": "Contributor",
+      "slug": "contributor"
+    },
+    "inviter": {
+      "id": "uuid",
+      "firstName": "John",
+      "lastName": "Smith",
+      "email": "john@example.com",
+      "title": "PM"
+    },
+    "invitee": {
+      "id": "uuid",
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "email": "jane@example.com",
+      "title": "Engineer"
+    },
     "inviteeUserId": "uuid",
     "status": "PENDING",
     "token": "...",
@@ -215,14 +238,15 @@ Invitee must already have an account — find them first via `GET /users/search`
 ```
 
 #### Error cases
-| Status | Reason |
-|--------|--------|
-| 404 | `inviteeUserId` does not match any user account |
-| 404 | Project not found |
-| 400 | `projectRoleId` does not belong to this project or role is inactive |
-| 409 | Invitee is already an active project member |
-| 409 | A PENDING invite already exists for this user in this project |
-| 403 | Caller is not an active project member |
+
+| Status | Reason                                                              |
+| ------ | ------------------------------------------------------------------- |
+| 404    | `inviteeUserId` does not match any user account                     |
+| 404    | Project not found                                                   |
+| 400    | `projectRoleId` does not belong to this project or role is inactive |
+| 409    | Invitee is already an active project member                         |
+| 409    | A PENDING invite already exists for this user in this project       |
+| 403    | Caller is not an active project member                              |
 
 ---
 
@@ -233,17 +257,21 @@ Auth: JWT
 Permission: `projectMemberManagement.view` on the caller's project role
 
 #### Query params
-| Param | Type | Notes |
-|-------|------|-------|
+
+| Param    | Type                                              | Notes            |
+| -------- | ------------------------------------------------- | ---------------- |
 | `status` | `PENDING` \| `ACCEPTED` \| `REVOKED` \| `EXPIRED` | Filter by status |
-| `page` | number | Default `1` |
-| `limit` | number | Default `20` |
+| `page`   | number                                            | Default `1`      |
+| `limit`  | number                                            | Default `20`     |
 
 #### Response `200`
+
 ```json
 {
   "data": {
-    "items": [ /* array of invite objects (same shape as 3a response) */ ],
+    "items": [
+      /* array of invite objects (same shape as 3a response) */
+    ],
     "count": 5
   },
   "message": "Invites fetched successfully"
@@ -273,6 +301,7 @@ Permission: `projectMemberManagement.delete` on caller's project role
 Sets status to `REVOKED`. Only works on `PENDING` invites.
 
 #### Response `200`
+
 ```json
 { "data": { "id": "uuid", "canceled": true }, "message": "Invite canceled" }
 ```
@@ -285,12 +314,14 @@ Sets status to `REVOKED`. Only works on `PENDING` invites.
 Auth: **None required** — token is the credential
 
 The token arrives via out-of-band delivery (email, link, etc.). The frontend should:
+
 1. Receive the token from the URL/deep-link.
 2. Ensure the user is logged in (redirect to login/register if not).
 3. `POST /project-invites/accept?token=<token>` — no body needed.
 4. Use `projectId` from the response to redirect the user into the project.
 
 #### Response `200`
+
 ```json
 {
   "data": {
@@ -308,7 +339,14 @@ The token arrives via out-of-band delivery (email, link, etc.). The frontend sho
         "status": true,
         "isSystem": true,
         "isProtected": false,
-        "permissions": { "taskManagement": { "create": true, "update": true, "view": true, "delete": false } }
+        "permissions": {
+          "taskManagement": {
+            "create": true,
+            "update": true,
+            "view": true,
+            "delete": false
+          }
+        }
       }
     }
   },
@@ -317,10 +355,11 @@ The token arrives via out-of-band delivery (email, link, etc.). The frontend sho
 ```
 
 #### Error cases
-| Status | Reason |
-|--------|--------|
-| 400 | Token not found, already used, or expired |
-| 404 | Invitee account no longer exists |
+
+| Status | Reason                                    |
+| ------ | ----------------------------------------- |
+| 400    | Token not found, already used, or expired |
+| 404    | Invitee account no longer exists          |
 
 ## 4. Workspace Invites
 
@@ -335,6 +374,7 @@ Permission: `userManagement.create` on the caller's workspace role
 Use `GET /users/search?q=...&excludeWorkspaceId=<workspaceId>` before sending the invite.
 
 #### Request body
+
 ```json
 {
   "workspaceId": "uuid",
@@ -344,22 +384,40 @@ Use `GET /users/search?q=...&excludeWorkspaceId=<workspaceId>` before sending th
 }
 ```
 
-| Field | Type | Required | Notes |
-|-------|------|----------|-------|
-| `workspaceId` | UUID | ✅ | Should match the active workspace context |
-| `inviteeUserId` | UUID | ✅ | Must be an existing user account |
-| `workspaceRoleId` | UUID | ✅ | Must belong to the workspace |
-| `message` | string | ❌ | Optional personal note |
+| Field             | Type   | Required | Notes                                     |
+| ----------------- | ------ | -------- | ----------------------------------------- |
+| `workspaceId`     | UUID   | ✅       | Should match the active workspace context |
+| `inviteeUserId`   | UUID   | ✅       | Must be an existing user account          |
+| `workspaceRoleId` | UUID   | ✅       | Must belong to the workspace              |
+| `message`         | string | ❌       | Optional personal note                    |
 
 #### Response `201`
+
 ```json
 {
   "data": {
     "id": "uuid",
     "workspace": { "id": "uuid", "name": "BuildCorp", "slug": "buildcorp" },
-    "inviter": { "id": "uuid", "firstName": "John", "lastName": "Smith", "email": "john@example.com", "title": "PM" },
-    "invitee": { "id": "uuid", "firstName": "Jane", "lastName": "Doe", "email": "jane@example.com", "title": "Engineer" },
-    "role": { "id": "uuid", "name": "Member", "slug": "member", "permissions": {} },
+    "inviter": {
+      "id": "uuid",
+      "firstName": "John",
+      "lastName": "Smith",
+      "email": "john@example.com",
+      "title": "PM"
+    },
+    "invitee": {
+      "id": "uuid",
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "email": "jane@example.com",
+      "title": "Engineer"
+    },
+    "role": {
+      "id": "uuid",
+      "name": "Member",
+      "slug": "member",
+      "permissions": {}
+    },
     "status": "PENDING",
     "expiresAt": "2026-04-22T00:00:00.000Z",
     "acceptedAt": null,
@@ -372,14 +430,15 @@ Use `GET /users/search?q=...&excludeWorkspaceId=<workspaceId>` before sending th
 ```
 
 #### Error cases
-| Status | Reason |
-|--------|--------|
-| 404 | `inviteeUserId` does not match any user account |
-| 404 | Workspace not found |
-| 400 | `workspaceRoleId` does not belong to this workspace or role is inactive |
-| 409 | Invitee is already an active workspace member |
-| 409 | A PENDING invite already exists for this user in this workspace |
-| 403 | Caller lacks `userManagement.create` |
+
+| Status | Reason                                                                  |
+| ------ | ----------------------------------------------------------------------- |
+| 404    | `inviteeUserId` does not match any user account                         |
+| 404    | Workspace not found                                                     |
+| 400    | `workspaceRoleId` does not belong to this workspace or role is inactive |
+| 409    | Invitee is already an active workspace member                           |
+| 409    | A PENDING invite already exists for this user in this workspace         |
+| 403    | Caller lacks `userManagement.create`                                    |
 
 ### 4b. List Invites for a Workspace
 
@@ -388,17 +447,21 @@ Auth: JWT + `X-Workspace-Id`
 Permission: `userManagement.create` on the caller's workspace role
 
 #### Query params
-| Param | Type | Notes |
-|-------|------|-------|
+
+| Param    | Type                                                            | Notes            |
+| -------- | --------------------------------------------------------------- | ---------------- |
 | `status` | `PENDING` \| `ACCEPTED` \| `DECLINED` \| `REVOKED` \| `EXPIRED` | Filter by status |
-| `page` | number | Default `1` |
-| `limit` | number | Default `50` |
+| `page`   | number                                                          | Default `1`      |
+| `limit`  | number                                                          | Default `50`     |
 
 #### Response `200`
+
 ```json
 {
   "data": {
-    "items": [ /* array of workspace invite objects */ ],
+    "items": [
+      /* array of workspace invite objects */
+    ],
     "count": 5
   },
   "message": "Workspace invites fetched successfully"
@@ -419,11 +482,12 @@ GET /workspace-invites/received?status=PENDING
 ```
 
 #### Query params
-| Param | Type | Notes |
-|-------|------|-------|
+
+| Param    | Type          | Notes                                          |
+| -------- | ------------- | ---------------------------------------------- |
 | `status` | invite status | Optional, use `PENDING` for actionable invites |
-| `page` | number | Default `1` |
-| `limit` | number | Default `50` |
+| `page`   | number        | Default `1`                                    |
+| `limit`  | number        | Default `50`                                   |
 
 ### 4d. Resend / Cancel Workspace Invite
 
@@ -455,6 +519,7 @@ GET /workspaces/me
 Then switch the active workspace to `data.workspaceId` from the accept response if the user should land in the accepted workspace immediately.
 
 #### Response `200`
+
 ```json
 {
   "data": {
@@ -471,7 +536,14 @@ Then switch the active workspace to `data.workspaceId` from the accept response 
         "slug": "member",
         "status": true,
         "isSystem": false,
-        "permissions": { "projectManagement": { "create": false, "update": false, "view": true, "delete": false } }
+        "permissions": {
+          "projectManagement": {
+            "create": false,
+            "update": false,
+            "view": true,
+            "delete": false
+          }
+        }
       }
     }
   },
@@ -487,8 +559,12 @@ Auth: JWT
 The current user must be the invitee. Sets status to `DECLINED`.
 
 #### Response `200`
+
 ```json
-{ "data": { "id": "uuid", "declined": true }, "message": "Workspace invite declined" }
+{
+  "data": { "id": "uuid", "declined": true },
+  "message": "Workspace invite declined"
+}
 ```
 
 ---
@@ -503,6 +579,7 @@ Auth: JWT + `X-Workspace-Id`
 Returns the authenticated user's own record, including `isPublicProfile`.
 
 #### Response `200`
+
 ```json
 {
   "data": {
@@ -534,6 +611,7 @@ Auth: JWT + `X-Workspace-Id`
 Users can update their own display fields and toggle whether they appear in `GET /users/search`.
 
 #### Request body (all fields optional)
+
 ```json
 {
   "firstName": "John",
@@ -544,13 +622,13 @@ Users can update their own display fields and toggle whether they appear in `GET
 }
 ```
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `firstName` | string (max 100) | |
-| `lastName` | string (max 100) | |
-| `userName` | string (max 100) | |
-| `title` | string (max 200) | |
-| `isPublicProfile` | boolean | `true` → user appears in search results globally |
+| Field             | Type             | Notes                                            |
+| ----------------- | ---------------- | ------------------------------------------------ |
+| `firstName`       | string (max 100) |                                                  |
+| `lastName`        | string (max 100) |                                                  |
+| `userName`        | string (max 100) |                                                  |
+| `title`           | string (max 200) |                                                  |
+| `isPublicProfile` | boolean          | `true` → user appears in search results globally |
 
 #### Response `200` — same shape as `GET /users/me`
 
@@ -567,6 +645,7 @@ Permission: caller must have `userManagement.update` on their **workspace role**
 Controls workspace-level discoverability: when `allowPublicProfiles` is `true`, all active members of the workspace become searchable via `GET /users/search` — regardless of each member's individual `isPublicProfile` flag.
 
 #### Request body (all fields optional)
+
 ```json
 {
   "name": "BuildCorp",
@@ -575,13 +654,14 @@ Controls workspace-level discoverability: when `allowPublicProfiles` is `true`, 
 }
 ```
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `name` | string (2–200 chars) | |
-| `description` | string (max 1000) | |
-| `allowPublicProfiles` | boolean | `true` → entire workspace is discoverable |
+| Field                 | Type                 | Notes                                     |
+| --------------------- | -------------------- | ----------------------------------------- |
+| `name`                | string (2–200 chars) |                                           |
+| `description`         | string (max 1000)    |                                           |
+| `allowPublicProfiles` | boolean              | `true` → entire workspace is discoverable |
 
 #### Response `200`
+
 ```json
 {
   "data": {
@@ -598,16 +678,18 @@ Controls workspace-level discoverability: when `allowPublicProfiles` is `true`, 
 ```
 
 #### Error cases
-| Status | Reason |
-|--------|--------|
-| 403 | Caller's workspace role lacks `userManagement.update` |
-| 404 | Workspace not found or caller is not a member |
+
+| Status | Reason                                                |
+| ------ | ----------------------------------------------------- |
+| 403    | Caller's workspace role lacks `userManagement.update` |
+| 404    | Workspace not found or caller is not a member         |
 
 ---
 
 ## Discoverability logic (summary)
 
 A user appears in `GET /users/search` results when:
+
 - `user.isPublicProfile = true` (individual opt-in), **OR**
 - `workspace.allowPublicProfiles = true` for any workspace the user is an active member of
 
@@ -651,19 +733,19 @@ Both flags default to `false` (opt-in model). Use `excludeProjectId` to pre-filt
 Project invite notifications:
 
 ```ts
-PROJECT_INVITE_RECEIVED
-PROJECT_INVITE_ACCEPTED
-PROJECT_INVITE_DECLINED
-PROJECT_INVITE_REVOKED
+PROJECT_INVITE_RECEIVED;
+PROJECT_INVITE_ACCEPTED;
+PROJECT_INVITE_DECLINED;
+PROJECT_INVITE_REVOKED;
 ```
 
 Workspace invite notifications:
 
 ```ts
-WORKSPACE_INVITE_RECEIVED
-WORKSPACE_INVITE_ACCEPTED
-WORKSPACE_INVITE_DECLINED
-WORKSPACE_INVITE_REVOKED
+WORKSPACE_INVITE_RECEIVED;
+WORKSPACE_INVITE_ACCEPTED;
+WORKSPACE_INVITE_DECLINED;
+WORKSPACE_INVITE_REVOKED;
 ```
 
 The notification `meta` includes `inviteType: 'project' | 'workspace'` plus the relevant `inviteId`, target id, and role id/name.
@@ -682,9 +764,9 @@ Auth: JWT + `X-Workspace-Id`
 
 Permissions:
 
-| Operation | Project permission |
-|-----------|--------------------|
-| List, read, download/open file | `taskManagement.view` |
+| Operation                                               | Project permission      |
+| ------------------------------------------------------- | ----------------------- |
+| List, read, download/open file                          | `taskManagement.view`   |
 | Create, update, delete, create starter from deliverable | `taskManagement.update` |
 
 ## Domain Types
@@ -772,12 +854,12 @@ GET /projects/:projectId/tasks/:taskId/documents
 
 Query params:
 
-| Param | Type | Notes |
-|-------|------|-------|
-| `type` | `STARTER \| DELIVERABLE` | Optional tab filter |
-| `name` | string | Optional document-name search |
-| `page` | number | Optional pagination |
-| `limit` | number | Optional pagination |
+| Param   | Type                     | Notes                         |
+| ------- | ------------------------ | ----------------------------- |
+| `type`  | `STARTER \| DELIVERABLE` | Optional tab filter           |
+| `name`  | string                   | Optional document-name search |
+| `page`  | number                   | Optional pagination           |
+| `limit` | number                   | Optional pagination           |
 
 Response `200`:
 
@@ -802,7 +884,7 @@ Recommended frontend usage:
 fetchTaskDocuments({
   projectId,
   taskId,
-  query: { type: 'STARTER', page: 1, limit: 50 }
+  query: { type: 'STARTER', page: 1, limit: 50 },
 });
 ```
 
@@ -830,14 +912,14 @@ Content-Type: multipart/form-data
 
 Form fields:
 
-| Field | Required | Type | Notes |
-|-------|----------|------|-------|
-| `name` | Yes | string | 1-255 chars |
-| `type` | Yes | `STARTER \| DELIVERABLE` | Enum only |
-| `file` | Yes | binary | File is required on create |
-| `description` | No | string \| null | 1-4000 chars when present |
-| `bucketName` | No | string | Defaults to backend task-documents bucket |
-| `attachmentNotes` | No | string \| null | Notes for the uploaded active attachment |
+| Field             | Required | Type                     | Notes                                     |
+| ----------------- | -------- | ------------------------ | ----------------------------------------- |
+| `name`            | Yes      | string                   | 1-255 chars                               |
+| `type`            | Yes      | `STARTER \| DELIVERABLE` | Enum only                                 |
+| `file`            | Yes      | binary                   | File is required on create                |
+| `description`     | No       | string \| null           | 1-4000 chars when present                 |
+| `bucketName`      | No       | string                   | Defaults to backend task-documents bucket |
+| `attachmentNotes` | No       | string \| null           | Notes for the uploaded active attachment  |
 
 Response `201`:
 
@@ -863,14 +945,14 @@ Content-Type: multipart/form-data
 
 Form fields are all optional:
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `name` | string | 1-255 chars |
-| `type` | `STARTER \| DELIVERABLE` | Enum only |
-| `description` | string \| null | 1-4000 chars when present |
-| `bucketName` | string | Used only when `file` is present |
-| `attachmentNotes` | string \| null | Used for the new active attachment when `file` is present |
-| `file` | binary | Optional on update |
+| Field             | Type                     | Notes                                                     |
+| ----------------- | ------------------------ | --------------------------------------------------------- |
+| `name`            | string                   | 1-255 chars                                               |
+| `type`            | `STARTER \| DELIVERABLE` | Enum only                                                 |
+| `description`     | string \| null           | 1-4000 chars when present                                 |
+| `bucketName`      | string                   | Used only when `file` is present                          |
+| `attachmentNotes` | string \| null           | Used for the new active attachment when `file` is present |
+| `file`            | binary                   | Optional on update                                        |
 
 Response `200`:
 
@@ -900,7 +982,7 @@ Response `200`:
   data: {
     deleted: true;
     id: string;
-  };
+  }
   message: 'Task document deleted';
 }
 ```
@@ -917,7 +999,7 @@ Response `200`:
 {
   data: {
     downloadUrl: string;
-  };
+  }
   message: 'Task document attachment download URL fetched';
 }
 ```
@@ -968,14 +1050,14 @@ Response behavior:
 
 Backend validation:
 
-| Rule | Frontend handling |
-|------|-------------------|
-| Target task must belong to `projectId` | Use the currently focused task route context |
-| Source task must belong to same `projectId` | Only show source tasks from the same project board |
-| Source task cannot be the target task | Exclude the focused task from the picker |
-| Source document must belong to `sourceTaskId` | Fetch deliverables through the selected source task |
-| Source document must have `type = DELIVERABLE` | Query with `type=DELIVERABLE` |
-| Source document must have exactly one active attachment | Disable source rows without an active attachment |
+| Rule                                                    | Frontend handling                                   |
+| ------------------------------------------------------- | --------------------------------------------------- |
+| Target task must belong to `projectId`                  | Use the currently focused task route context        |
+| Source task must belong to same `projectId`             | Only show source tasks from the same project board  |
+| Source task cannot be the target task                   | Exclude the focused task from the picker            |
+| Source document must belong to `sourceTaskId`           | Fetch deliverables through the selected source task |
+| Source document must have `type = DELIVERABLE`          | Query with `type=DELIVERABLE`                       |
+| Source document must have exactly one active attachment | Disable source rows without an active attachment    |
 
 Recommended frontend helper:
 
@@ -1008,7 +1090,7 @@ Recommended UI flow:
 fetchTaskDocuments({
   projectId,
   taskId: sourceTaskId,
-  query: { type: 'DELIVERABLE', page: 1, limit: 50 }
+  query: { type: 'DELIVERABLE', page: 1, limit: 50 },
 });
 ```
 
@@ -1053,23 +1135,23 @@ GET /projects/:projectId/tasks/:taskId/change-requests?includeSummary=true&inclu
 
 Query params:
 
-| Param | Type | Default | Notes |
-|-------|------|---------|-------|
-| `depth` | number or `all` | existing tree default | Descendant depth under the root task |
-| `limit` | number | existing tree default | Maximum task nodes considered, max `1000` |
-| `includeCompleted` | boolean | existing tree default | Include completed tasks in the subtree |
-| `includeDeleted` | boolean | `false` | Honored only where backend task tree rules allow it |
-| `includeSuperseded` | boolean | `false` | Include superseded tasks |
-| `collapsedMode` | `respect \| ignore` | `respect` | Whether collapsed mindmap nodes hide descendant impact summaries |
-| `status` | `ChangeRequestStatus` | none | Filter CRs before summary/preview computation |
-| `impactType` | `ChangeRequestImpactType` | none | Filter by scope/cost/schedule/etc. |
-| `priority` | `ChangeRequestPriority` | none | Filter by priority |
-| `createdByUserId` | UUID | none | Supports "My requests" |
-| `escalatedToUserId` | UUID | none | Supports escalated-to-me views |
-| `reviewerUserId` | UUID | none | Supports reviewer views |
-| `needsMyAttention` | boolean | none | When `true`, returns only CRs needing action from the current user |
-| `includeItems` | boolean | `false` | Include lightweight preview CR cards per task |
-| `itemLimitPerTask` | number | `3` | Max preview items per task, valid range `1-25` |
+| Param               | Type                      | Default               | Notes                                                              |
+| ------------------- | ------------------------- | --------------------- | ------------------------------------------------------------------ |
+| `depth`             | number or `all`           | existing tree default | Descendant depth under the root task                               |
+| `limit`             | number                    | existing tree default | Maximum task nodes considered, max `1000`                          |
+| `includeCompleted`  | boolean                   | existing tree default | Include completed tasks in the subtree                             |
+| `includeDeleted`    | boolean                   | `false`               | Honored only where backend task tree rules allow it                |
+| `includeSuperseded` | boolean                   | `false`               | Include superseded tasks                                           |
+| `collapsedMode`     | `respect \| ignore`       | `respect`             | Whether collapsed mindmap nodes hide descendant impact summaries   |
+| `status`            | `ChangeRequestStatus`     | none                  | Filter CRs before summary/preview computation                      |
+| `impactType`        | `ChangeRequestImpactType` | none                  | Filter by scope/cost/schedule/etc.                                 |
+| `priority`          | `ChangeRequestPriority`   | none                  | Filter by priority                                                 |
+| `createdByUserId`   | UUID                      | none                  | Supports "My requests"                                             |
+| `escalatedToUserId` | UUID                      | none                  | Supports escalated-to-me views                                     |
+| `reviewerUserId`    | UUID                      | none                  | Supports reviewer views                                            |
+| `needsMyAttention`  | boolean                   | none                  | When `true`, returns only CRs needing action from the current user |
+| `includeItems`      | boolean                   | `false`               | Include lightweight preview CR cards per task                      |
+| `itemLimitPerTask`  | number                    | `3`                   | Max preview items per task, valid range `1-25`                     |
 
 Response `200`:
 
@@ -1110,32 +1192,38 @@ type ChangeRequestImpactMapResponse = {
     byPriority: Partial<Record<ChangeRequestPriority, number>>;
   };
   data: {
-    taskSummaries: Record<string, {
-      taskId: string;
-      total: number;
-      open: number;
-      final: number;
-      escalated: number;
-      critical: number;
-      needsMyAttention: number;
-      latestStatus: ChangeRequestStatus | null;
-      latestUpdatedAt: string | null;
-      intensity: ChangeRequestImpactIntensity;
-      byStatus: Partial<Record<ChangeRequestStatus, number>>;
-      byImpactType: Partial<Record<ChangeRequestImpactType, number>>;
-      byPriority: Partial<Record<ChangeRequestPriority, number>>;
-    }>;
-    itemsByTaskId?: Record<string, Array<{
-      id: string;
-      taskId: string;
-      title: string;
-      status: ChangeRequestStatus;
-      impactType: ChangeRequestImpactType | null;
-      priority: ChangeRequestPriority | null;
-      createdById: string;
-      escalatedToUserId: string | null;
-      updatedAt: string;
-    }>>;
+    taskSummaries: Record<
+      string,
+      {
+        taskId: string;
+        total: number;
+        open: number;
+        final: number;
+        escalated: number;
+        critical: number;
+        needsMyAttention: number;
+        latestStatus: ChangeRequestStatus | null;
+        latestUpdatedAt: string | null;
+        intensity: ChangeRequestImpactIntensity;
+        byStatus: Partial<Record<ChangeRequestStatus, number>>;
+        byImpactType: Partial<Record<ChangeRequestImpactType, number>>;
+        byPriority: Partial<Record<ChangeRequestPriority, number>>;
+      }
+    >;
+    itemsByTaskId?: Record<
+      string,
+      Array<{
+        id: string;
+        taskId: string;
+        title: string;
+        status: ChangeRequestStatus;
+        impactType: ChangeRequestImpactType | null;
+        priority: ChangeRequestPriority | null;
+        createdById: string;
+        escalatedToUserId: string | null;
+        updatedAt: string;
+      }>
+    >;
   };
 };
 ```
@@ -1156,3 +1244,303 @@ Frontend rendering notes:
 - Treat `attachments.find((attachment) => attachment.isActive)` as the current file.
 - Never assume more than one active attachment per document.
 - After create, update, delete, or create-from-deliverable, refetch the affected task/type list instead of mutating nested attachment state by hand.
+
+## Checklist Kanban API
+
+Checklist items are the Kanban cards for task execution boards. Tasks and subtasks still own checklist items and define the branch tree, but checklist card column placement comes from `TaskChecklistItem.statusId`.
+
+Checklist completion is binary:
+
+- `completed: true` means `progress: 100`.
+- `completed: false` means `progress: 0`.
+- Moving a checklist card into a Done status marks it complete.
+- Moving a checklist card out of Done marks it incomplete.
+- Branched checklist cards can enter Done only after every checklist item in the descendant task tree under `branchedTaskId` is complete.
+- A branched checklist card with no descendant checklist items is blocked from Done.
+- Task progress rollups do not automatically complete branched checklist cards.
+
+Board read endpoint:
+
+```http
+GET /projects/:projectId/checklist-kanban
+```
+
+Query params:
+
+| Param             | Type    | Notes                                                                       |
+| ----------------- | ------- | --------------------------------------------------------------------------- |
+| `taskId`          | UUID    | Optional root task filter; returns checklist items under that task subtree. |
+| `assigneeUserId`  | UUID    | Filter by owning task assignee.                                             |
+| `reporteeUserId`  | UUID    | Filter by owning task reportee.                                             |
+| `statusId`        | UUID    | Filter to one checklist Kanban column.                                      |
+| `includeDone`     | boolean | Defaults to `true`; pass `false` to hide Done statuses.                     |
+| `includeFlat`     | boolean | Defaults to `true`; pass `false` to show only branched cards.               |
+| `includeBranched` | boolean | Defaults to `true`; pass `false` to show only flat cards.                   |
+| `search`          | string  | Searches checklist text, checklist item code, and owning task title.        |
+| `page` / `limit`  | number  | Standard pagination. Default limit is `100`.                                |
+
+Response shape:
+
+```ts
+type ChecklistKanbanBoard = {
+  columns: ProjectStatus[];
+  cards: ChecklistKanbanCard[];
+  columnCounts: Record<string, number>;
+  meta: {
+    projectId: string;
+    taskId: string | null;
+    page: number;
+    limit: number;
+    count: number;
+    pages: number;
+    previousPage: number | null;
+    nextPage: number | null;
+  };
+};
+
+type ChecklistKanbanCard = {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  parentTaskId: string | null;
+  itemCode: string | null;
+  text: string;
+  statusId: string;
+  rank: string | null;
+  completed: boolean;
+  progress: 0 | 100;
+  branchStatus: string | null;
+  branchedTaskId: string | null;
+  branchedTaskTitle: string | null;
+  assignedMembers: Array<{
+    userId: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+    title: string | null;
+  }>;
+  reportee: {
+    userId: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+    title: string | null;
+  } | null;
+  createdByUserId: string;
+  canBranch: boolean;
+  canMove: boolean;
+  canUpdate: boolean;
+  canUpdateText: boolean;
+  canManageChecklist: boolean;
+};
+```
+
+Move endpoint:
+
+```http
+PATCH /projects/:projectId/tasks/:taskId/checklist/:itemId/move
+```
+
+```ts
+type MoveChecklistItemBody = {
+  statusId: string;
+  beforeItemId?: string;
+  afterItemId?: string;
+  reason?: string;
+};
+
+type MoveChecklistItemResponse = {
+  item: TaskChecklistItem;
+  task: {
+    id: string;
+    progress: number | null;
+    completed: boolean;
+    checklistSummary: {
+      total: number;
+      completed: number;
+    };
+  };
+  effects: {
+    previousStatusId: string;
+    nextStatusId: string;
+    previousCompleted: boolean;
+    nextCompleted: boolean;
+  };
+  changedItemIds: string[];
+  changedTaskIds: string[];
+};
+```
+
+Validate Done eligibility:
+
+```http
+POST /projects/:projectId/tasks/:taskId/checklist/:itemId/complete/validate
+```
+
+Success:
+
+```ts
+type ChecklistCompletionValidationResponse = {
+  allowed: true;
+  itemId: string;
+  branchedTaskId: string | null;
+};
+```
+
+Blocked branched Done responses:
+
+```ts
+type ChecklistDoneBlockedResponse = {
+  statusCode: 409;
+  code:
+    | 'CHECKLIST_DONE_BLOCKED_BY_DESCENDANT_WORK'
+    | 'CHECKLIST_DONE_BLOCKED_BY_EMPTY_BRANCH';
+  message: string;
+  details: {
+    branchedTaskId: string;
+    descendantTaskIds: string[];
+    checklistItemCount: number;
+    incompleteChecklistItemIds: string[];
+    incompleteChecklistItems: Array<{
+      id: string;
+      taskId: string;
+      title: string;
+      statusId: string | null;
+      branchedTaskId: string | null;
+    }>;
+  };
+};
+```
+
+Checklist permissions:
+
+- Task or ancestor task creators can add, update, delete, and group checklist items for that branch.
+- Project role permissions do not let an assignee add or delete checklist items on a task they did not create.
+- Task/ancestor creators and assignees can branch, move, validate completion, and update checklist items.
+- Reportees can update checklist item text only. They cannot branch, move, validate completion, mark complete/incomplete, change status, rank, group, or item code.
+- When an assignee branches a checklist item, they become the creator of the child task and therefore manage checklist items under that child branch.
+
+Use `PATCH .../checklist/:itemId/move` for drag/drop and status changes. The generic checklist update endpoint still accepts `completed` or `statusId` for compatibility, but those fields now run through the same checklist transition rules.
+
+## Task Progress Rollup API Updates
+
+Task list/detail serializers now expose progress policy hints:
+
+```ts
+type TaskProgressFields = {
+  progress: number | null;
+  rollupProgress: number | null;
+  completed: boolean;
+  completedAt: string | null;
+  completedByUserId: string | null;
+  childCount: number;
+  canEditProgress: boolean;
+  progressEditBlockedReason: 'HAS_CHILDREN' | 'COMPLETED' | 'FORBIDDEN' | null;
+};
+```
+
+Frontend behavior:
+
+- Parent task progress is aggregate-derived from direct subtasks. Do not render manual progress editing when `childCount > 0`.
+- Leaf task progress can be edited with `PATCH /projects/:projectId/tasks/:taskId/progress`.
+- Completed leaf tasks return `progress = 100`; completion should be read from `completed` or `status.isDone`, not guessed from progress alone.
+- Use `canEditProgress` and `progressEditBlockedReason` directly for disabled states in detail, Kanban, Gantt, dashboard, and bulk controls.
+
+Completion endpoint:
+
+```http
+POST /projects/:projectId/tasks/:taskId/complete
+```
+
+```ts
+type CompleteTaskBody = {
+  statusId?: string;
+  completionMode?:
+    | 'apply_status_policy'
+    | 'task_only'
+    | 'task_and_checklist'
+    | 'task_checklist_and_descendants'
+    | 'validate_only';
+  reason?: string;
+};
+```
+
+`completionMode: 'validate_only'` is side-effect free and returns:
+
+```ts
+type ValidateTaskCompletionResponse = {
+  allowed: true;
+  taskId: string;
+  statusId: string;
+  effects: {
+    checklistItemsCompleted: number;
+    descendantTasksCompleted: number;
+    rollupsRecalculated: boolean;
+  };
+  changedTaskIds: [];
+  warnings: string[];
+};
+```
+
+Blocked completion responses include both legacy ids and frontend-ready blocker rows:
+
+```ts
+type CompletionBlockedDetails = {
+  openChecklistItemIds: string[];
+  openChildTaskIds: string[];
+  openChecklistItems: Array<{
+    id: string;
+    title: string;
+    completed: boolean;
+  }>;
+  openChildTasks: Array<{
+    id: string;
+    title: string;
+    statusId: string | null;
+    progress: number | null;
+  }>;
+};
+```
+
+Reopen endpoint:
+
+```http
+POST /projects/:projectId/tasks/:taskId/reopen
+```
+
+```ts
+type ReopenTaskBody = {
+  statusId?: string;
+  progress?: number;
+  reason?: string;
+};
+
+type ReopenTaskResponse = {
+  task: TaskItem;
+  audit: {
+    previousStatusId: string;
+    nextStatusId: string;
+    previousProgress: number | null;
+    nextProgress: number | null;
+    reason: string | null;
+  };
+};
+```
+
+Bulk task updates now return partial outcomes:
+
+```ts
+type BulkUpdateTasksResponse = {
+  tasks: TaskItem[];
+  succeeded: string[];
+  failed: Array<{
+    taskId: string;
+    code: string;
+    message: string;
+    details?: unknown;
+  }>;
+  changedTaskIds: string[];
+};
+```
+
+Use `failed[].details` to render per-task blockers in bulk Done/progress flows, and refresh every task id in `changedTaskIds`.

@@ -1,6 +1,7 @@
 export * from './task.serializer';
 export * from './task-list-item.serializer';
 export * from './task-detail-modules.serializer';
+export * from './checklist-kanban.serializer';
 export * from './task-document.serializer';
 export * from './change-request.serializer';
 export * from './task-material.serializer';

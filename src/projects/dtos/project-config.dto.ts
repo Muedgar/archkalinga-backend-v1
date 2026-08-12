@@ -13,12 +13,13 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { StatusCategory } from 'src/tasks/project-config';
+import { CompletionPolicy, StatusCategory } from 'src/tasks/project-config';
 
 // ── Shared validators ─────────────────────────────────────────────────────────
 
 const KEY_REGEX = /^[a-z0-9_]+$/;
-const KEY_MESSAGE = 'key must contain only lowercase letters, digits, or underscores';
+const KEY_MESSAGE =
+  'key must contain only lowercase letters, digits, or underscores';
 
 // ── Status DTOs ───────────────────────────────────────────────────────────────
 
@@ -53,9 +54,11 @@ export class CreateProjectStatusDto {
   @Min(1)
   wipLimit?: number | null;
 
-  @ApiPropertyOptional({ enum: StatusCategory, default: StatusCategory.IN_PROGRESS })
+  @ApiPropertyOptional({ enum: StatusCategory, default: StatusCategory.ACTIVE })
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase() : value))
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.toLowerCase() : value,
+  )
   @IsIn(Object.values(StatusCategory))
   category?: StatusCategory;
 
@@ -68,6 +71,22 @@ export class CreateProjectStatusDto {
   @IsOptional()
   @IsBoolean()
   isTerminal?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  isDone?: boolean;
+
+  @ApiPropertyOptional({
+    enum: CompletionPolicy,
+    default: CompletionPolicy.NONE,
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.toLowerCase() : value,
+  )
+  @IsIn(Object.values(CompletionPolicy))
+  completionPolicy?: CompletionPolicy;
 }
 
 export class UpdateProjectStatusDto {
@@ -97,7 +116,9 @@ export class UpdateProjectStatusDto {
 
   @ApiPropertyOptional({ enum: StatusCategory })
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase() : value))
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.toLowerCase() : value,
+  )
   @IsIn(Object.values(StatusCategory))
   category?: StatusCategory;
 
@@ -110,6 +131,19 @@ export class UpdateProjectStatusDto {
   @IsOptional()
   @IsBoolean()
   isTerminal?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isDone?: boolean;
+
+  @ApiPropertyOptional({ enum: CompletionPolicy })
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.toLowerCase() : value,
+  )
+  @IsIn(Object.values(CompletionPolicy))
+  completionPolicy?: CompletionPolicy;
 
   @ApiPropertyOptional()
   @IsOptional()
