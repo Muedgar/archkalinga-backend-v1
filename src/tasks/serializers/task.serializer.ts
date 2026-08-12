@@ -39,7 +39,21 @@ class TaskReporteeSerializer extends BaseSerializer {
   projectRole: TaskProjectRoleSnippet | null;
 }
 
+class TaskChecklistStatusSnippet extends BaseSerializer {
+  @Expose() declare id: string;
+  @Expose() name: string;
+  @Expose() key: string;
+  @Expose() color: string;
+  @Expose() category: string;
+  @Expose() isDone: boolean;
+}
+
 class TaskChecklistItemSerializer extends BaseSerializer {
+  @Expose() statusId: string;
+  @Expose()
+  @Transform(({ obj }) => obj?.status ?? null)
+  @Type(() => TaskChecklistStatusSnippet)
+  status: TaskChecklistStatusSnippet | null;
   @Expose() itemCode: string | null;
   @Expose() branchedTaskId: string | null;
   @Expose() branchStatus: string;
@@ -47,7 +61,11 @@ class TaskChecklistItemSerializer extends BaseSerializer {
   @Expose() branchedAt: Date | null;
   @Expose() text: string;
   @Expose() completed: boolean;
+  @Expose()
+  @Transform(({ obj }) => (obj?.completed ? 100 : 0))
+  progress: 0 | 100;
   @Expose() orderIndex: number;
+  @Expose() rank: string | null;
   @Expose() completedByUserId: string | null;
   @Expose() completedAt: Date | null;
 }
@@ -76,6 +94,13 @@ class ConfigSnippet extends BaseSerializer {
 class StatusSnippet extends ConfigSnippet {
   @Expose() category: string;
   @Expose() isTerminal: boolean;
+  @Expose() isDone: boolean;
+  @Expose() completionPolicy: string;
+}
+
+class ChecklistSummarySerializer {
+  @Expose() total: number;
+  @Expose() completed: number;
 }
 
 class TaskActivityScheduleSerializer extends BaseSerializer {
@@ -144,7 +169,12 @@ export class TaskSerializer extends BaseSerializer {
   @Expose() startDate: string | null;
   @Expose() endDate: string | null;
   @Expose() progress: number | null;
+  @Expose() rollupProgress: number | null;
+  @Expose() canEditProgress: boolean;
+  @Expose() progressEditBlockedReason: string | null;
   @Expose() completed: boolean;
+  @Expose() completedAt: Date | null;
+  @Expose() completedByUserId: string | null;
   @Expose() scheduleType: string;
   @Expose() wbsCode: string | null;
   @Expose() wbsSortKey: string | null;
@@ -190,6 +220,11 @@ export class TaskSerializer extends BaseSerializer {
   @Expose()
   @Type(() => TaskReporteeSerializer)
   reportee: TaskReporteeSerializer | null;
+
+  @Expose()
+  @Transform(({ obj }) => obj?.checklistSummary ?? { total: 0, completed: 0 })
+  @Type(() => ChecklistSummarySerializer)
+  checklistSummary: ChecklistSummarySerializer;
 
   @Expose()
   @Transform(({ obj }) =>

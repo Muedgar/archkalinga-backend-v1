@@ -192,6 +192,7 @@ export class ProjectsService {
         projectIds: uniqueProjectIds,
       })
       .andWhere('task.deletedAt IS NULL')
+      .andWhere('task.parentTaskId IS NULL')
       .groupBy('task.projectId')
       .getRawMany<{ projectId: string; progress: string | number | null }>();
 
@@ -1077,24 +1078,18 @@ export class ProjectsService {
       orderBy,
       sortOrder,
     } = filters;
-    const isAdmin = this.isWorkspaceAdmin(workspaceMember);
-
     const qb = this.projectRepo
       .createQueryBuilder('p')
       .leftJoinAndSelect('p.template', 'tpl')
-      .where('p.workspaceId = :workspaceId', { workspaceId });
-
-    if (!isAdmin) {
-      // Any active member can see the project in their list regardless of role.
-      qb.innerJoin(
+      .innerJoin(
         'p.memberships',
         'access_mem',
         'access_mem.userId = :userId AND access_mem.status = :memberStatus',
         { userId, memberStatus: MembershipStatus.ACTIVE },
-      );
-      qb.innerJoin('access_mem.projectRole', 'access_role');
-      qb.andWhere('access_role.status = true');
-    }
+      )
+      .innerJoin('access_mem.projectRole', 'access_role')
+      .where('p.workspaceId = :workspaceId', { workspaceId })
+      .andWhere('access_role.status = true');
 
     if (type) qb.andWhere('p.type = :type', { type });
     if (status) qb.andWhere('p.status = :status', { status });

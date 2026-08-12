@@ -522,7 +522,7 @@ export class TaskDashboardSummaryService {
 
     return this.progressSvc.calculateTaskProgress(
       root,
-      new Map([[root.id, root.checklistItems ?? []]]),
+      new Map([[root.id, root.children ?? []]]),
       childProgressByTaskId,
     );
   }

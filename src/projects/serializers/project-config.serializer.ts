@@ -13,6 +13,8 @@ export class ProjectStatusSerializer extends BaseSerializer {
   @Expose() category: string;
   @Expose() isDefault: boolean;
   @Expose() isTerminal: boolean;
+  @Expose() isDone: boolean;
+  @Expose() completionPolicy: string;
   @Expose() isActive: boolean;
   @Expose() declare createdAt: Date;
   @Expose() declare updatedAt: Date;

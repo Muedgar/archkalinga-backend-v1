@@ -96,6 +96,16 @@ export class Task extends AppBaseEntity {
   @Column({ type: 'boolean', default: false })
   completed: boolean;
 
+  @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt: Date | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'completed_by_user_id', referencedColumnName: 'id' })
+  completedByUser: User | null;
+
+  @Column({ name: 'completed_by_user_id', type: 'uuid', nullable: true })
+  completedByUserId: string | null;
+
   // ── Schedule identity / WBS ────────────────────────────────────────────────
   @Column({
     type: 'enum',

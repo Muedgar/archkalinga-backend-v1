@@ -37,6 +37,8 @@ import {
   BranchChecklistItemDto,
   BulkTaskViewMetadataDto,
   BulkUpdateTasksDto,
+  ChecklistKanbanQueryDto,
+  CompleteTaskDto,
   CreateStarterFromDeliverableDto,
   CreateChangeRequestDto,
   CreateChangeRequestMessageDto,
@@ -52,9 +54,11 @@ import {
   CreateTaskDto,
   MaterialsReportFiltersDto,
   MaterialsReportImportDto,
+  MoveChecklistItemDto,
   MoveTaskDto,
   RecalculateActivityScheduleDto,
   ReopenChangeRequestDto,
+  ReopenTaskDto,
   ResourceReportFiltersDto,
   ResourceReportImportDto,
   SupersedeTaskDto,
@@ -80,6 +84,7 @@ import {
   UpdateChecklistItemDto,
   UpdateCommentDto,
   UpdateDependencyDto,
+  UpdateTaskProgressDto,
   UpsertProjectCalendarDto,
   UpdateTaskDto,
   EscalateChangeRequestDto,
@@ -200,6 +205,51 @@ export class TasksService {
     requestUser: RequestUser,
   ) {
     return this.crudSvc.moveTask(
+      projectId,
+      taskId,
+      dto,
+      requestUser,
+      (p, id, u, m) => this.getTask(p, id, u, m),
+    );
+  }
+
+  async completeTask(
+    projectId: string,
+    taskId: string,
+    dto: CompleteTaskDto,
+    requestUser: RequestUser,
+  ) {
+    return this.crudSvc.completeTask(
+      projectId,
+      taskId,
+      dto,
+      requestUser,
+      (p, id, u, m) => this.getTask(p, id, u, m),
+    );
+  }
+
+  async reopenTask(
+    projectId: string,
+    taskId: string,
+    dto: ReopenTaskDto,
+    requestUser: RequestUser,
+  ) {
+    return this.crudSvc.reopenTask(
+      projectId,
+      taskId,
+      dto,
+      requestUser,
+      (p, id, u, m) => this.getTask(p, id, u, m),
+    );
+  }
+
+  async updateTaskProgress(
+    projectId: string,
+    taskId: string,
+    dto: UpdateTaskProgressDto,
+    requestUser: RequestUser,
+  ) {
+    return this.crudSvc.updateTaskProgress(
       projectId,
       taskId,
       dto,
@@ -385,6 +435,20 @@ export class TasksService {
     return this.querySvc.getProjectTasks(
       projectId,
       filters,
+      requestUser,
+      prefetchedMembership,
+    );
+  }
+
+  async getChecklistKanban(
+    projectId: string,
+    query: ChecklistKanbanQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    return this.querySvc.getChecklistKanban(
+      projectId,
+      query,
       requestUser,
       prefetchedMembership,
     );
@@ -1147,6 +1211,18 @@ export class TasksService {
     return this.userRepo.findOneOrFail({ where: { id: requestUser.id } });
   }
 
+  private isChecklistTextOnlyUpdate(dto: UpdateChecklistItemDto): boolean {
+    return (
+      dto.text !== undefined &&
+      dto.completed === undefined &&
+      dto.orderIndex === undefined &&
+      dto.statusId === undefined &&
+      dto.rank === undefined &&
+      dto.checklistGroupId === undefined &&
+      dto.itemCode === undefined
+    );
+  }
+
   // ── Change requests ──────────────────────────────────────────────────────
 
   async getTaskChangeRequestImpactMap(
@@ -1655,15 +1731,12 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
+      'view',
     );
-    await this.authSvc.assertTaskSubresourceMutationAllowed({
+    await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
       projectId,
       taskId,
       requestUser,
-      resource: 'checklist',
-      action: 'update',
-      membership,
     });
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
@@ -1682,24 +1755,14 @@ export class TasksService {
     dto: UpdateChecklistItemDto,
     requestUser: RequestUser,
   ) {
-    const { membership } = await this.authSvc.verifyProjectPermission(
-      projectId,
-      requestUser,
-      'update',
-    );
-    await this.authSvc.assertTaskSubresourceMutationAllowed({
+    await this.authSvc.assertTaskChecklistUpdateAllowed({
       projectId,
       taskId,
       requestUser,
-      resource: 'checklist',
-      action: 'update',
-      membership,
+      textOnly: this.isChecklistTextOnlyUpdate(dto),
     });
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
-        requestUser,
-        membership,
-      }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId),
       this.actor(requestUser),
     ]);
     return this.checklistSvc.updateItem(
@@ -1718,27 +1781,50 @@ export class TasksService {
     dto: BranchChecklistItemDto,
     requestUser: RequestUser,
   ) {
-    const { membership } = await this.authSvc.verifyProjectPermission(
-      projectId,
-      requestUser,
-      'update',
-    );
-    await this.authSvc.assertTaskSubresourceMutationAllowed({
+    await this.authSvc.assertTaskChecklistBranchAllowed({
       projectId,
       taskId,
       requestUser,
-      resource: 'checklist',
-      action: 'update',
-      membership,
     });
     const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId, {
-        requestUser,
-        membership,
-      }),
+      this.authSvc.ensureTaskForSubresource(projectId, taskId),
       this.actor(requestUser),
     ]);
     return this.checklistSvc.branchItem(task, itemId, actorUser, dto);
+  }
+
+  async moveChecklistItem(
+    projectId: string,
+    taskId: string,
+    itemId: string,
+    dto: MoveChecklistItemDto,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.assertTaskChecklistExecutionAllowed({
+      projectId,
+      taskId,
+      requestUser,
+    });
+    const [task, actorUser] = await Promise.all([
+      this.authSvc.ensureTaskForSubresource(projectId, taskId),
+      this.actor(requestUser),
+    ]);
+    return this.checklistSvc.moveItem(task, itemId, actorUser, dto);
+  }
+
+  async validateChecklistItemCompletion(
+    projectId: string,
+    taskId: string,
+    itemId: string,
+    requestUser: RequestUser,
+  ) {
+    await this.authSvc.assertTaskChecklistExecutionAllowed({
+      projectId,
+      taskId,
+      requestUser,
+    });
+    const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
+    return this.checklistSvc.validateItemCompletion(task, itemId);
   }
 
   async deleteChecklistItem(
@@ -1750,15 +1836,12 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
+      'view',
     );
-    await this.authSvc.assertTaskSubresourceMutationAllowed({
+    await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
       projectId,
       taskId,
       requestUser,
-      resource: 'checklist',
-      action: 'delete',
-      membership,
     });
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
@@ -1864,15 +1947,12 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
+      'view',
     );
-    await this.authSvc.assertTaskSubresourceMutationAllowed({
+    await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
       projectId,
       taskId,
       requestUser,
-      resource: 'checklist',
-      action: 'create',
-      membership,
     });
     const task = await this.authSvc.ensureTaskForSubresource(
       projectId,
@@ -1895,15 +1975,12 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
+      'view',
     );
-    await this.authSvc.assertTaskSubresourceMutationAllowed({
+    await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
       projectId,
       taskId,
       requestUser,
-      resource: 'checklist',
-      action: 'update',
-      membership,
     });
     await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
       requestUser,
@@ -1921,15 +1998,12 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
+      'view',
     );
-    await this.authSvc.assertTaskSubresourceMutationAllowed({
+    await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
       projectId,
       taskId,
       requestUser,
-      resource: 'checklist',
-      action: 'delete',
-      membership,
     });
     await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
       requestUser,

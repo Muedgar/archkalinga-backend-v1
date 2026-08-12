@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
@@ -10,9 +12,12 @@ import { ProjectMembership } from 'src/projects/entities';
 import { User } from 'src/users/entities';
 import {
   BulkUpdateTasksDto,
+  CompleteTaskDto,
   CreateTaskDto,
   MoveTaskDto,
+  ReopenTaskDto,
   SupersedeTaskDto,
+  UpdateTaskProgressDto,
   UpdateTaskDto,
 } from '../dtos';
 import {
@@ -34,6 +39,8 @@ import {
 } from '../project-config';
 import {
   INVALID_TASK_SUPERSESSION,
+  INVALID_DONE_STATUS,
+  INVALID_REOPEN_STATUS,
   TASK_ALREADY_SUPERSEDED,
   TASK_NOT_FOUND,
   TASK_REPLACEMENT_ALREADY_USED,
@@ -41,17 +48,68 @@ import {
 import { TaskListItemSerializer, TaskSerializer } from '../serializers';
 import { TaskActivityService } from './task-activity.service';
 import { TaskAuthService } from './task-auth.service';
+import { TaskCompletionTransitionService } from './task-completion-transition.service';
 import { TaskMembersService } from './task-members.service';
 import { TaskRankingService } from './task-ranking.service';
 import { TaskRelationsService } from './task-relations.service';
 import { ScheduleCalculationService } from './schedule-calculation.service';
 import { TaskProgressService } from './task-progress.service';
 import { TaskWbsService } from './task-wbs.service';
+import { TaskCompletionMode } from '../types/task-completion-mode.type';
 
 type NormalizedTaskDependencyInput = {
   dependsOnTaskId: string;
   dependencyType: DependencyType;
   lagDays: number;
+};
+
+type CompleteTaskResponse = {
+  task: TaskSerializer;
+  effects: {
+    checklistItemsCompleted: number;
+    descendantTasksCompleted: number;
+    rollupsRecalculated: boolean;
+  };
+  changedTaskIds: string[];
+  warnings: string[];
+};
+
+type ValidateTaskCompletionResponse = {
+  allowed: true;
+  taskId: string;
+  statusId: string;
+  effects: {
+    checklistItemsCompleted: number;
+    descendantTasksCompleted: number;
+    rollupsRecalculated: boolean;
+  };
+  changedTaskIds: [];
+  warnings: string[];
+};
+
+type ReopenTaskResponse = {
+  task: TaskSerializer;
+  audit: {
+    previousStatusId: string;
+    nextStatusId: string;
+    previousProgress: number | null;
+    nextProgress: number | null;
+    reason: string | null;
+  };
+};
+
+type BulkTaskUpdateFailure = {
+  taskId: string;
+  code: string;
+  message: string;
+  details?: unknown;
+};
+
+type BulkTaskUpdateResponse = {
+  tasks: TaskListItemSerializer[];
+  succeeded: string[];
+  failed: BulkTaskUpdateFailure[];
+  changedTaskIds: string[];
 };
 
 @Injectable()
@@ -85,6 +143,7 @@ export class TaskCrudService {
     private readonly scheduleCalculationSvc: ScheduleCalculationService,
     private readonly progressSvc: TaskProgressService,
     private readonly wbsSvc: TaskWbsService,
+    private readonly transitionSvc: TaskCompletionTransitionService,
   ) {}
 
   async createTask(
@@ -98,12 +157,6 @@ export class TaskCrudService {
       membership?: ProjectMembership | null,
     ) => Promise<TaskSerializer>,
   ): Promise<TaskSerializer> {
-    if (dto.progress !== undefined) {
-      throw new BadRequestException(
-        'Task progress is automatically derived from checklist completion',
-      );
-    }
-
     const { project, membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
@@ -157,6 +210,7 @@ export class TaskCrudService {
       throw new BadRequestException(
         'Project has no default task type. Provide taskTypeId.',
       );
+    this.assertCompletedParentCanReceiveChild(parent, defaultStatus);
 
     const savedTask = await this.taskRepo.manager.transaction(async (tx) => {
       await this.authSvc.assertWipLimit(tx, defaultStatus.id, projectId);
@@ -200,8 +254,8 @@ export class TaskCrudService {
         description: dto.description ?? null,
         startDate: dto.startDate ?? null,
         endDate: dto.endDate ?? null,
-        progress: 0,
-        completed: defaultStatus.isTerminal,
+        progress: dto.progress ?? 0,
+        completed: false,
         scheduleType: dto.scheduleType ?? ScheduleType.TASK,
         wbsCode: initialWbs.wbsCode,
         wbsSortKey: initialWbs.wbsSortKey,
@@ -244,6 +298,8 @@ export class TaskCrudService {
               taskId: saved.id,
               text: item.text.trim(),
               orderIndex: item.orderIndex,
+              statusId: item.statusId ?? defaultStatus.id,
+              rank: item.rank?.trim() || null,
               itemCode: item.itemCode?.trim() || null,
             }),
           ),
@@ -265,6 +321,14 @@ export class TaskCrudService {
       }
 
       await this.relationsSvc.upsertViewMetadata(tx, saved, dto.viewMeta);
+      if (defaultStatus.isDone === true) {
+        await this.transitionSvc.applyTransition(tx, {
+          projectId,
+          task: saved,
+          targetStatus: defaultStatus,
+          actorUser,
+        });
+      }
       await this.activitySvc.log(
         tx,
         { ...saved, project },
@@ -298,12 +362,6 @@ export class TaskCrudService {
       membership?: ProjectMembership | null,
     ) => Promise<TaskSerializer>,
   ): Promise<TaskSerializer> {
-    if (dto.progress !== undefined) {
-      throw new BadRequestException(
-        'Task progress is automatically derived from checklist completion',
-      );
-    }
-
     // Wave 1: fire all independent queries simultaneously.
     //
     // - verifyProjectPermission: 2 parallel queries internally (project + membership)
@@ -329,7 +387,7 @@ export class TaskCrudService {
       this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
       this.taskRepo.findOne({
         where: { id: taskId, projectId, deletedAt: IsNull() },
-        relations: ['project'], // ManyToOne only — no Cartesian product
+        relations: ['project', 'status'], // ManyToOne only — no Cartesian product
       }),
       dto.reportee !== undefined
         ? this.membersSvc.ensureReporteeMember(projectId, dto.reportee)
@@ -344,12 +402,24 @@ export class TaskCrudService {
       dto.statusId
         ? this.projectStatusRepo.findOne({
             where: { id: dto.statusId, projectId },
-            select: ['id', 'isTerminal'],
           })
         : Promise.resolve(null),
     ]);
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
+    const targetStatus = dto.statusId ? newStatus : task.status;
+    if ((dto.statusId || dto.progress !== undefined) && !targetStatus) {
+      throw new BadRequestException(
+        'Target status is invalid for this project',
+      );
+    }
     await this.assertScheduleMutationAllowedForTaskUpdate(
+      projectId,
+      task.id,
+      dto,
+      requestUser,
+      membership,
+    );
+    await this.assertChecklistMutationAllowedForTaskUpdate(
       projectId,
       task.id,
       dto,
@@ -389,11 +459,17 @@ export class TaskCrudService {
       task.description = dto.description ?? null;
       changedFields.push('description');
     }
-    if (dto.statusId !== undefined) {
-      task.statusId = dto.statusId ?? task.statusId;
+    if (dto.statusId != null && dto.statusId !== task.statusId) {
       changedFields.push('statusId');
-      // newStatus was pre-loaded in wave 1 — no extra query needed here
-      if (newStatus) task.completed = newStatus.isTerminal;
+    }
+    if (dto.progress !== undefined) {
+      changedFields.push('progress');
+      await this.assertLeafProgressMutationAllowed(projectId, task.id);
+      if (task.completed && dto.progress !== 100) {
+        throw new BadRequestException(
+          'Completed leaf tasks must keep progress at 100',
+        );
+      }
     }
     if (dto.priorityId !== undefined) {
       task.priorityId = dto.priorityId ?? null;
@@ -447,8 +523,8 @@ export class TaskCrudService {
     }
 
     await this.taskRepo.manager.transaction(async (tx) => {
-      if (dto.statusId && task.statusId !== originalStatusId) {
-        await this.authSvc.assertWipLimit(tx, task.statusId, projectId);
+      if (dto.statusId && dto.statusId !== originalStatusId) {
+        await this.authSvc.assertWipLimit(tx, dto.statusId, projectId);
       }
       if (hasWbsChange) {
         await this.wbsSvc.applyTaskAssignment(
@@ -508,6 +584,8 @@ export class TaskCrudService {
                 taskId: task.id,
                 text: item.text.trim(),
                 orderIndex: item.orderIndex,
+                statusId: item.statusId ?? task.statusId,
+                rank: item.rank?.trim() || null,
                 itemCode: item.itemCode?.trim() || null,
               }),
             ),
@@ -608,14 +686,33 @@ export class TaskCrudService {
         changedFields.push('viewMeta');
       }
 
+      const shouldApplyTransition =
+        (dto.statusId != null && dto.statusId !== originalStatusId) ||
+        dto.progress !== undefined;
+      const transitionResult = shouldApplyTransition
+        ? await this.transitionSvc.applyTransition(tx, {
+            projectId,
+            task,
+            targetStatus: targetStatus!,
+            actorUser,
+            progress: dto.progress,
+          })
+        : null;
+      if (transitionResult?.effects.rollupsRecalculated) {
+        await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
+      }
+
       await this.activitySvc.log(
         tx,
         task,
         actorUser,
         TaskActionType.TASK_UPDATED,
-        { changedFields },
+        {
+          changedFields,
+          transitionEffects: transitionResult?.effects ?? null,
+          changedTaskIds: transitionResult?.changedTaskIds ?? [task.id],
+        },
       );
-      await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
     });
 
     await this.recalculateProjectSchedule(projectId, task.id, 'task-update');
@@ -684,6 +781,44 @@ export class TaskCrudService {
       dto.isManuallyScheduled !== undefined ||
       dto.manualScheduleReason !== undefined
     );
+  }
+
+  private async assertChecklistMutationAllowedForTaskUpdate(
+    projectId: string,
+    taskId: string,
+    dto: UpdateTaskDto,
+    requestUser: RequestUser,
+    _membership: ProjectMembership | null,
+  ): Promise<void> {
+    if (dto.checklistItems === undefined) return;
+
+    await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+      projectId,
+      taskId,
+      requestUser,
+    });
+  }
+
+  private async loadSingleActiveDoneStatus(
+    projectId: string,
+  ): Promise<ProjectStatus | null> {
+    const doneStatuses = await this.projectStatusRepo.find({
+      where: { projectId, isDone: true, isActive: true },
+    });
+    return doneStatuses.length === 1 ? doneStatuses[0] : null;
+  }
+
+  private async loadDefaultReopenStatus(
+    projectId: string,
+  ): Promise<ProjectStatus | null> {
+    return this.projectStatusRepo
+      .createQueryBuilder('status')
+      .where('status.projectId = :projectId', { projectId })
+      .andWhere('status.isActive = true')
+      .andWhere('status.isDone = false')
+      .orderBy('status.isDefault', 'DESC')
+      .addOrderBy('status.orderIndex', 'ASC')
+      .getOne();
   }
 
   private async assertTeamMutationAllowedForTaskUpdate(
@@ -765,7 +900,70 @@ export class TaskCrudService {
         membership,
       });
     }
+  }
 
+  private async assertLeafProgressMutationAllowed(
+    projectId: string,
+    taskId: string,
+  ): Promise<void> {
+    const childCount = await this.taskRepo.count({
+      where: { projectId, parentTaskId: taskId, deletedAt: IsNull() },
+    });
+    if (childCount > 0) {
+      throw new BadRequestException(
+        'Parent task progress is automatically derived from subtasks',
+      );
+    }
+  }
+
+  private assertCompletedParentCanReceiveChild(
+    parent: Task | null | undefined,
+    childStatus: ProjectStatus,
+  ): void {
+    if (parent?.completed && childStatus.isDone !== true) {
+      throw new BadRequestException(
+        'Cannot add an incomplete subtask to a completed parent task',
+      );
+    }
+  }
+
+  private toBulkTaskUpdateFailure(
+    taskId: string,
+    error: unknown,
+  ): BulkTaskUpdateFailure {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === 'string') {
+        return {
+          taskId,
+          code: error.name,
+          message: response,
+        };
+      }
+
+      const body = response as {
+        code?: string;
+        message?: string | string[];
+        details?: unknown;
+        error?: string;
+      };
+      const message = Array.isArray(body.message)
+        ? body.message.join(', ')
+        : (body.message ?? body.error ?? error.message);
+
+      return {
+        taskId,
+        code: body.code ?? error.name,
+        message,
+        ...(body.details !== undefined ? { details: body.details } : {}),
+      };
+    }
+
+    return {
+      taskId,
+      code: 'BULK_TASK_UPDATE_FAILED',
+      message: error instanceof Error ? error.message : 'Task update failed',
+    };
   }
 
   private async recalculateProjectSchedule(
@@ -796,6 +994,8 @@ export class TaskCrudService {
         taskId: parent.id,
         text: subtask.title,
         orderIndex,
+        statusId: parent.statusId,
+        rank: null,
         completed: false,
         completedByUserId: null,
         completedAt: null,
@@ -949,7 +1149,7 @@ export class TaskCrudService {
       this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
       this.taskRepo.findOne({
         where: { id: taskId, projectId, deletedAt: IsNull() },
-        relations: ['project'],
+        relations: ['project', 'status'],
       }),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
     ]);
@@ -966,6 +1166,17 @@ export class TaskCrudService {
         : task.parentTaskId;
     const nextStatusId: string =
       dto.statusId != null ? dto.statusId : task.statusId;
+    const targetStatus =
+      nextStatusId === task.statusId && task.status
+        ? task.status
+        : await this.projectStatusRepo.findOne({
+            where: { id: nextStatusId, projectId },
+          });
+    if (!targetStatus) {
+      throw new BadRequestException(
+        'Target status is invalid for this project',
+      );
+    }
 
     await this.rankingSvc.assertNotDescendant(
       projectId,
@@ -976,8 +1187,26 @@ export class TaskCrudService {
       projectId,
       nextParentTaskId,
     );
+    this.assertCompletedParentCanReceiveChild(parent, targetStatus);
 
     await this.taskRepo.manager.transaction(async (tx) => {
+      if (dto.statusId && dto.statusId !== task.statusId) {
+        await this.authSvc.assertWipLimit(tx, dto.statusId, projectId);
+      }
+
+      if (dto.completionMode === TaskCompletionMode.VALIDATE_ONLY) {
+        await this.transitionSvc.applyTransition(tx, {
+          projectId,
+          task,
+          targetStatus,
+          actorUser,
+          completionMode: dto.completionMode,
+          progress: dto.progress,
+          reason: dto.reason,
+        });
+        return;
+      }
+
       const destinationScope = this.rankingSvc.buildScope(
         projectId,
         parent?.id ?? null,
@@ -993,16 +1222,37 @@ export class TaskCrudService {
 
       task.parent = parent ?? null;
       task.parentTaskId = parent?.id ?? null;
-      task.statusId = nextStatusId;
       task.rank = nextRank;
 
-      await tx.save(task);
+      const shouldApplyTransition =
+        task.statusId !== nextStatusId ||
+        dto.progress !== undefined ||
+        dto.completionMode !== undefined;
+      const transitionResult = shouldApplyTransition
+        ? await this.transitionSvc.applyTransition(tx, {
+            projectId,
+            task,
+            targetStatus,
+            actorUser,
+            completionMode: dto.completionMode,
+            progress: dto.progress,
+            reason: dto.reason,
+          })
+        : null;
+
+      if (!shouldApplyTransition) {
+        task.statusId = nextStatusId;
+        await tx.save(task);
+      }
+      const movedAcrossScope =
+        sourceScope.parentTaskId !== destinationScope.parentTaskId ||
+        sourceScope.statusId !== destinationScope.statusId;
+      if (movedAcrossScope || transitionResult?.effects.rollupsRecalculated) {
+        await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
+      }
       await this.rankingSvc.rebalanceScopeRanks(tx, destinationScope);
 
-      if (
-        sourceScope.parentTaskId !== destinationScope.parentTaskId ||
-        sourceScope.statusId !== destinationScope.statusId
-      ) {
+      if (movedAcrossScope) {
         await this.rankingSvc.rebalanceScopeRanks(tx, sourceScope);
       }
 
@@ -1018,11 +1268,314 @@ export class TaskCrudService {
           parentTaskId: task.parentTaskId,
           statusId: task.statusId,
           rank: task.rank,
+          completionMode: dto.completionMode ?? null,
+          transitionEffects: transitionResult?.effects ?? null,
+          changedTaskIds: transitionResult?.changedTaskIds ?? [task.id],
         },
       );
     });
 
     return getTask(projectId, task.id, requestUser, membership);
+  }
+
+  async completeTask(
+    projectId: string,
+    taskId: string,
+    dto: CompleteTaskDto,
+    requestUser: RequestUser,
+    getTask: (
+      projectId: string,
+      taskId: string,
+      requestUser: RequestUser,
+      membership?: ProjectMembership | null,
+    ) => Promise<TaskSerializer>,
+  ): Promise<CompleteTaskResponse | ValidateTaskCompletionResponse> {
+    const [{ membership }, task, actorUser, targetStatus] = await Promise.all([
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+      this.taskRepo.findOne({
+        where: { id: taskId, projectId, deletedAt: IsNull() },
+        relations: ['project', 'status'],
+      }),
+      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
+      dto.statusId
+        ? this.projectStatusRepo.findOne({
+            where: { id: dto.statusId, projectId },
+          })
+        : this.loadSingleActiveDoneStatus(projectId),
+    ]);
+    if (!task) throw new NotFoundException(TASK_NOT_FOUND);
+    if (!targetStatus) {
+      throw new BadRequestException(
+        'Project must have exactly one active Done status or provide statusId.',
+      );
+    }
+    if (targetStatus.isDone !== true) {
+      throw new UnprocessableEntityException({
+        message: INVALID_DONE_STATUS,
+        code: 'INVALID_DONE_STATUS',
+        details: { statusId: targetStatus.id },
+      });
+    }
+
+    if (dto.completionMode === TaskCompletionMode.VALIDATE_ONLY) {
+      if (task.statusId !== targetStatus.id) {
+        await this.authSvc.assertWipLimit(
+          this.taskRepo.manager,
+          targetStatus.id,
+          projectId,
+        );
+      }
+
+      const validationResult = await this.transitionSvc.applyTransition(
+        this.taskRepo.manager,
+        {
+          projectId,
+          task,
+          targetStatus,
+          actorUser,
+          completionMode: TaskCompletionMode.VALIDATE_ONLY,
+          reason: dto.reason,
+        },
+      );
+
+      return {
+        allowed: true,
+        taskId: task.id,
+        statusId: targetStatus.id,
+        effects: validationResult.effects,
+        changedTaskIds: [],
+        warnings: validationResult.warnings,
+      };
+    }
+
+    const alreadyCompleteInTargetDone =
+      task.completed === true &&
+      task.status?.isDone === true &&
+      task.statusId === targetStatus.id;
+    if (alreadyCompleteInTargetDone) {
+      return {
+        task: await getTask(projectId, task.id, requestUser, membership),
+        effects: {
+          checklistItemsCompleted: 0,
+          descendantTasksCompleted: 0,
+          rollupsRecalculated: false,
+        },
+        changedTaskIds: [],
+        warnings: [],
+      };
+    }
+
+    let transitionResult: Awaited<
+      ReturnType<TaskCompletionTransitionService['applyTransition']>
+    >;
+    await this.taskRepo.manager.transaction(async (tx) => {
+      const previousStatusId = task.statusId;
+      if (task.statusId !== targetStatus.id) {
+        await this.authSvc.assertWipLimit(tx, targetStatus.id, projectId);
+      }
+
+      transitionResult = await this.transitionSvc.applyTransition(tx, {
+        projectId,
+        task,
+        targetStatus,
+        actorUser,
+        completionMode: dto.completionMode,
+        reason: dto.reason,
+      });
+      if (transitionResult.effects.rollupsRecalculated) {
+        await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
+      }
+
+      await this.activitySvc.log(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_COMPLETED,
+        {
+          previousStatusId,
+          nextStatusId: targetStatus.id,
+          completionMode: dto.completionMode ?? null,
+          reason: dto.reason ?? null,
+          transitionEffects: transitionResult.effects,
+          changedTaskIds: transitionResult.changedTaskIds,
+        },
+      );
+    });
+
+    return {
+      task: await getTask(projectId, task.id, requestUser, membership),
+      effects: transitionResult!.effects,
+      changedTaskIds: transitionResult!.changedTaskIds,
+      warnings: transitionResult!.warnings,
+    };
+  }
+
+  async reopenTask(
+    projectId: string,
+    taskId: string,
+    dto: ReopenTaskDto,
+    requestUser: RequestUser,
+    getTask: (
+      projectId: string,
+      taskId: string,
+      requestUser: RequestUser,
+      membership?: ProjectMembership | null,
+    ) => Promise<TaskSerializer>,
+  ): Promise<ReopenTaskResponse> {
+    const [{ membership }, task, actorUser, targetStatus] = await Promise.all([
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+      this.taskRepo.findOne({
+        where: { id: taskId, projectId, deletedAt: IsNull() },
+        relations: ['project', 'status'],
+      }),
+      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
+      dto.statusId
+        ? this.projectStatusRepo.findOne({
+            where: { id: dto.statusId, projectId },
+          })
+        : this.loadDefaultReopenStatus(projectId),
+    ]);
+    if (!task) throw new NotFoundException(TASK_NOT_FOUND);
+    if (
+      !targetStatus ||
+      targetStatus.isActive !== true ||
+      targetStatus.isDone
+    ) {
+      throw new UnprocessableEntityException({
+        message: INVALID_REOPEN_STATUS,
+        code: 'INVALID_REOPEN_STATUS',
+        details: { statusId: dto.statusId ?? null },
+      });
+    }
+    if (task.status?.isDone !== true && task.completed !== true) {
+      throw new BadRequestException('Task is not completed');
+    }
+    if (dto.progress !== undefined) {
+      await this.assertLeafProgressMutationAllowed(projectId, task.id);
+    }
+
+    const previousStatusId = task.statusId;
+    const previousProgress = task.progress;
+
+    await this.taskRepo.manager.transaction(async (tx) => {
+      if (task.statusId !== targetStatus.id) {
+        await this.authSvc.assertWipLimit(tx, targetStatus.id, projectId);
+      }
+
+      const transitionResult = await this.transitionSvc.applyTransition(tx, {
+        projectId,
+        task,
+        targetStatus,
+        actorUser,
+        progress: dto.progress,
+        reason: dto.reason,
+      });
+      if (transitionResult.effects.rollupsRecalculated) {
+        await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
+      }
+
+      await this.activitySvc.log(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_UPDATED,
+        {
+          operation: 'task_reopened',
+          previousStatusId,
+          nextStatusId: targetStatus.id,
+          previousProgress,
+          nextProgress: dto.progress ?? task.progress,
+          reason: dto.reason ?? null,
+          transitionEffects: transitionResult.effects,
+          changedTaskIds: transitionResult.changedTaskIds,
+        },
+      );
+    });
+
+    const reopenedTask = await getTask(
+      projectId,
+      task.id,
+      requestUser,
+      membership,
+    );
+
+    return {
+      task: reopenedTask,
+      audit: {
+        previousStatusId,
+        nextStatusId: targetStatus.id,
+        previousProgress,
+        nextProgress: reopenedTask.progress,
+        reason: dto.reason ?? null,
+      },
+    };
+  }
+
+  async updateTaskProgress(
+    projectId: string,
+    taskId: string,
+    dto: UpdateTaskProgressDto,
+    requestUser: RequestUser,
+    getTask: (
+      projectId: string,
+      taskId: string,
+      requestUser: RequestUser,
+      membership?: ProjectMembership | null,
+    ) => Promise<TaskSerializer>,
+  ): Promise<{
+    task: TaskSerializer;
+    audit: {
+      previousProgress: number | null;
+      nextProgress: number;
+      source: string | null;
+      note: string | null;
+    };
+  }> {
+    const [{ membership }, task, actorUser] = await Promise.all([
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+      this.taskRepo.findOne({
+        where: { id: taskId, projectId, deletedAt: IsNull() },
+        relations: ['project'],
+      }),
+      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
+    ]);
+    if (!task) throw new NotFoundException(TASK_NOT_FOUND);
+    await this.assertLeafProgressMutationAllowed(projectId, task.id);
+    if (task.completed && dto.progress !== 100) {
+      throw new BadRequestException(
+        'Completed leaf tasks must keep progress at 100',
+      );
+    }
+
+    const previousProgress = task.progress;
+    task.progress = dto.progress;
+
+    await this.taskRepo.manager.transaction(async (tx) => {
+      await tx.save(Task, task);
+      await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
+      await this.activitySvc.log(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.TASK_PROGRESS_CHANGED,
+        {
+          previousProgress,
+          nextProgress: dto.progress,
+          source: dto.source ?? null,
+          note: dto.note ?? null,
+        },
+      );
+    });
+
+    return {
+      task: await getTask(projectId, task.id, requestUser, membership),
+      audit: {
+        previousProgress,
+        nextProgress: dto.progress,
+        source: dto.source ?? null,
+        note: dto.note ?? null,
+      },
+    };
   }
 
   async supersedeTask(
@@ -1120,168 +1673,268 @@ export class TaskCrudService {
     projectId: string,
     dto: BulkUpdateTasksDto,
     requestUser: RequestUser,
-  ): Promise<TaskListItemSerializer[]> {
-    if (dto.items.some((item) => item.progress !== undefined)) {
-      throw new BadRequestException(
-        'Task progress is automatically derived from checklist completion',
-      );
-    }
-
+  ): Promise<BulkTaskUpdateResponse> {
     const requestedIds = [...new Set(dto.items.map((item) => item.taskId))];
+    const requestedStatusIds = [
+      ...new Set(
+        dto.items
+          .map((item) => item.statusId)
+          .filter((statusId): statusId is string => Boolean(statusId)),
+      ),
+    ];
+    const progressTaskIds = dto.items
+      .filter((item) => item.progress !== undefined)
+      .map((item) => item.taskId);
 
     // Three independent queries — fire in one wave
-    const [{ membership }, actorUser, tasks] = await Promise.all([
-      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
-      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
-      this.taskRepo.find({
-        where: { id: In(requestedIds), projectId, deletedAt: IsNull() },
-        relations: ['project'],
-      }),
-    ]);
+    const [{ membership }, actorUser, tasks, statuses, progressChildRows] =
+      await Promise.all([
+        this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+        this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
+        this.taskRepo.find({
+          where: { id: In(requestedIds), projectId, deletedAt: IsNull() },
+          relations: ['project', 'status'],
+        }),
+        requestedStatusIds.length
+          ? this.projectStatusRepo.find({
+              where: { id: In(requestedStatusIds), projectId },
+            })
+          : Promise.resolve([]),
+        progressTaskIds.length
+          ? this.taskRepo
+              .createQueryBuilder('task')
+              .select('task.parentTaskId', 'parentTaskId')
+              .addSelect('COUNT(task.id)', 'childCount')
+              .where('task.projectId = :projectId', { projectId })
+              .andWhere('task.parentTaskId IN (:...taskIds)', {
+                taskIds: progressTaskIds,
+              })
+              .andWhere('task.deletedAt IS NULL')
+              .groupBy('task.parentTaskId')
+              .getRawMany<{ parentTaskId: string; childCount: string }>()
+          : Promise.resolve([]),
+      ]);
 
     const taskMap = new Map(tasks.map((t) => [t.id, t]));
-    const updatedTaskIds: string[] = [];
+    const statusMap = new Map(statuses.map((status) => [status.id, status]));
+    const progressParentTaskIds = new Set(
+      progressChildRows
+        .filter((row) => Number(row.childCount) > 0)
+        .map((row) => row.parentTaskId),
+    );
+    const succeeded: string[] = [];
+    const failed: BulkTaskUpdateFailure[] = [];
+    const failedTaskIds = new Set<string>();
+    const changedTaskIds = new Set<string>();
 
     for (const item of dto.items) {
       const task = taskMap.get(item.taskId);
       if (!task || !this.hasTaskScheduleFieldChange(item)) continue;
-      await this.authSvc.assertTaskSubresourceMutationAllowed({
-        projectId,
-        taskId: task.id,
-        requestUser,
-        resource: 'schedule',
-        action: 'update',
-        membership,
-      });
+      try {
+        await this.authSvc.assertTaskSubresourceMutationAllowed({
+          projectId,
+          taskId: task.id,
+          requestUser,
+          resource: 'schedule',
+          action: 'update',
+          membership,
+        });
+      } catch (error) {
+        failed.push(this.toBulkTaskUpdateFailure(item.taskId, error));
+        failedTaskIds.add(item.taskId);
+      }
     }
 
-    await this.taskRepo.manager.transaction(async (tx) => {
-      // Collect activity log entries for batch-saving at the end of the transaction.
-      // This avoids 2 serial INSERTs per task (which compounds badly at 50+ items).
-      const activityEntries: Parameters<typeof this.activitySvc.logBatch>[1] =
-        [];
-
-      for (const item of dto.items) {
-        const task = taskMap.get(item.taskId);
-        if (!task) continue;
-
-        const nextStartDate =
-          item.startDate !== undefined
-            ? (item.startDate ?? null)
-            : task.startDate;
-        const nextEndDate =
-          item.endDate !== undefined ? (item.endDate ?? null) : task.endDate;
-        this.authSvc.ensureDateRange(nextStartDate, nextEndDate);
-
-        const nextParentTaskId =
-          item.parentTaskId !== undefined
-            ? (item.parentTaskId ?? null)
-            : task.parentTaskId;
-
-        if (item.parentTaskId !== undefined) {
-          await this.rankingSvc.assertNotDescendant(
-            projectId,
-            task.id,
-            nextParentTaskId,
-          );
-        }
-
-        const parent =
-          item.parentTaskId !== undefined
-            ? await this.authSvc.ensureParentTask(projectId, nextParentTaskId)
-            : undefined;
-
-        let movedScope = false;
-
-        if (item.statusId !== undefined) {
-          const prevStatusId = task.statusId;
-          task.statusId = item.statusId ?? task.statusId;
-          if (item.statusId && task.statusId !== prevStatusId) {
-            await this.authSvc.assertWipLimit(tx, task.statusId, projectId);
-          }
-        }
-        if (item.priorityId !== undefined)
-          task.priorityId = item.priorityId ?? null;
-        if (item.taskTypeId !== undefined) task.taskTypeId = item.taskTypeId;
-        if (item.severityId !== undefined)
-          task.severityId = item.severityId ?? null;
-        if (item.scheduleType !== undefined)
-          task.scheduleType = item.scheduleType;
-        const hasWbsChange =
-          item.wbsCode !== undefined || item.wbsSortKey !== undefined;
-        if (hasWbsChange) {
-          await this.wbsSvc.applyTaskAssignment(
-            tx,
-            task,
-            item.wbsCode,
-            item.wbsSortKey,
-            actorUser.id,
-          );
-        }
-        if (item.weightPercent !== undefined)
-          task.weightPercent = item.weightPercent ?? null;
-        if (item.isManuallyScheduled !== undefined)
-          task.isManuallyScheduled = item.isManuallyScheduled;
-        if (item.manualScheduleReason !== undefined)
-          task.manualScheduleReason = item.manualScheduleReason?.trim() ?? null;
-        if (item.startDate !== undefined)
-          task.startDate = item.startDate ?? null;
-        if (item.endDate !== undefined) task.endDate = item.endDate ?? null;
-        if (item.parentTaskId !== undefined) {
-          task.parent = parent ?? null;
-          task.parentTaskId = parent?.id ?? null;
-          movedScope = true;
-        }
-        if (item.statusId !== undefined) movedScope = true;
-
-        if (movedScope) {
-          task.rank = await this.rankingSvc.calculateRankWithinScope(
-            tx,
-            this.rankingSvc.buildScope(
-              projectId,
-              task.parentTaskId,
-              task.statusId,
-            ),
-            undefined,
-            undefined,
-            task.id,
-          );
-        }
-
-        await tx.save(task);
-        if (item.viewMeta !== undefined)
-          await this.relationsSvc.upsertViewMetadata(tx, task, item.viewMeta);
-
-        // Accumulate — do NOT call log() here (2 serial INSERTs × N tasks)
-        activityEntries.push({
-          task,
-          actorUser,
-          actionType: movedScope
-            ? TaskActionType.TASK_MOVED
-            : TaskActionType.TASK_UPDATED,
-          actionMeta: {
-            statusId: task.statusId,
-            scheduleType: item.scheduleType,
-            wbsCode: item.wbsCode,
-            wbsSortKey: item.wbsSortKey,
-            weightPercent: item.weightPercent,
-            isManuallyScheduled: item.isManuallyScheduled,
-            manualScheduleReason: item.manualScheduleReason,
-            startDate: item.startDate,
-            endDate: item.endDate,
-            parentTaskId: task.parentTaskId,
-            viewMetaUpdated: item.viewMeta !== undefined,
-          },
+    for (const item of dto.items) {
+      if (failedTaskIds.has(item.taskId)) continue;
+      const initialTask = taskMap.get(item.taskId);
+      if (!initialTask) {
+        failed.push({
+          taskId: item.taskId,
+          code: 'TASK_NOT_FOUND',
+          message: TASK_NOT_FOUND,
         });
-        updatedTaskIds.push(task.id);
+        failedTaskIds.add(item.taskId);
+        continue;
       }
 
-      // Single batch INSERT for all activity logs (2 statements instead of 2N)
-      await this.activitySvc.logBatch(tx, activityEntries);
-      await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
-    });
+      try {
+        await this.taskRepo.manager.transaction(async (tx) => {
+          const task = await tx.findOne(Task, {
+            where: { id: item.taskId, projectId, deletedAt: IsNull() },
+            relations: ['project', 'status'],
+          });
+          if (!task) throw new NotFoundException(TASK_NOT_FOUND);
 
-    return this.authSvc.loadTasksForList(updatedTaskIds, projectId);
+          if (item.progress !== undefined) {
+            if (progressParentTaskIds.has(task.id)) {
+              throw new BadRequestException(
+                'Parent task progress is automatically derived from subtasks',
+              );
+            }
+            if (task.completed && item.progress !== 100) {
+              throw new BadRequestException(
+                'Completed leaf tasks must keep progress at 100',
+              );
+            }
+          }
+
+          const nextStartDate =
+            item.startDate !== undefined
+              ? (item.startDate ?? null)
+              : task.startDate;
+          const nextEndDate =
+            item.endDate !== undefined ? (item.endDate ?? null) : task.endDate;
+          this.authSvc.ensureDateRange(nextStartDate, nextEndDate);
+
+          const nextParentTaskId =
+            item.parentTaskId !== undefined
+              ? (item.parentTaskId ?? null)
+              : task.parentTaskId;
+
+          if (item.parentTaskId !== undefined) {
+            await this.rankingSvc.assertNotDescendant(
+              projectId,
+              task.id,
+              nextParentTaskId,
+            );
+          }
+
+          const parent =
+            item.parentTaskId !== undefined
+              ? await this.authSvc.ensureParentTask(projectId, nextParentTaskId)
+              : undefined;
+
+          let movedScope = false;
+
+          const previousStatusId = task.statusId;
+          const nextStatusId = item.statusId ?? task.statusId;
+          const targetStatus =
+            nextStatusId === task.statusId && task.status
+              ? task.status
+              : statusMap.get(nextStatusId);
+          if (!targetStatus) {
+            throw new BadRequestException(
+              'Target status is invalid for this project',
+            );
+          }
+          this.assertCompletedParentCanReceiveChild(parent, targetStatus);
+          if (item.statusId && nextStatusId !== previousStatusId) {
+            await this.authSvc.assertWipLimit(tx, nextStatusId, projectId);
+          }
+          if (item.priorityId !== undefined)
+            task.priorityId = item.priorityId ?? null;
+          if (item.taskTypeId !== undefined) task.taskTypeId = item.taskTypeId;
+          if (item.severityId !== undefined)
+            task.severityId = item.severityId ?? null;
+          if (item.scheduleType !== undefined)
+            task.scheduleType = item.scheduleType;
+          const hasWbsChange =
+            item.wbsCode !== undefined || item.wbsSortKey !== undefined;
+          if (hasWbsChange) {
+            await this.wbsSvc.applyTaskAssignment(
+              tx,
+              task,
+              item.wbsCode,
+              item.wbsSortKey,
+              actorUser.id,
+            );
+          }
+          if (item.weightPercent !== undefined)
+            task.weightPercent = item.weightPercent ?? null;
+          if (item.isManuallyScheduled !== undefined)
+            task.isManuallyScheduled = item.isManuallyScheduled;
+          if (item.manualScheduleReason !== undefined)
+            task.manualScheduleReason =
+              item.manualScheduleReason?.trim() ?? null;
+          if (item.startDate !== undefined)
+            task.startDate = item.startDate ?? null;
+          if (item.endDate !== undefined) task.endDate = item.endDate ?? null;
+          if (item.parentTaskId !== undefined) {
+            task.parent = parent ?? null;
+            task.parentTaskId = parent?.id ?? null;
+            movedScope = true;
+          }
+          if (item.statusId !== undefined) movedScope = true;
+
+          if (movedScope) {
+            task.rank = await this.rankingSvc.calculateRankWithinScope(
+              tx,
+              this.rankingSvc.buildScope(
+                projectId,
+                task.parentTaskId,
+                nextStatusId,
+              ),
+              undefined,
+              undefined,
+              task.id,
+            );
+          }
+
+          const shouldApplyTransition =
+            nextStatusId !== previousStatusId || item.progress !== undefined;
+          const transitionResult = shouldApplyTransition
+            ? await this.transitionSvc.applyTransition(tx, {
+                projectId,
+                task,
+                targetStatus,
+                actorUser,
+                progress: item.progress,
+              })
+            : null;
+          if (!shouldApplyTransition) {
+            task.statusId = nextStatusId;
+            await tx.save(task);
+          }
+          if (item.viewMeta !== undefined)
+            await this.relationsSvc.upsertViewMetadata(tx, task, item.viewMeta);
+
+          await this.activitySvc.log(
+            tx,
+            task,
+            actorUser,
+            movedScope
+              ? TaskActionType.TASK_MOVED
+              : TaskActionType.TASK_UPDATED,
+            {
+              statusId: task.statusId,
+              scheduleType: item.scheduleType,
+              wbsCode: item.wbsCode,
+              wbsSortKey: item.wbsSortKey,
+              weightPercent: item.weightPercent,
+              isManuallyScheduled: item.isManuallyScheduled,
+              manualScheduleReason: item.manualScheduleReason,
+              startDate: item.startDate,
+              endDate: item.endDate,
+              parentTaskId: task.parentTaskId,
+              viewMetaUpdated: item.viewMeta !== undefined,
+              transitionEffects: transitionResult?.effects ?? null,
+            },
+          );
+          await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
+
+          succeeded.push(task.id);
+          changedTaskIds.add(task.id);
+          for (const changedTaskId of transitionResult?.changedTaskIds ?? []) {
+            changedTaskIds.add(changedTaskId);
+          }
+        });
+      } catch (error) {
+        failed.push(this.toBulkTaskUpdateFailure(item.taskId, error));
+        failedTaskIds.add(item.taskId);
+      }
+    }
+
+    const tasksForList = succeeded.length
+      ? await this.authSvc.loadTasksForList([...new Set(succeeded)], projectId)
+      : [];
+
+    return {
+      tasks: tasksForList,
+      succeeded: [...new Set(succeeded)],
+      failed,
+      changedTaskIds: [...changedTaskIds],
+    };
   }
 
   async deleteTask(

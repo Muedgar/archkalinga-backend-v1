@@ -196,8 +196,6 @@ export class TaskSyncEventsService {
       },
     );
 
-    await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
-
     return { checklistItemId: saved.id, completed: saved.completed };
   }
 
@@ -207,13 +205,54 @@ export class TaskSyncEventsService {
     event: TaskSyncEventDto,
     actorUser: User,
   ): Promise<Record<string, unknown>> {
-    void tx;
-    void task;
-    void actorUser;
-    void event;
-    throw new BadRequestException(
-      'Task progress is automatically derived from checklist completion',
+    const progress = this.optionalNumberPayload(event.payload, 'progress');
+    if (
+      progress === undefined ||
+      progress === null ||
+      !Number.isInteger(progress) ||
+      progress < 0 ||
+      progress > 100
+    ) {
+      throw new BadRequestException(INVALID_TASK_SYNC_EVENT);
+    }
+
+    const childCount = await tx.count(Task, {
+      where: {
+        projectId: task.projectId,
+        parentTaskId: task.id,
+        deletedAt: IsNull(),
+      },
+    });
+    if (childCount > 0) {
+      throw new BadRequestException(
+        'Parent task progress is automatically derived from subtasks',
+      );
+    }
+    if (task.completed && progress !== 100) {
+      throw new BadRequestException(
+        'Completed leaf tasks must keep progress at 100',
+      );
+    }
+
+    const previousProgress = task.progress;
+    task.progress = progress;
+    await tx.save(Task, task);
+    await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
+
+    await this.activitySvc.log(
+      tx,
+      task,
+      actorUser,
+      TaskActionType.TASK_PROGRESS_CHANGED,
+      {
+        previousProgress,
+        nextProgress: progress,
+        source: 'offline_sync',
+        clientEventId: event.clientEventId,
+      },
     );
+
+    return { previousProgress, nextProgress: progress };
   }
 
   private async applySiteNote(

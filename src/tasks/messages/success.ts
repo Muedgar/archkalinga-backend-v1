@@ -24,6 +24,9 @@ export const TASK_TIMELINE_FETCHED = 'Task timeline fetched successfully';
 export const TASK_SNAPSHOT_FETCHED = 'Task snapshot fetched successfully';
 export const TASKS_FETCHED = 'Tasks fetched successfully';
 export const TASK_MOVED = 'Task moved successfully';
+export const TASK_COMPLETED = 'Task completed successfully';
+export const TASK_REOPENED = 'Task reopened successfully';
+export const TASK_PROGRESS_UPDATED = 'Task progress updated successfully';
 export const TASK_SUPERSEDED = 'Task superseded successfully';
 export const TASKS_BULK_UPDATED = 'Tasks updated successfully';
 export const PROJECT_ACTIVITY_SCHEDULE_FETCHED =
@@ -123,12 +126,18 @@ export const TASK_COMMENT_ADDED = 'Task comment added successfully';
 export const TASK_COMMENT_UPDATED = 'Task comment updated successfully';
 export const TASK_COMMENT_DELETED = 'Task comment deleted successfully';
 export const TASK_CHECKLIST_FETCHED = 'Task checklist fetched successfully';
+export const CHECKLIST_KANBAN_FETCHED =
+  'Checklist Kanban board fetched successfully';
 export const TASK_CHECKLIST_ITEM_ADDED =
   'Task checklist item added successfully';
 export const TASK_CHECKLIST_ITEM_BRANCHED =
   'Task checklist item branched successfully';
 export const TASK_CHECKLIST_ITEM_UPDATED =
   'Task checklist item updated successfully';
+export const TASK_CHECKLIST_ITEM_MOVED =
+  'Task checklist item moved successfully';
+export const TASK_CHECKLIST_ITEM_COMPLETION_VALIDATED =
+  'Task checklist item completion validated successfully';
 export const TASK_CHECKLIST_ITEM_DELETED =
   'Task checklist item deleted successfully';
 export const TASK_DEPENDENCIES_FETCHED =

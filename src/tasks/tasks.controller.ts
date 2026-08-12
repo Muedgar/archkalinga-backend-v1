@@ -46,8 +46,10 @@ import {
   BranchChecklistItemDto,
   BulkTaskViewMetadataDto,
   BulkUpdateTasksDto,
+  ChecklistKanbanQueryDto,
   ChangeRequestFiltersDto,
   ChangeRequestImpactMapQueryDto,
+  CompleteTaskDto,
   CreateChangeRequestDto,
   CreateChangeRequestMessageDto,
   CreateChangeRequestReviewDto,
@@ -64,9 +66,11 @@ import {
   MaterialsReportFiltersDto,
   MaterialsReportImportDto,
   MaterialsReportImportMode,
+  MoveChecklistItemDto,
   MoveTaskDto,
   RecalculateActivityScheduleDto,
   ReopenChangeRequestDto,
+  ReopenTaskDto,
   ResourceReportFiltersDto,
   ResourceReportImportDto,
   ResourceReportImportMode,
@@ -94,6 +98,7 @@ import {
   UpdateChecklistItemDto,
   UpdateCommentDto,
   UpdateDependencyDto,
+  UpdateTaskProgressDto,
   UpsertProjectCalendarDto,
   UpdateTaskDto,
 } from './dtos';
@@ -101,6 +106,7 @@ import {
   PROJECT_ACTIVITY_SCHEDULE_GANTT_FETCHED,
   PROJECT_ACTIVITY_SCHEDULE_CHECKS_FETCHED,
   PROJECT_ACTIVITY_SCHEDULE_EXPLANATION_FETCHED,
+  CHECKLIST_KANBAN_FETCHED,
   TASK_CHECKLIST_FETCHED,
   TASK_CHECKLIST_GROUP_CREATED,
   TASK_CHECKLIST_GROUP_DELETED,
@@ -108,7 +114,9 @@ import {
   TASK_CHECKLIST_GROUPS_FETCHED,
   TASK_CHECKLIST_ITEM_ADDED,
   TASK_CHECKLIST_ITEM_BRANCHED,
+  TASK_CHECKLIST_ITEM_COMPLETION_VALIDATED,
   TASK_CHECKLIST_ITEM_DELETED,
+  TASK_CHECKLIST_ITEM_MOVED,
   TASK_CHECKLIST_ITEM_UPDATED,
   TASK_COMMENT_ADDED,
   TASK_COMMENT_DELETED,
@@ -154,7 +162,10 @@ import {
   TASK_SNAPSHOT_FETCHED,
   TASK_TIMELINE_FETCHED,
   TASK_ACTIVITY_SCHEDULE_IMPORTED,
+  TASK_COMPLETED,
   TASK_MOVED,
+  TASK_PROGRESS_UPDATED,
+  TASK_REOPENED,
   TASK_SUPERSEDED,
   TASK_MATERIAL_CREATED,
   TASK_MATERIAL_DELETED,
@@ -229,6 +240,31 @@ export class TasksController {
     return this.tasksService.getProjectTasks(
       projectId,
       filters,
+      user,
+      req.projectMembership,
+    );
+  }
+
+  @Get('checklist-kanban')
+  @ApiOperation({
+    summary: 'Get checklist Kanban board',
+    description:
+      'Returns active project statuses as columns and visible task checklist items as Kanban cards.',
+  })
+  @ApiResponse({ status: 200, description: 'Checklist Kanban board fetched' })
+  @ResponseMessage(CHECKLIST_KANBAN_FETCHED)
+  @Throttle({ default: { ttl: 60000, limit: 300 } })
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getChecklistKanban(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() query: ChecklistKanbanQueryDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getChecklistKanban(
+      projectId,
+      query,
       user,
       req.projectMembership,
     );
@@ -2305,6 +2341,78 @@ export class TasksController {
     return this.tasksService.updateTask(projectId, taskId, dto, user);
   }
 
+  @Post('tasks/:taskId/complete')
+  @ApiOperation({
+    summary: 'Complete a task',
+    description:
+      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Applies the configured Done status completion policy.",
+  })
+  @ApiResponse({ status: 201, description: 'Task completed' })
+  @ResponseMessage(TASK_COMPLETED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'complete:task',
+    resource: 'task',
+    includeBody: true,
+  })
+  completeTask(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CompleteTaskDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.completeTask(projectId, taskId, dto, user);
+  }
+
+  @Post('tasks/:taskId/reopen')
+  @ApiOperation({
+    summary: 'Reopen a completed task',
+    description:
+      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Moves a completed task into a non-Done status while preserving progress unless explicitly supplied.",
+  })
+  @ApiResponse({ status: 201, description: 'Task reopened' })
+  @ResponseMessage(TASK_REOPENED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'reopen:task',
+    resource: 'task',
+    includeBody: true,
+  })
+  reopenTask(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: ReopenTaskDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.reopenTask(projectId, taskId, dto, user);
+  }
+
+  @Patch('tasks/:taskId/progress')
+  @ApiOperation({
+    summary: 'Update task progress',
+    description:
+      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Updates task-owned progress without changing checklist or status.",
+  })
+  @ApiResponse({ status: 200, description: 'Task progress updated' })
+  @ResponseMessage(TASK_PROGRESS_UPDATED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'update')
+  @LogActivity({
+    action: 'update:task-progress',
+    resource: 'task',
+    includeBody: true,
+  })
+  updateTaskProgress(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: UpdateTaskProgressDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.updateTaskProgress(projectId, taskId, dto, user);
+  }
+
   @Patch('tasks/:taskId/move')
   @ApiOperation({
     summary: 'Move or reorder a task',
@@ -2467,8 +2575,12 @@ export class TasksController {
   }
 
   @Post('tasks/:taskId/checklist')
-  @ApiOperation({ summary: 'Add a checklist item to a task' })
-  @ApiResponse({ status: 201, description: 'Checklist item added' })
+  @ApiOperation({
+    summary: 'Add a checklist item to a task',
+    description:
+      'Returns the created item and a task summary. Does not update task progress or status.',
+  })
+  @ApiResponse({ status: 201, description: 'Checklist item and task summary' })
   @ResponseMessage(TASK_CHECKLIST_ITEM_ADDED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
@@ -2487,11 +2599,13 @@ export class TasksController {
   }
 
   @Patch('tasks/:taskId/checklist/:itemId')
-  @ApiOperation({ summary: 'Update a task checklist item' })
-  @ApiResponse({ status: 200, description: 'Checklist item updated' })
+  @ApiOperation({
+    summary: 'Update a task checklist item',
+    description:
+      'Returns the updated item and a task summary. Checklist completion does not update task progress or status.',
+  })
+  @ApiResponse({ status: 200, description: 'Checklist item and task summary' })
   @ResponseMessage(TASK_CHECKLIST_ITEM_UPDATED)
-  @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'update:task-checklist-item',
     resource: 'task-checklist-item',
@@ -2513,6 +2627,67 @@ export class TasksController {
     );
   }
 
+  @Patch('tasks/:taskId/checklist/:itemId/move')
+  @ApiOperation({
+    summary: 'Move a checklist item across checklist Kanban statuses',
+    description:
+      'Updates checklist item status, binary completion state, and Kanban rank. Moving into Done marks the item complete; moving out of Done marks it incomplete.',
+  })
+  @ApiResponse({ status: 200, description: 'Checklist item moved' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Branched checklist item has incomplete or missing descendant checklist work',
+  })
+  @ResponseMessage(TASK_CHECKLIST_ITEM_MOVED)
+  @LogActivity({
+    action: 'move:task-checklist-item',
+    resource: 'task-checklist-item',
+    includeBody: true,
+  })
+  moveChecklistItem(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: MoveChecklistItemDto,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.moveChecklistItem(
+      projectId,
+      taskId,
+      itemId,
+      dto,
+      user,
+    );
+  }
+
+  @Post('tasks/:taskId/checklist/:itemId/complete/validate')
+  @ApiOperation({
+    summary: 'Validate checklist item completion',
+    description:
+      'Side-effect free check for whether a checklist item can be completed. Branched items require all descendant checklist items to be complete.',
+  })
+  @ApiResponse({ status: 200, description: 'Checklist completion allowed' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Branched checklist item has incomplete or missing descendant checklist work',
+  })
+  @ResponseMessage(TASK_CHECKLIST_ITEM_COMPLETION_VALIDATED)
+  validateChecklistItemCompletion(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.validateChecklistItemCompletion(
+      projectId,
+      taskId,
+      itemId,
+      user,
+    );
+  }
+
   @Post('tasks/:taskId/checklist/:itemId/branch')
   @ApiOperation({
     summary: 'Branch a checklist item into a child task',
@@ -2521,8 +2696,6 @@ export class TasksController {
   })
   @ApiResponse({ status: 201, description: 'Checklist item branched' })
   @ResponseMessage(TASK_CHECKLIST_ITEM_BRANCHED)
-  @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'branch:task-checklist-item',
     resource: 'task-checklist-item',
@@ -2545,8 +2718,12 @@ export class TasksController {
   }
 
   @Delete('tasks/:taskId/checklist/:itemId')
-  @ApiOperation({ summary: 'Delete a task checklist item' })
-  @ApiResponse({ status: 200, description: 'Checklist item deleted' })
+  @ApiOperation({
+    summary: 'Delete a task checklist item',
+    description:
+      'Returns the deleted item id and a task summary. Does not update task progress or status.',
+  })
+  @ApiResponse({ status: 200, description: 'Deleted item and task summary' })
   @ResponseMessage(TASK_CHECKLIST_ITEM_DELETED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')

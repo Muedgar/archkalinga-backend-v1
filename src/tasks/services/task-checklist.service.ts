@@ -20,6 +20,7 @@ import {
   AddChecklistItemDto,
   BranchChecklistItemDto,
   CreateChecklistGroupDto,
+  MoveChecklistItemDto,
   UpdateChecklistGroupDto,
   UpdateChecklistItemDto,
 } from '../dtos';
@@ -37,10 +38,53 @@ import {
 } from '../serializers';
 import { TaskActivityService } from './task-activity.service';
 import { TaskAuthService } from './task-auth.service';
+import { TaskChecklistTransitionService } from './task-checklist-transition.service';
 import { TaskMembersService } from './task-members.service';
-import { TaskRankingService } from './task-ranking.service';
 import { TaskProgressService } from './task-progress.service';
+import { TaskRankingService } from './task-ranking.service';
 import { TaskWbsService } from './task-wbs.service';
+
+type ChecklistMutationTaskSummary = {
+  id: string;
+  progress: number | null;
+  completed: boolean;
+  checklistSummary: {
+    total: number;
+    completed: number;
+  };
+};
+
+type ChecklistItemMutationResponse = {
+  item: TaskChecklistItemDetailSerializer;
+  task: ChecklistMutationTaskSummary;
+};
+
+type ChecklistItemDeleteResponse = {
+  item: {
+    id: string;
+    deleted: true;
+  };
+  task: ChecklistMutationTaskSummary;
+};
+
+type ChecklistItemMoveResponse = {
+  item: TaskChecklistItemDetailSerializer;
+  task: ChecklistMutationTaskSummary;
+  effects: {
+    previousStatusId: string;
+    nextStatusId: string;
+    previousCompleted: boolean;
+    nextCompleted: boolean;
+  };
+  changedItemIds: string[];
+  changedTaskIds: string[];
+};
+
+type ChecklistItemCompletionValidationResponse = {
+  allowed: true;
+  itemId: string;
+  branchedTaskId: string | null;
+};
 
 @Injectable()
 export class TaskChecklistService {
@@ -51,9 +95,10 @@ export class TaskChecklistService {
     private readonly checklistRepo: Repository<TaskChecklistItem>,
     private readonly activitySvc: TaskActivityService,
     private readonly authSvc: TaskAuthService,
+    private readonly checklistTransitionSvc: TaskChecklistTransitionService,
     private readonly membersSvc: TaskMembersService,
-    private readonly rankingSvc: TaskRankingService,
     private readonly progressSvc: TaskProgressService,
+    private readonly rankingSvc: TaskRankingService,
     private readonly wbsSvc: TaskWbsService,
   ) {}
 
@@ -75,6 +120,25 @@ export class TaskChecklistService {
     });
   }
 
+  private async buildTaskSummary(
+    manager: EntityManager,
+    task: Task,
+  ): Promise<ChecklistMutationTaskSummary> {
+    const [total, completed] = await Promise.all([
+      manager.count(TaskChecklistItem, { where: { taskId: task.id } }),
+      manager.count(TaskChecklistItem, {
+        where: { taskId: task.id, completed: true },
+      }),
+    ]);
+
+    return {
+      id: task.id,
+      progress: task.progress,
+      completed: task.completed,
+      checklistSummary: { total, completed },
+    };
+  }
+
   // ── Private loaders ───────────────────────────────────────────────────────
 
   private static readonly UUID_REGEX =
@@ -91,6 +155,7 @@ export class TaskChecklistService {
     }
     const item = await this.checklistRepo.findOne({
       where: { id: itemId, taskId },
+      relations: ['status'],
     });
     if (!item) throw new NotFoundException(TASK_CHECKLIST_ITEM_NOT_FOUND);
     return item;
@@ -123,6 +188,107 @@ export class TaskChecklistService {
     if (duplicate && duplicate.id !== excludeItemId) {
       throw new BadRequestException(TASK_CHECKLIST_ITEM_CODE_ALREADY_EXISTS);
     }
+  }
+
+  private async resolveChecklistStatusId(
+    manager: EntityManager,
+    task: Pick<Task, 'projectId' | 'statusId'>,
+    statusId?: string | null,
+  ): Promise<string> {
+    const resolvedStatusId = statusId ?? task.statusId;
+    const status = await manager.findOne(ProjectStatus, {
+      where: { id: resolvedStatusId, projectId: task.projectId },
+      select: ['id'],
+    });
+    if (!status) {
+      throw new BadRequestException(
+        'Checklist status is invalid for this project',
+      );
+    }
+    return status.id;
+  }
+
+  private async resolveChecklistTransitionTargetStatus(
+    manager: EntityManager,
+    task: Pick<Task, 'projectId' | 'statusId'>,
+    item: TaskChecklistItem,
+    dto: Pick<UpdateChecklistItemDto, 'completed' | 'statusId'>,
+  ): Promise<ProjectStatus> {
+    let targetStatus: ProjectStatus | null = null;
+
+    if (dto.statusId !== undefined) {
+      targetStatus = await manager.findOne(ProjectStatus, {
+        where: { id: dto.statusId, projectId: task.projectId },
+      });
+      if (!targetStatus) {
+        throw new BadRequestException(
+          'Checklist status is invalid for this project',
+        );
+      }
+    } else if (dto.completed === true) {
+      targetStatus =
+        item.status?.isDone === true
+          ? item.status
+          : await this.loadSingleActiveDoneStatus(manager, task.projectId);
+      if (!targetStatus) {
+        throw new BadRequestException(
+          'Project must have exactly one active Done status or provide statusId.',
+        );
+      }
+    } else {
+      targetStatus =
+        item.status?.isDone !== true && item.status
+          ? item.status
+          : await this.loadDefaultNonDoneStatus(manager, task);
+      if (!targetStatus) {
+        throw new BadRequestException(
+          'Project must have an active non-Done status or provide statusId.',
+        );
+      }
+    }
+
+    if (dto.completed === true && targetStatus.isDone !== true) {
+      throw new BadRequestException(
+        'Cannot mark checklist item complete with a non-Done status',
+      );
+    }
+    if (dto.completed === false && targetStatus.isDone === true) {
+      throw new BadRequestException(
+        'Cannot mark checklist item incomplete with a Done status',
+      );
+    }
+
+    return targetStatus;
+  }
+
+  private async loadSingleActiveDoneStatus(
+    manager: EntityManager,
+    projectId: string,
+  ): Promise<ProjectStatus | null> {
+    const statuses = await manager.find(ProjectStatus, {
+      where: { projectId, isDone: true, isActive: true },
+      take: 2,
+    });
+    return statuses.length === 1 ? statuses[0] : null;
+  }
+
+  private async loadDefaultNonDoneStatus(
+    manager: EntityManager,
+    task: Pick<Task, 'projectId' | 'statusId'>,
+  ): Promise<ProjectStatus | null> {
+    const taskStatus = await manager.findOne(ProjectStatus, {
+      where: { id: task.statusId, projectId: task.projectId, isActive: true },
+    });
+    if (taskStatus && taskStatus.isDone !== true) return taskStatus;
+
+    return manager.findOne(ProjectStatus, {
+      where: {
+        projectId: task.projectId,
+        isDefault: true,
+        isActive: true,
+        isDone: false,
+      },
+    });
   }
 
   // ── Reorder helper ────────────────────────────────────────────────────────
@@ -177,6 +343,7 @@ export class TaskChecklistService {
   ): Promise<TaskChecklistItemDetailSerializer[]> {
     const items = await this.checklistRepo.find({
       where: { taskId },
+      relations: ['status'],
       order: { orderIndex: 'ASC', id: 'ASC' },
     });
     return items.map((item) => this.serializeItem(item));
@@ -186,10 +353,15 @@ export class TaskChecklistService {
     task: Task,
     actorUser: User,
     dto: AddChecklistItemDto,
-  ): Promise<TaskChecklistItemDetailSerializer> {
+  ): Promise<ChecklistItemMutationResponse> {
     return this.checklistRepo.manager.transaction(async (tx) => {
       const itemCode = dto.itemCode?.trim() || null;
       await this.ensureUniqueItemCode(tx, task.id, itemCode);
+      const statusId = await this.resolveChecklistStatusId(
+        tx,
+        task,
+        dto.statusId,
+      );
 
       const item = await tx.save(
         tx.create(TaskChecklistItem, {
@@ -197,6 +369,8 @@ export class TaskChecklistService {
           taskId: task.id,
           text: dto.text.trim(),
           orderIndex: 0,
+          statusId,
+          rank: dto.rank?.trim() || null,
           itemCode,
           completed: false,
           completedByUserId: null,
@@ -206,9 +380,9 @@ export class TaskChecklistService {
       );
 
       await this.reorderItems(tx, task.id, item.id, dto.orderIndex ?? 0);
-      const saved = await tx.findOneByOrFail(TaskChecklistItem, {
-        id: item.id,
-        taskId: task.id,
+      const saved = await tx.findOneOrFail(TaskChecklistItem, {
+        where: { id: item.id, taskId: task.id },
+        relations: ['status'],
       });
 
       await this.activitySvc.log(
@@ -221,9 +395,11 @@ export class TaskChecklistService {
           operation: 'checklist_item_added',
         },
       );
-      await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
 
-      return this.serializeItem(saved);
+      return {
+        item: this.serializeItem(saved),
+        task: await this.buildTaskSummary(tx, task),
+      };
     });
   }
 
@@ -233,18 +409,18 @@ export class TaskChecklistService {
     requestUserId: string,
     actorUser: User,
     dto: UpdateChecklistItemDto,
-  ): Promise<TaskChecklistItemDetailSerializer> {
+  ): Promise<ChecklistItemMutationResponse> {
     const item = await this.getItemOrFail(task.id, itemId);
+    const shouldApplyTransition =
+      dto.completed !== undefined || dto.statusId !== undefined;
 
     if (dto.text !== undefined) item.text = dto.text.trim();
     if (dto.orderIndex !== undefined) item.orderIndex = dto.orderIndex;
+    if (dto.rank !== undefined && !shouldApplyTransition) {
+      item.rank = dto.rank?.trim() || null;
+    }
     const nextItemCode =
       dto.itemCode !== undefined ? dto.itemCode?.trim() || null : item.itemCode;
-    if (dto.completed !== undefined) {
-      item.completed = dto.completed;
-      item.completedByUserId = dto.completed ? requestUserId : null;
-      item.completedAt = dto.completed ? new Date() : null;
-    }
     if (dto.checklistGroupId !== undefined)
       item.checklistGroupId = dto.checklistGroupId ?? null;
 
@@ -253,7 +429,26 @@ export class TaskChecklistService {
         await this.ensureUniqueItemCode(tx, task.id, nextItemCode, item.id);
         item.itemCode = nextItemCode;
       }
-      const saved = await tx.save(item);
+      let saved: TaskChecklistItem;
+      if (shouldApplyTransition) {
+        const targetStatus = await this.resolveChecklistTransitionTargetStatus(
+          tx,
+          task,
+          item,
+          dto,
+        );
+        const transitionResult =
+          await this.checklistTransitionSvc.applyChecklistTransition(tx, {
+            projectId: task.projectId,
+            task,
+            item,
+            targetStatus,
+            actorUser,
+          });
+        saved = transitionResult.item;
+      } else {
+        saved = await tx.save(item);
+      }
       if (dto.orderIndex !== undefined) {
         await this.reorderItems(tx, task.id, saved.id, dto.orderIndex);
       }
@@ -267,13 +462,96 @@ export class TaskChecklistService {
           operation: 'checklist_item_updated',
         },
       );
-      await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
-      const refreshed = await tx.findOneByOrFail(TaskChecklistItem, {
-        id: saved.id,
-        taskId: task.id,
+      const refreshed = await tx.findOneOrFail(TaskChecklistItem, {
+        where: { id: saved.id, taskId: task.id },
+        relations: ['status'],
       });
-      return this.serializeItem(refreshed);
+      return {
+        item: this.serializeItem(refreshed),
+        task: await this.buildTaskSummary(tx, task),
+      };
     });
+  }
+
+  async moveItem(
+    task: Task,
+    itemId: string,
+    actorUser: User,
+    dto: MoveChecklistItemDto,
+  ): Promise<ChecklistItemMoveResponse> {
+    return this.checklistRepo.manager.transaction(async (tx) => {
+      const [item, targetStatus] = await Promise.all([
+        tx.findOne(TaskChecklistItem, {
+          where: { id: itemId, taskId: task.id },
+          relations: ['status'],
+        }),
+        tx.findOne(ProjectStatus, {
+          where: { id: dto.statusId, projectId: task.projectId },
+        }),
+      ]);
+      if (!item) throw new NotFoundException(TASK_CHECKLIST_ITEM_NOT_FOUND);
+      if (!targetStatus) {
+        throw new BadRequestException(
+          'Checklist status is invalid for this project',
+        );
+      }
+
+      const transitionResult =
+        await this.checklistTransitionSvc.applyChecklistTransition(tx, {
+          projectId: task.projectId,
+          task,
+          item,
+          targetStatus,
+          actorUser,
+          beforeItemId: dto.beforeItemId,
+          afterItemId: dto.afterItemId,
+          reason: dto.reason,
+        });
+
+      await this.activitySvc.log(
+        tx,
+        task,
+        actorUser,
+        TaskActionType.CHECKLIST_UPDATED,
+        {
+          itemId: transitionResult.item.id,
+          operation: 'checklist_item_moved',
+          reason: dto.reason ?? null,
+          effects: transitionResult.effects,
+        },
+      );
+
+      const refreshed = await tx.findOneOrFail(TaskChecklistItem, {
+        where: { id: transitionResult.item.id, taskId: task.id },
+        relations: ['status'],
+      });
+
+      return {
+        item: this.serializeItem(refreshed),
+        task: await this.buildTaskSummary(tx, task),
+        effects: transitionResult.effects,
+        changedItemIds: transitionResult.changedItemIds,
+        changedTaskIds: transitionResult.changedTaskIds,
+      };
+    });
+  }
+
+  async validateItemCompletion(
+    task: Task,
+    itemId: string,
+  ): Promise<ChecklistItemCompletionValidationResponse> {
+    const item = await this.getItemOrFail(task.id, itemId);
+    await this.checklistTransitionSvc.validateChecklistCompletion(
+      this.checklistRepo.manager,
+      task.projectId,
+      item,
+    );
+
+    return {
+      allowed: true,
+      itemId: item.id,
+      branchedTaskId: item.branchedTaskId ?? null,
+    };
   }
 
   async branchItem(
@@ -282,12 +560,6 @@ export class TaskChecklistService {
     actorUser: User,
     dto: BranchChecklistItemDto,
   ): Promise<TaskChecklistItemDetailSerializer> {
-    if (dto.progress !== undefined) {
-      throw new BadRequestException(
-        'Task progress is automatically derived from checklist completion',
-      );
-    }
-
     this.authSvc.ensureDateRange(dto.startDate, dto.endDate);
 
     return this.checklistRepo.manager.transaction(async (tx) => {
@@ -329,6 +601,11 @@ export class TaskChecklistService {
           'Project has no default task type. Provide taskTypeId.',
         );
       }
+      if (task.completed && status.isDone !== true) {
+        throw new BadRequestException(
+          'Cannot add an incomplete subtask to a completed parent task',
+        );
+      }
 
       await this.authSvc.assertWipLimit(tx, status.id, task.projectId);
 
@@ -349,6 +626,7 @@ export class TaskChecklistService {
         status.id,
       );
       const initialWbs = this.wbsSvc.prepareAssignment(dto.wbsCode);
+      const completedAt = status.isDone === true ? new Date() : null;
 
       const childTask = await tx.save(
         tx.create(Task, {
@@ -368,8 +646,11 @@ export class TaskChecklistService {
           description: null,
           startDate: dto.startDate ?? null,
           endDate: dto.endDate ?? null,
-          progress: 0,
-          completed: status.isTerminal,
+          progress: status.isDone === true ? 100 : (dto.progress ?? 0),
+          completed: status.isDone === true,
+          completedAt,
+          completedByUser: status.isDone === true ? actorUser : null,
+          completedByUserId: status.isDone === true ? actorUser.id : null,
           scheduleType: ScheduleType.TASK,
           wbsCode: initialWbs.wbsCode,
           wbsSortKey: initialWbs.wbsSortKey,
@@ -428,9 +709,9 @@ export class TaskChecklistService {
         },
       );
       await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
-      const refreshedItem = await tx.findOneByOrFail(TaskChecklistItem, {
-        id: savedItem.id,
-        taskId: task.id,
+      const refreshedItem = await tx.findOneOrFail(TaskChecklistItem, {
+        where: { id: savedItem.id, taskId: task.id },
+        relations: ['status'],
       });
 
       return this.serializeItem(refreshedItem);
@@ -441,10 +722,10 @@ export class TaskChecklistService {
     task: Task,
     itemId: string,
     actorUser: User,
-  ): Promise<{ id: string; success: true }> {
+  ): Promise<ChecklistItemDeleteResponse> {
     const item = await this.getItemOrFail(task.id, itemId);
 
-    await this.checklistRepo.manager.transaction(async (tx) => {
+    return this.checklistRepo.manager.transaction(async (tx) => {
       await tx.remove(item);
       await this.reorderItems(tx, task.id, null);
       await this.activitySvc.log(
@@ -457,10 +738,12 @@ export class TaskChecklistService {
           operation: 'checklist_item_deleted',
         },
       );
-      await this.progressSvc.recalculateProjectTaskProgress(tx, task.projectId);
-    });
 
-    return { id: itemId, success: true };
+      return {
+        item: { id: itemId, deleted: true },
+        task: await this.buildTaskSummary(tx, task),
+      };
+    });
   }
 
   // ── Checklist groups ──────────────────────────────────────────────────────
@@ -470,7 +753,7 @@ export class TaskChecklistService {
   ): Promise<TaskChecklistGroupDetailSerializer[]> {
     const groups = await this.checklistGroupRepo.find({
       where: { taskId },
-      relations: ['items'],
+      relations: ['items', 'items.status'],
       order: { orderIndex: 'ASC', createdAt: 'ASC' },
     });
     return groups.map((g) => this.serializeGroup(g));
@@ -496,7 +779,7 @@ export class TaskChecklistService {
 
     const withItems = await this.checklistGroupRepo.findOne({
       where: { id: group.id },
-      relations: ['items'],
+      relations: ['items', 'items.status'],
     });
 
     return this.serializeGroup(withItems ?? group);
@@ -516,7 +799,7 @@ export class TaskChecklistService {
 
     const refreshed = await this.checklistGroupRepo.findOne({
       where: { id: group.id },
-      relations: ['items'],
+      relations: ['items', 'items.status'],
     });
 
     return this.serializeGroup(refreshed ?? group);

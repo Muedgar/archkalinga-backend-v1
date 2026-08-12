@@ -8,7 +8,20 @@ export { TaskActivityScheduleService } from './task-activity-schedule.service';
 export { TaskActivityService } from './task-activity.service';
 export { TaskAuthService } from './task-auth.service';
 export { TaskChecklistService } from './task-checklist.service';
+export { TaskChecklistTransitionService } from './task-checklist-transition.service';
+export type {
+  ChecklistTransitionEffects,
+  ChecklistTransitionInput,
+  ChecklistTransitionResult,
+  DescendantChecklistCompletionState,
+} from './task-checklist-transition.service';
 export { TaskCommentsService } from './task-comments.service';
+export { TaskCompletionTransitionService } from './task-completion-transition.service';
+export type {
+  TaskTransitionEffects,
+  TaskTransitionInput,
+  TaskTransitionResult,
+} from './task-completion-transition.service';
 export { TaskCrudService } from './task-crud.service';
 export { TaskDashboardSummaryService } from './task-dashboard-summary.service';
 export { TaskChangeRequestsService } from './task-change-requests.service';

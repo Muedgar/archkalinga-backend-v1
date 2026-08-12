@@ -1,6 +1,7 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities';
+import { ProjectStatus } from '../project-config';
 import { Task } from './task.entity';
 import { TaskChecklist } from './task-checklist.entity';
 
@@ -38,8 +39,18 @@ export class TaskChecklistItem extends AppBaseEntity {
   @Column({ type: 'boolean', default: false })
   completed: boolean;
 
+  @ManyToOne(() => ProjectStatus, { nullable: false, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'status_id', referencedColumnName: 'id' })
+  status: ProjectStatus;
+
+  @Column({ type: 'uuid', nullable: false, name: 'status_id' })
+  statusId: string;
+
   @Column({ type: 'int', default: 0 })
   orderIndex: number;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  rank: string | null;
 
   @Column({ name: 'item_code', type: 'varchar', length: 100, nullable: true })
   itemCode: string | null;

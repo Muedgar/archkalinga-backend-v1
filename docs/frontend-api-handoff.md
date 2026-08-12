@@ -726,7 +726,12 @@ export type TaskItem = {
   startDate: string | null;
   endDate: string | null;
   progress: number | null;
+  rollupProgress: number | null;
+  canEditProgress: boolean;
+  progressEditBlockedReason: 'HAS_CHILDREN' | 'COMPLETED' | 'FORBIDDEN' | null;
   completed: boolean;
+  completedAt: string | null;
+  completedByUserId: string | null;
   rank: string | null;
   createdByUserId: string;
   assignedMembers: TaskAssignedMember[];
@@ -787,6 +792,18 @@ export type BulkUpdateTasksBody = {
       gantt?: { barColor?: string };
     };
   }>;
+};
+
+export type BulkUpdateTasksResponse = {
+  tasks: TaskItem[];
+  succeeded: string[];
+  failed: Array<{
+    taskId: string;
+    code: string;
+    message: string;
+    details?: unknown;
+  }>;
+  changedTaskIds: string[];
 };
 
 export type MoveTaskBody = {
@@ -932,6 +949,95 @@ export type TaskQuery = {
   - `viewMeta.gantt`
 - Use `PATCH /projects/:projectId/tasks/:taskId` for single-row edits.
 - Use `PATCH /projects/:projectId/tasks/bulk` for batch timeline edits.
+
+### Task Progress And Completion
+
+- Treat `progress` as server-owned for parent tasks. Parent progress is derived from direct subtasks and returned as `rollupProgress`.
+- Only leaf tasks can be manually edited through `PATCH /projects/:projectId/tasks/:taskId/progress`.
+- Use `canEditProgress` and `progressEditBlockedReason` from task list/detail responses to disable progress controls. Reasons are `HAS_CHILDREN`, `COMPLETED`, `FORBIDDEN`, or `null`.
+- A task is complete when `completed = true` / the status has `isDone = true`. Do not infer completion from `progress` alone except that completed leaf tasks return `progress = 100`.
+- Use `POST /projects/:projectId/tasks/:taskId/complete` to move to Done. Body:
+
+```ts
+{
+  statusId?: string;
+  completionMode?:
+    | 'apply_status_policy'
+    | 'task_only'
+    | 'task_and_checklist'
+    | 'task_checklist_and_descendants'
+    | 'validate_only';
+  reason?: string;
+}
+```
+
+- Use `completionMode: 'validate_only'` for preflight UI. It returns no `task` and performs no mutation:
+
+```ts
+{
+  allowed: true;
+  taskId: string;
+  statusId: string;
+  effects: {
+    checklistItemsCompleted: number;
+    descendantTasksCompleted: number;
+    rollupsRecalculated: boolean;
+  };
+  changedTaskIds: [];
+  warnings: string[];
+}
+```
+
+- Completion can be rejected with expanded blocker details:
+
+```ts
+{
+  code: 'TASK_DONE_BLOCKED_BY_OPEN_WORK_ITEMS';
+  details: {
+    openChecklistItemIds: string[];
+    openChildTaskIds: string[];
+    openChecklistItems: Array<{
+      id: string;
+      title: string;
+      completed: boolean;
+    }>;
+    openChildTasks: Array<{
+      id: string;
+      title: string;
+      statusId: string | null;
+      progress: number | null;
+    }>;
+  };
+}
+```
+
+- Use `POST /projects/:projectId/tasks/:taskId/reopen` instead of encoding reopen as a generic move. Body:
+
+```ts
+{
+  statusId?: string;
+  progress?: number;
+  reason?: string;
+}
+```
+
+- Reopen response:
+
+```ts
+{
+  task: TaskItem;
+  audit: {
+    previousStatusId: string;
+    nextStatusId: string;
+    previousProgress: number | null;
+    nextProgress: number | null;
+    reason: string | null;
+  };
+}
+```
+
+- Reopen target status must be active and non-Done. Reopening a child under a completed parent is rejected because that would violate the parent completion rule.
+- Bulk updates now return partial outcomes. Valid items succeed while invalid items are reported in `failed`; refresh any rows listed in `changedTaskIds`.
 
 ### Filters / Search
 

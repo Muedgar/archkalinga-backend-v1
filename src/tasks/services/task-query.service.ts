@@ -15,10 +15,12 @@ import {
   ChangeRequestPriority,
   ChangeRequestStatus,
   Task,
+  TaskChecklistItem,
   TaskComment,
   TaskRelation,
 } from '../entities';
 import {
+  ChecklistKanbanQueryDto,
   TaskFiltersDto,
   TaskMindmapCollapsedMode,
   TaskMindmapQueryDto,
@@ -26,13 +28,15 @@ import {
 } from '../dtos';
 import { TASK_NOT_FOUND, TASK_PROJECT_ACCESS_DENIED } from '../messages';
 import {
+  ChecklistKanbanBoardSerializer,
+  ChecklistKanbanCardSerializer,
   TaskChecklistItemDetailSerializer,
   TaskListItemSerializer,
   TaskSerializer,
 } from '../serializers';
+import { ProjectStatus } from '../project-config';
 import { TaskAuthService } from './task-auth.service';
 import { TaskMembersService } from './task-members.service';
-import { TaskProgressService } from './task-progress.service';
 
 const TASK_TREE_INCLUDE_KEYS = new Set([
   'assignees',
@@ -131,14 +135,27 @@ export class TaskQueryService {
     private readonly taskRepo: Repository<Task>,
     @InjectRepository(TaskComment)
     private readonly commentRepo: Repository<TaskComment>,
+    @InjectRepository(TaskChecklistItem)
+    private readonly checklistRepo: Repository<TaskChecklistItem>,
+    @InjectRepository(ProjectStatus)
+    private readonly projectStatusRepo: Repository<ProjectStatus>,
     @InjectRepository(ChangeRequest)
     private readonly changeRequestRepo: Repository<ChangeRequest>,
     @InjectRepository(TaskRelation)
     private readonly relationRepo: Repository<TaskRelation>,
     private readonly authSvc: TaskAuthService,
     private readonly membersSvc: TaskMembersService,
-    private readonly progressSvc: TaskProgressService,
   ) {}
+
+  private membershipCanUpdateProjectTasks(
+    requestUser: RequestUser,
+    membership: ProjectMembership | null | undefined,
+  ): boolean {
+    return (
+      this.authSvc.isAdmin(requestUser) ||
+      this.authSvc.membershipHasTaskPermission(membership, 'update')
+    );
+  }
 
   async getTask(
     projectId: string,
@@ -155,7 +172,7 @@ export class TaskQueryService {
     // - childCount only needs taskId (known from the URL), so it fires alongside the task load.
     //
     // Net effect: the entire task fetch + child count completes in ONE DB round-trip wave.
-    const [, task, childCount] = await Promise.all([
+    const [authContext, task, childCount] = await Promise.all([
       prefetchedMembership !== undefined
         ? Promise.resolve({
             project: null as any,
@@ -183,11 +200,17 @@ export class TaskQueryService {
       userIds,
     );
     const commentCount = task.comments.length;
+    const canUpdateTask = this.membershipCanUpdateProjectTasks(
+      requestUser,
+      authContext.membership,
+    );
 
     return this.authSvc.toTaskSerializer(
       this.membersSvc.buildTaskReadModel(task, roleContext, {
         childCount,
         commentCount,
+        rollupProgress: task.progress ?? null,
+        canUpdateTask,
       }),
     );
   }
@@ -207,13 +230,21 @@ export class TaskQueryService {
     // prefetchedMembership comes from ProjectPermissionGuard (already ran) via
     // req.projectMembership, so Promise.resolve() costs zero DB queries.
     // Without prefetching this would be 2 sequential queries (project + membership).
-    if (prefetchedMembership === undefined) {
-      await this.authSvc.verifyProjectPermission(
-        projectId,
-        requestUser,
-        'view',
-      );
-    }
+    const authContext =
+      prefetchedMembership !== undefined
+        ? {
+            project: null as any,
+            membership: prefetchedMembership,
+          }
+        : await this.authSvc.verifyProjectPermission(
+            projectId,
+            requestUser,
+            'view',
+          );
+    const canUpdateTask = this.membershipCanUpdateProjectTasks(
+      requestUser,
+      authContext.membership,
+    );
 
     const includes = this.authSvc.parseIncludes(filters.include);
     const page = filters.page ?? 1;
@@ -345,8 +376,10 @@ export class TaskQueryService {
       .leftJoinAndSelect('task.activitySchedule', 'activitySchedule');
 
     // ── Optional includes ─────────────────────────────────────────────────
-    if (includes.has('checklist'))
+    if (includes.has('checklist')) {
       qb.leftJoinAndSelect('task.checklistItems', 'checklistItems');
+      qb.leftJoinAndSelect('checklistItems.status', 'checklistItemStatus');
+    }
     if (includes.has('dependencies'))
       qb.leftJoinAndSelect('task.dependencyEdges', 'dependencyEdges');
     if (includes.has('comments'))
@@ -389,7 +422,7 @@ export class TaskQueryService {
     // ── Wave 1: main paginated query ──────────────────────────────────────
     const [tasks, count] = await qb.getManyAndCount();
 
-    // ── Wave 2: comment counts + roleContext — fire in parallel ───────────
+    // ── Wave 2: summary counts + roleContext — fire in parallel ───────────
     //
     // Both depend only on the task list from wave 1 and are independent of each other.
     //
@@ -416,9 +449,29 @@ export class TaskQueryService {
               .groupBy('c.taskId')
               .getRawMany<{ taskId: string; cnt: string }>()
           : Promise.resolve([]);
+    const checklistSummaryQuery: Promise<Array<{
+      taskId: string;
+      total: string;
+      completed: string;
+    }> | null> = includes.has('checklist')
+      ? Promise.resolve(null)
+      : tasks.length > 0
+        ? this.checklistRepo
+            .createQueryBuilder('item')
+            .select('item.taskId', 'taskId')
+            .addSelect('COUNT(item.id)', 'total')
+            .addSelect(
+              'SUM(CASE WHEN item.completed = true THEN 1 ELSE 0 END)',
+              'completed',
+            )
+            .where('item.taskId IN (:...ids)', { ids: taskIds })
+            .groupBy('item.taskId')
+            .getRawMany<{ taskId: string; total: string; completed: string }>()
+        : Promise.resolve([]);
 
-    const [commentRows, roleContext] = await Promise.all([
+    const [commentRows, checklistSummaryRows, roleContext] = await Promise.all([
       commentCountQuery,
+      checklistSummaryQuery,
       this.membersSvc.loadProjectRoleContextMap(projectId, userIds),
     ]);
 
@@ -433,12 +486,38 @@ export class TaskQueryService {
         commentCountMap.set(row.taskId, Number(row.cnt));
     }
 
+    const checklistSummaryMap = new Map<
+      string,
+      { total: number; completed: number }
+    >();
+    if (checklistSummaryRows === null) {
+      for (const task of tasks) {
+        const items = task.checklistItems ?? [];
+        checklistSummaryMap.set(task.id, {
+          total: items.length,
+          completed: items.filter((item) => item.completed).length,
+        });
+      }
+    } else {
+      for (const row of checklistSummaryRows) {
+        checklistSummaryMap.set(row.taskId, {
+          total: Number(row.total),
+          completed: Number(row.completed ?? 0),
+        });
+      }
+    }
+
     return {
       items: tasks.map((task) =>
         this.authSvc.toTaskListItemSerializer(
           this.membersSvc.buildTaskReadModel(task, roleContext, {
             childCount: (task as any).childCount ?? 0,
             commentCount: commentCountMap.get(task.id) ?? 0,
+            checklistItemCount: checklistSummaryMap.get(task.id)?.total ?? 0,
+            completedChecklistItemCount:
+              checklistSummaryMap.get(task.id)?.completed ?? 0,
+            rollupProgress: task.progress ?? null,
+            canUpdateTask,
           }),
         ),
       ),
@@ -452,13 +531,12 @@ export class TaskQueryService {
     };
   }
 
-  async getTaskTree(
+  async getChecklistKanban(
     projectId: string,
-    taskId: string,
-    query: TaskTreeQueryDto,
+    query: ChecklistKanbanQueryDto,
     requestUser: RequestUser,
     prefetchedMembership?: ProjectMembership | null,
-  ): Promise<TaskTreeResponse> {
+  ): Promise<ChecklistKanbanBoardSerializer> {
     if (prefetchedMembership === undefined) {
       await this.authSvc.verifyProjectPermission(
         projectId,
@@ -466,6 +544,167 @@ export class TaskQueryService {
         'view',
       );
     }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 100;
+    const includeDone = query.includeDone !== false;
+    const includeFlat = query.includeFlat !== false;
+    const includeBranched = query.includeBranched !== false;
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+
+    const columnsPromise = this.projectStatusRepo.find({
+      where: { projectId, isActive: true },
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+    });
+
+    const qb = this.checklistRepo
+      .createQueryBuilder('item')
+      .innerJoinAndSelect('item.task', 'task')
+      .innerJoinAndSelect('item.status', 'status')
+      .leftJoinAndSelect('task.assignees', 'assignees')
+      .leftJoinAndSelect('assignees.user', 'assigneeUser')
+      .leftJoinAndSelect('task.reporteeUser', 'reporteeUser')
+      .leftJoinAndSelect('item.branchedTask', 'branchedTask')
+      .where('task.projectId = :projectId', { projectId })
+      .andWhere('task.deletedAt IS NULL');
+
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
+
+    if (!includeDone) {
+      qb.andWhere('status.isDone = false');
+    }
+    if (!includeFlat && includeBranched) {
+      qb.andWhere('item.branchedTaskId IS NOT NULL');
+    } else if (includeFlat && !includeBranched) {
+      qb.andWhere('item.branchedTaskId IS NULL');
+    } else if (!includeFlat && !includeBranched) {
+      qb.andWhere('1 = 0');
+    }
+    if (query.statusId) {
+      qb.andWhere('item.statusId = :statusId', { statusId: query.statusId });
+    }
+    if (query.assigneeUserId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM "task_assignees" "ta_filter"
+          WHERE "ta_filter"."taskId" = task.id
+            AND "ta_filter"."userId" = :assigneeUserId
+        )`,
+        { assigneeUserId: query.assigneeUserId },
+      );
+    }
+    if (query.reporteeUserId) {
+      qb.andWhere('task.reporteeUserId = :reporteeUserId', {
+        reporteeUserId: query.reporteeUserId,
+      });
+    }
+    if (query.taskId) {
+      qb.andWhere(
+        `task.id IN (
+          WITH RECURSIVE subtree AS (
+            SELECT "id"
+            FROM "tasks"
+            WHERE "id" = :rootTaskId
+              AND "projectId" = :projectId
+              AND "deletedAt" IS NULL
+
+            UNION ALL
+
+            SELECT child."id"
+            FROM "tasks" child
+            INNER JOIN subtree parent ON child."parentTaskId" = parent."id"
+            WHERE child."projectId" = :projectId
+              AND child."deletedAt" IS NULL
+          )
+          SELECT "id" FROM subtree
+        )`,
+        { rootTaskId: query.taskId },
+      );
+    }
+    if (query.search) {
+      qb.andWhere(
+        '(item.text ILIKE :search OR item.itemCode ILIKE :search OR task.title ILIKE :search)',
+        { search: `%${query.search}%` },
+      );
+    }
+
+    const countQb = qb.clone();
+    const countPromise = countQb.getCount();
+    const columnCountPromise = qb
+      .clone()
+      .select('item.statusId', 'statusId')
+      .addSelect('COUNT(DISTINCT item.id)', 'count')
+      .groupBy('item.statusId')
+      .getRawMany<{ statusId: string; count: string }>();
+
+    qb.orderBy('status.orderIndex', 'ASC')
+      .addOrderBy('item.rank', 'ASC', 'NULLS LAST')
+      .addOrderBy('item.orderIndex', 'ASC')
+      .addOrderBy('item.createdAt', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [columns, cards, count, columnRows] = await Promise.all([
+      columnsPromise,
+      qb.getMany(),
+      countPromise,
+      columnCountPromise,
+    ]);
+
+    const pages = Math.max(Math.ceil(count / limit), 1);
+
+    return {
+      columns,
+      cards: await Promise.all(
+        cards.map((item) => this.toChecklistKanbanCard(item, requestUser)),
+      ),
+      columnCounts: columnRows.reduce<Record<string, number>>((acc, row) => {
+        acc[row.statusId] = Number(row.count);
+        return acc;
+      }, {}),
+      meta: {
+        projectId,
+        taskId: query.taskId ?? null,
+        page,
+        limit,
+        count,
+        pages,
+        nextPage: page < pages ? page + 1 : null,
+        previousPage: page > 1 ? page - 1 : null,
+      },
+    };
+  }
+
+  async getTaskTree(
+    projectId: string,
+    taskId: string,
+    query: TaskTreeQueryDto,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ): Promise<TaskTreeResponse> {
+    const authContext =
+      prefetchedMembership !== undefined
+        ? {
+            project: null as any,
+            membership: prefetchedMembership,
+          }
+        : await this.authSvc.verifyProjectPermission(
+            projectId,
+            requestUser,
+            'view',
+          );
+    const canUpdateTask = this.membershipCanUpdateProjectTasks(
+      requestUser,
+      authContext.membership,
+    );
 
     const depth = query.depth ?? 'all';
     if (depth !== 'all' && (!Number.isInteger(depth) || depth < 0)) {
@@ -575,6 +814,12 @@ export class TaskQueryService {
           this.membersSvc.buildTaskReadModel(task, roleContext, {
             childCount: directChildCountMap.get(task.id) ?? 0,
             commentCount: commentCountMap.get(task.id) ?? 0,
+            checklistItemCount: checklistItems.length,
+            completedChecklistItemCount: checklistItems.filter(
+              (item) => item.completed,
+            ).length,
+            rollupProgress: task.progress ?? null,
+            canUpdateTask,
           }),
         ),
         children: [],
@@ -1158,6 +1403,8 @@ export class TaskQueryService {
       updatedAt: item.updatedAt,
       taskId: item.taskId,
       checklistGroupId: item.checklistGroupId,
+      statusId: item.statusId,
+      status: item.status ?? null,
       itemCode: item.itemCode,
       branchedTaskId: item.branchedTaskId,
       branchStatus: item.branchStatus,
@@ -1165,9 +1412,80 @@ export class TaskQueryService {
       branchedAt: item.branchedAt,
       text: item.text,
       completed: item.completed,
+      progress: item.completed ? 100 : 0,
       orderIndex: item.orderIndex,
+      rank: item.rank,
       completedByUserId: item.completedByUserId,
       completedAt: item.completedAt,
+    };
+  }
+
+  private async toChecklistKanbanCard(
+    item: TaskChecklistItem,
+    requestUser: RequestUser,
+  ): Promise<ChecklistKanbanCardSerializer> {
+    const task = item.task;
+    const [canExecute, canUpdateText, canManageChecklist] = task
+      ? await Promise.all([
+          this.authSvc.canBranchTaskChecklistItem(
+            task.projectId,
+            task.id,
+            requestUser.id,
+          ),
+          this.authSvc.canUpdateTaskChecklistItem(
+            task.projectId,
+            task.id,
+            requestUser.id,
+            true,
+          ),
+          this.authSvc.canManageTaskOwnedChecklist(
+            task.projectId,
+            task.id,
+            requestUser.id,
+          ),
+        ])
+      : [false, false, false];
+    const assignedMembers = (task?.assignees ?? []).map((assignee) => ({
+      userId: assignee.userId,
+      firstName: assignee.user?.firstName ?? null,
+      lastName: assignee.user?.lastName ?? null,
+      email: assignee.user?.email ?? null,
+      title: assignee.user?.title ?? null,
+    }));
+
+    return {
+      id: item.id,
+      pkid: item.pkid,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      taskId: item.taskId,
+      taskTitle: task?.title ?? '',
+      parentTaskId: task?.parentTaskId ?? null,
+      itemCode: item.itemCode,
+      text: item.text,
+      statusId: item.statusId,
+      rank: item.rank,
+      completed: item.completed,
+      progress: item.completed ? 100 : 0,
+      branchStatus: item.branchStatus,
+      branchedTaskId: item.branchedTaskId,
+      branchedTaskTitle: item.branchedTask?.title ?? null,
+      assignedMembers,
+      reportee: task?.reporteeUser
+        ? {
+            userId: task.reporteeUserId!,
+            firstName: task.reporteeUser.firstName ?? null,
+            lastName: task.reporteeUser.lastName ?? null,
+            email: task.reporteeUser.email ?? null,
+            title: task.reporteeUser.title ?? null,
+          }
+        : null,
+      createdByUserId: task?.createdByUserId ?? '',
+      canBranch: canExecute,
+      canMove: canExecute,
+      canUpdate: canExecute,
+      canUpdateText,
+      canManageChecklist,
     };
   }
 
@@ -1213,6 +1531,7 @@ export class TaskQueryService {
       qb.leftJoinAndSelect('task.activitySchedule', 'activitySchedule');
     }
     qb.leftJoinAndSelect('task.checklistItems', 'checklistItems');
+    qb.leftJoinAndSelect('checklistItems.status', 'checklistItemStatus');
     if (includes.has('dependencies')) {
       qb.leftJoinAndSelect('task.dependencyEdges', 'dependencyEdges');
     }
@@ -1296,24 +1615,26 @@ export class TaskQueryService {
       childProgressByTaskId.set(child.task.id, child.progress.rollup ?? 0);
     }
 
-    for (const item of node.checklistItems) {
-      if (!item.branchedTaskId) continue;
-      const childProgress = childProgressByTaskId.get(item.branchedTaskId);
-      if (childProgress !== undefined) item.completed = childProgress >= 100;
-    }
-
     node.counts.descendantCount = descendantCount;
     node.counts.completedChecklistItemCount = node.checklistItems.filter(
       (item) => item.completed,
     ).length;
 
-    const derivedProgress = this.progressSvc.calculateTaskProgress(
-      { id: node.task.id, completed: node.progress.completed },
-      new Map([[node.task.id, node.checklistItems]]),
-      childProgressByTaskId,
-    );
-    node.progress.self = derivedProgress;
-    node.progress.rollup = derivedProgress;
+    const childRollups = [...childProgressByTaskId.values()];
+    const selfProgress = node.progress.self ?? 0;
+    const rollupProgress =
+      childRollups.length > 0
+        ? Math.round(
+            childRollups.reduce((sum, progress) => sum + progress, 0) /
+              childRollups.length,
+          )
+        : selfProgress;
+    node.progress.rollup = rollupProgress;
+    (node.task as any).rollupProgress = rollupProgress;
+    (node.task as any).checklistSummary = {
+      total: node.counts.checklistItemCount,
+      completed: node.counts.completedChecklistItemCount,
+    };
   }
 
   private buildTreeSummary(root: TaskTreeNode): TaskTreeResponse['summary'] {

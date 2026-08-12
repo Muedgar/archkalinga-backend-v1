@@ -99,6 +99,19 @@ export class AuthService {
     return createHash('sha256').update(raw).digest('hex');
   }
 
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
+  private findUserByEmail(email: string): Promise<User | null> {
+    return this.userRepo
+      .createQueryBuilder('user')
+      .where('LOWER(user.email) = :email', {
+        email: this.normalizeEmail(email),
+      })
+      .getOne();
+  }
+
   private signAccessToken(user: User, sessionId?: string): string {
     const payload: JwtPayload = {
       id: user.id,
@@ -174,6 +187,31 @@ export class AuthService {
       .execute();
   }
 
+  private async revokePresentedSessionForOtherUser(
+    accessToken: string | null | undefined,
+    authenticatedUser: User,
+  ): Promise<void> {
+    if (!accessToken) return;
+
+    let payload: JwtPayload | null = null;
+    try {
+      payload = this.jwtService.verify<JwtPayload>(accessToken);
+    } catch {
+      return;
+    }
+
+    if (!payload.sessionId || payload.id === authenticatedUser.id) return;
+
+    await this.sessionRepo
+      .createQueryBuilder()
+      .update(UserSession)
+      .set({ revokedAt: new Date() })
+      .where('id = :sessionId', { sessionId: payload.sessionId })
+      .andWhere('user_id != :userPkid', { userPkid: authenticatedUser.pkid })
+      .andWhere('"revokedAt" IS NULL')
+      .execute();
+  }
+
   /** Load a user (no workspace-specific relations — those travel via WorkspaceMember). */
   private async loadFullUser(userId: string): Promise<User> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
@@ -233,7 +271,8 @@ export class AuthService {
     workspaceMember: WorkspaceMemberSerializer;
   }> {
     // Check email uniqueness early (before the slug query + transaction)
-    const existing = await this.userRepo.findOne({ where: { email: dto.email } });
+    const email = this.normalizeEmail(dto.email);
+    const existing = await this.findUserByEmail(email);
     if (existing) throw new ConflictException('Email already in use');
 
     const hashedPassword = bcrypt.hashSync(dto.password, bcrypt.genSaltSync(12));
@@ -245,7 +284,7 @@ export class AuthService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         userName: dto.userName,
-        email: dto.email,
+        email,
         password: hashedPassword,
         title: dto.title ?? null,
         status: true,
@@ -340,6 +379,7 @@ export class AuthService {
     loginDTO: LoginDto,
     ipAddress: string | null,
     deviceLabel: string | null,
+    presentedAccessToken?: string | null,
   ): Promise<{
     accessToken?: string;
     refreshToken?: string;
@@ -349,8 +389,9 @@ export class AuthService {
     workspaceMemberId?: string | null;
     workspaceMember?: WorkspaceMemberSerializer | null;
   }> {
-    const { email, password } = loginDTO;
-    const user = await this.userRepo.findOne({ where: { email } });
+    const email = this.normalizeEmail(loginDTO.email);
+    const { password } = loginDTO;
+    const user = await this.findUserByEmail(email);
 
     if (!user) {
       bcrypt.compareSync(password, DUMMY_HASH);
@@ -431,6 +472,10 @@ export class AuthService {
     }
 
     const fullUser = await this.loadFullUser(user.id);
+    await this.revokePresentedSessionForOtherUser(
+      presentedAccessToken,
+      fullUser,
+    );
     const { accessToken, refreshToken } = await this.issueTokenPair(
       fullUser,
       ipAddress,
@@ -459,6 +504,7 @@ export class AuthService {
     otpDto: OtpDTO,
     ipAddress: string | null,
     deviceLabel: string | null,
+    presentedAccessToken?: string | null,
   ): Promise<{
     accessToken: string;
     refreshToken: string;
@@ -467,8 +513,9 @@ export class AuthService {
     workspaceMemberId: string | null;
     workspaceMember: WorkspaceMemberSerializer | null;
   }> {
-    const { email, otp } = otpDto;
-    const user = await this.userRepo.findOne({ where: { email } });
+    const email = this.normalizeEmail(otpDto.email);
+    const { otp } = otpDto;
+    const user = await this.findUserByEmail(email);
 
     if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS);
 
@@ -486,6 +533,10 @@ export class AuthService {
     await this.userRepo.save(user);
 
     const fullUser = await this.loadFullUser(user.id);
+    await this.revokePresentedSessionForOtherUser(
+      presentedAccessToken,
+      fullUser,
+    );
     const { accessToken, refreshToken } = await this.issueTokenPair(
       fullUser,
       ipAddress,
@@ -521,7 +572,7 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async requestPasswordReset(dto: RequestResetPasswordDto): Promise<void> {
-    const user = await this.userRepo.findOne({ where: { email: dto.email } });
+    const user = await this.findUserByEmail(dto.email);
 
     if (!user) throw new NotFoundException(USER_NOT_FOUND);
 

@@ -3,9 +3,18 @@ import { AppBaseEntity } from 'src/common/entities';
 import { Project } from 'src/projects/entities';
 
 export enum StatusCategory {
-  TODO        = 'todo',
-  IN_PROGRESS = 'in_progress',
-  DONE        = 'done',
+  NOT_STARTED = 'not_started',
+  ACTIVE = 'active',
+  DONE = 'done',
+  CANCELLED = 'cancelled',
+  BLOCKED = 'blocked',
+}
+
+export enum CompletionPolicy {
+  NONE = 'none',
+  COMPLETE_TASK_ONLY = 'complete_task_only',
+  COMPLETE_OPEN_WORK_ITEMS = 'complete_open_work_items',
+  REQUIRE_ALL_WORK_ITEMS_DONE = 'require_all_work_items_done',
 }
 
 /**
@@ -41,11 +50,8 @@ export class ProjectStatus extends AppBaseEntity {
   @Column({ type: 'int', nullable: true })
   wipLimit: number | null;
 
-  /**
-   * Semantic bucket: 'todo' | 'in_progress' | 'done'.
-   * Used for Gantt colouring and analytics; 'done' auto-sets tasks.completed.
-   */
-  @Column({ type: 'varchar', length: 20, default: StatusCategory.IN_PROGRESS })
+  /** Semantic bucket used by workflow, analytics, and completion rules. */
+  @Column({ type: 'varchar', length: 20, default: StatusCategory.ACTIVE })
   category: StatusCategory;
 
   /** Assigned on task create when no status is given */
@@ -55,6 +61,18 @@ export class ProjectStatus extends AppBaseEntity {
   /** Tasks in a terminal status cannot be edited */
   @Column({ type: 'boolean', default: false })
   isTerminal: boolean;
+
+  /** True only for statuses that mean work completed successfully. */
+  @Column({ type: 'boolean', default: false })
+  isDone: boolean;
+
+  /** Policy applied when a task transitions into this status. */
+  @Column({
+    type: 'varchar',
+    length: 40,
+    default: CompletionPolicy.NONE,
+  })
+  completionPolicy: CompletionPolicy;
 
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
