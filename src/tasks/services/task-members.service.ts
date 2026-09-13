@@ -46,7 +46,11 @@ export interface TaskCounts {
   canUpdateTask?: boolean;
 }
 
-type ProgressEditBlockedReason = 'HAS_CHILDREN' | 'COMPLETED' | 'FORBIDDEN';
+type ProgressEditBlockedReason =
+  | 'HAS_CHILDREN'
+  | 'HAS_CHECKLIST_WORK'
+  | 'COMPLETED'
+  | 'FORBIDDEN';
 
 export interface ProjectRoleContext {
   projectRoleId: string | null;
@@ -167,8 +171,7 @@ export class TaskMembersService {
     tx: import('typeorm').EntityManager,
     actorUser: User,
   ): Promise<{ user: User; userId: string; projectRoleId: string }[]> {
-    if (!assignedMembers.length)
-      throw new BadRequestException(INVALID_TASK_ASSIGNED_MEMBERS);
+    if (!assignedMembers.length) return [];
 
     const uniqueUserIds = [...new Set(assignedMembers.map((m) => m.userId))];
     if (uniqueUserIds.length !== assignedMembers.length) {
@@ -361,11 +364,15 @@ export class TaskMembersService {
       counts?.completedChecklistItemCount ??
       checklistItems.filter((item) => item.completed).length;
     const childCount = counts?.childCount ?? 0;
-    const progressEditBlockedReason = this.getProgressEditBlockedReason(
-      childCount,
-      task.completed,
-      counts?.canUpdateTask ?? true,
-    );
+    const progressEditBlockedReason = checklistItems.some(
+      (item) => item.packageManaged,
+    )
+      ? 'HAS_CHECKLIST_WORK'
+      : this.getProgressEditBlockedReason(
+          childCount,
+          task.completed,
+          counts?.canUpdateTask ?? true,
+        );
 
     const assignedMembers = (task.assignees ?? []).map((assignee) => {
       const roleContext = membershipRoleContext.get(assignee.userId);

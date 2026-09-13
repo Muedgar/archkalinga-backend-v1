@@ -119,7 +119,7 @@ export class MinioService {
         fileName,
         expirySeconds,
       );
-    } catch (error) {
+    } catch {
       this.logger.warn(
         `Failed to sign MinIO URL for ${bucketName}/${fileName}`,
       );
@@ -140,7 +140,11 @@ export class MinioService {
     }
   }
 
-  async deleteFile(bucketName: string, fileName: string): Promise<void> {
+  async deleteFile(
+    bucketName: string,
+    fileName: string,
+    throwOnError = false,
+  ): Promise<void> {
     try {
       await this.minioClient.removeObject(
         this.normalizeBucketName(bucketName),
@@ -148,6 +152,7 @@ export class MinioService {
       );
     } catch (error) {
       this.logger.warn(`Failed to delete ${bucketName}/${fileName}`);
+      if (throwOnError) throw error;
     }
   }
 

@@ -29,3 +29,5 @@ export * from './task-view-metadata.entity';
 export * from './task-watcher.entity';
 export * from './task-wbs-code.entity';
 export * from './task-activity-log.entity';
+
+export * from './checklist-dependency.entity';

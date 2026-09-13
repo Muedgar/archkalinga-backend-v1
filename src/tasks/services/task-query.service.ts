@@ -205,6 +205,7 @@ export class TaskQueryService {
       authContext.membership,
     );
 
+    await this.authSvc.decorateTaskChecklistRead(task, requestUser);
     return this.authSvc.toTaskSerializer(
       this.membersSvc.buildTaskReadModel(task, roleContext, {
         childCount,
@@ -507,6 +508,15 @@ export class TaskQueryService {
       }
     }
 
+    await Promise.all(
+      tasks.map((task) =>
+        this.authSvc.decorateChecklistRead(
+          task,
+          task.checklistItems ?? [],
+          requestUser,
+        ),
+      ),
+    );
     return {
       items: tasks.map((task) =>
         this.authSvc.toTaskListItemSerializer(
@@ -529,6 +539,129 @@ export class TaskQueryService {
       nextPage: count / limit > page ? page + 1 : null,
       limit,
     };
+  }
+
+  async getProjectParentTasks(
+    projectId: string,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ): Promise<TaskListItemSerializer[]> {
+    const authContext =
+      prefetchedMembership !== undefined
+        ? {
+            project: null as any,
+            membership: prefetchedMembership,
+          }
+        : await this.authSvc.verifyProjectPermission(
+            projectId,
+            requestUser,
+            'view',
+          );
+    const canUpdateTask = this.membershipCanUpdateProjectTasks(
+      requestUser,
+      authContext.membership,
+    );
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+
+    const qb = this.taskRepo
+      .createQueryBuilder('task')
+      .where('task.projectId = :projectId', { projectId })
+      .andWhere('task.deletedAt IS NULL')
+      .andWhere('task.supersededByTaskId IS NULL')
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM "tasks" "child"
+          WHERE "child"."parentTaskId" = task.id
+            AND "child"."projectId" = :projectId
+            AND "child"."deletedAt" IS NULL
+            AND "child"."superseded_by_task_id" IS NULL
+        )`,
+      )
+      .leftJoinAndSelect('task.assignees', 'assignees')
+      .leftJoinAndSelect('assignees.user', 'assigneeUser')
+      .leftJoinAndSelect('task.reporteeUser', 'reporteeUser')
+      .leftJoinAndSelect('task.status', 'status')
+      .leftJoinAndSelect('task.priority', 'priority')
+      .leftJoinAndSelect('task.taskType', 'taskType')
+      .leftJoinAndSelect('task.severity', 'severity')
+      .leftJoinAndSelect('task.activitySchedule', 'activitySchedule')
+      .leftJoinAndSelect('task.checklistItems', 'checklistItems')
+      .leftJoinAndSelect('checklistItems.status', 'checklistItemStatus')
+      .leftJoinAndSelect('task.dependencyEdges', 'dependencyEdges')
+      .leftJoinAndSelect(
+        'task.comments',
+        'comments',
+        'comments.deletedAt IS NULL',
+      )
+      .leftJoinAndSelect('task.viewMetadataEntries', 'viewMetadataEntries');
+
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
+
+    const tasks = await qb
+      .orderBy('task.wbsSortKey', 'ASC', 'NULLS LAST')
+      .addOrderBy('task.rank', 'ASC', 'NULLS LAST')
+      .addOrderBy('task.createdAt', 'ASC')
+      .getMany();
+
+    if (!tasks.length) return [];
+
+    const taskIds = tasks.map((task) => task.id);
+    const userIds = tasks.flatMap((task) =>
+      [
+        task.reporteeUserId,
+        ...(task.assignees ?? []).map((assignee) => assignee.userId),
+      ].filter((value): value is string => Boolean(value)),
+    );
+
+    const [childRows, roleContext] = await Promise.all([
+      this.taskRepo
+        .createQueryBuilder('child')
+        .select('child.parentTaskId', 'parentTaskId')
+        .addSelect('COUNT(child.id)', 'cnt')
+        .where('child.parentTaskId IN (:...taskIds)', { taskIds })
+        .andWhere('child.projectId = :projectId', { projectId })
+        .andWhere('child.deletedAt IS NULL')
+        .andWhere('child.supersededByTaskId IS NULL')
+        .groupBy('child.parentTaskId')
+        .getRawMany<{ parentTaskId: string; cnt: string }>(),
+      this.membersSvc.loadProjectRoleContextMap(projectId, userIds),
+    ]);
+    const childCountMap = new Map(
+      childRows.map((row) => [row.parentTaskId, Number(row.cnt)]),
+    );
+
+    await Promise.all(
+      tasks.map((task) =>
+        this.authSvc.decorateChecklistRead(
+          task,
+          task.checklistItems ?? [],
+          requestUser,
+        ),
+      ),
+    );
+    return tasks.map((task) => {
+      const checklistItems = task.checklistItems ?? [];
+      return this.authSvc.toTaskListItemSerializer(
+        this.membersSvc.buildTaskReadModel(task, roleContext, {
+          childCount: childCountMap.get(task.id) ?? 0,
+          commentCount: (task.comments ?? []).length,
+          checklistItemCount: checklistItems.length,
+          completedChecklistItemCount: checklistItems.filter(
+            (item) => item.completed,
+          ).length,
+          rollupProgress: task.progress ?? null,
+          canUpdateTask,
+        }),
+      );
+    });
   }
 
   async getChecklistKanban(
@@ -804,6 +937,15 @@ export class TaskQueryService {
         this.loadCommentCountMap(allTaskIds),
       ]);
 
+    await Promise.all(
+      allTasks.map((task) =>
+        this.authSvc.decorateChecklistRead(
+          task,
+          task.checklistItems ?? [],
+          requestUser,
+        ),
+      ),
+    );
     const nodes = new Map<string, TaskTreeNode>();
     for (const task of allTasks) {
       const checklistItems = [...(task.checklistItems ?? [])].sort(
@@ -966,6 +1108,14 @@ export class TaskQueryService {
                 id: item.id,
                 taskId: item.taskId,
                 itemCode: item.itemCode,
+                description: item.description ?? null,
+                canBranch: item.canBranch ?? false,
+                packageManaged: item.packageManaged,
+                legacyBranch: item.legacyBranch,
+                durationDays: item.durationDays,
+                earliestStartDate: item.earliestStartDate,
+                plannedStartDate: item.plannedStartDate,
+                plannedEndDate: item.plannedEndDate,
                 text: item.text,
                 completed: item.completed,
                 orderIndex: item.orderIndex,
@@ -1410,6 +1560,14 @@ export class TaskQueryService {
       branchStatus: item.branchStatus,
       branchedByUserId: item.branchedByUserId,
       branchedAt: item.branchedAt,
+      description: item.description ?? null,
+      canBranch: item.canBranch ?? false,
+      packageManaged: item.packageManaged,
+      legacyBranch: item.legacyBranch,
+      durationDays: item.durationDays,
+      earliestStartDate: item.earliestStartDate,
+      plannedStartDate: item.plannedStartDate,
+      plannedEndDate: item.plannedEndDate,
       text: item.text,
       completed: item.completed,
       progress: item.completed ? 100 : 0,
@@ -1425,6 +1583,8 @@ export class TaskQueryService {
     requestUser: RequestUser,
   ): Promise<ChecklistKanbanCardSerializer> {
     const task = item.task;
+    if (task)
+      await this.authSvc.decorateChecklistRead(task, [item], requestUser);
     const [canExecute, canUpdateText, canManageChecklist] = task
       ? await Promise.all([
           this.authSvc.canBranchTaskChecklistItem(
@@ -1462,6 +1622,14 @@ export class TaskQueryService {
       taskTitle: task?.title ?? '',
       parentTaskId: task?.parentTaskId ?? null,
       itemCode: item.itemCode,
+      description: item.description ?? null,
+      canBranch: item.canBranch ?? false,
+      packageManaged: item.packageManaged,
+      legacyBranch: item.legacyBranch,
+      durationDays: item.durationDays,
+      earliestStartDate: item.earliestStartDate,
+      plannedStartDate: item.plannedStartDate,
+      plannedEndDate: item.plannedEndDate,
       text: item.text,
       statusId: item.statusId,
       rank: item.rank,
@@ -1481,7 +1649,7 @@ export class TaskQueryService {
           }
         : null,
       createdByUserId: task?.createdByUserId ?? '',
-      canBranch: canExecute,
+
       canMove: canExecute,
       canUpdate: canExecute,
       canUpdateText,

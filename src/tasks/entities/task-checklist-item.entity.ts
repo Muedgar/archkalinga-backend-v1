@@ -1,4 +1,4 @@
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities';
 import { ProjectStatus } from '../project-config';
@@ -11,6 +11,10 @@ export enum TaskChecklistBranchStatus {
 }
 
 @Entity('task_checklist_items')
+@Index('idx_task_checklist_items_branched_task_unique', ['branchedTaskId'], {
+  unique: true,
+  where: '"branched_task_id" IS NOT NULL',
+})
 export class TaskChecklistItem extends AppBaseEntity {
   @ManyToOne(() => Task, (task) => task.checklistItems, {
     nullable: false,
@@ -35,6 +39,43 @@ export class TaskChecklistItem extends AppBaseEntity {
 
   @Column({ type: 'varchar', length: 500, nullable: false })
   text: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  description: Record<string, unknown> | null;
+
+  @Column({ name: 'package_managed', type: 'boolean', default: false })
+  packageManaged: boolean;
+
+  @Column({ name: 'legacy_branch', type: 'boolean', default: false })
+  legacyBranch: boolean;
+
+  @Column({ name: 'assigned_members', type: 'jsonb', default: [] })
+  assignedMembers: { userId: string; projectRoleId?: string }[];
+
+  @Column({ name: 'reportee_user_id', type: 'uuid', nullable: true })
+  reporteeUserId: string | null;
+
+  @Column({
+    name: 'duration_days',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    default: 1,
+    transformer: { to: (v: number) => v, from: (v: string) => Number(v) },
+  })
+  durationDays: number;
+
+  @Column({ name: 'earliest_start_date', type: 'date', nullable: true })
+  earliestStartDate: string | null;
+
+  @Column({ name: 'planned_start_date', type: 'date', nullable: true })
+  plannedStartDate: string | null;
+
+  @Column({ name: 'planned_end_date', type: 'date', nullable: true })
+  plannedEndDate: string | null;
+
+  // Request-specific permission; never persisted.
+  canBranch?: boolean;
 
   @Column({ type: 'boolean', default: false })
   completed: boolean;

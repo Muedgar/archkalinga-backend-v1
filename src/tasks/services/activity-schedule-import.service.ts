@@ -879,8 +879,8 @@ export class ActivityScheduleImportService {
       parentTaskId: input.parentTaskId,
       createdByUser: { pkid: input.actorUserPkid } as User,
       createdByUserId: input.actorUserId,
-      reporteeUser: null,
-      reporteeUserId: null,
+      reporteeUser: { pkid: input.actorUserPkid } as User,
+      reporteeUserId: input.actorUserId,
     });
     const saved = await tx.save(Task, task);
     await this.wbsSvc.reserveExistingTaskCode(tx, saved, input.actorUserId);

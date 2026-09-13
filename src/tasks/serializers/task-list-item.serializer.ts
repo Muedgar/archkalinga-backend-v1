@@ -49,6 +49,15 @@ class TaskListChecklistStatusSnippet extends BaseSerializer {
 }
 
 class TaskListChecklistItemSerializer extends BaseSerializer {
+  @Expose() description?: Record<string, unknown> | null;
+  @Expose() canBranch?: boolean;
+  @Expose() packageManaged?: boolean;
+  @Expose() legacyBranch?: boolean;
+  @Expose() durationDays?: number;
+  @Expose() earliestStartDate?: string | null;
+  @Expose() plannedStartDate?: string | null;
+  @Expose() plannedEndDate?: string | null;
+
   @Expose() statusId: string;
   @Expose()
   @Transform(({ obj }) => obj?.status ?? null)

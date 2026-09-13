@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { User } from 'src/users/entities';
+import { TaskChecklistItem } from './task-checklist-item.entity';
 import { Task } from './task.entity';
 import { TaskDocumentAttachment } from './task-document-attachment.entity';
 
@@ -23,6 +24,13 @@ export enum TaskDocumentType {
 @Index('idx_task_documents_source_task', ['sourceTaskId'])
 @Index('idx_task_documents_source_document', ['sourceDocumentId'])
 export class TaskDocument extends AppBaseEntity {
+  @ManyToOne(() => TaskChecklistItem, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'checklist_item_id', referencedColumnName: 'id' })
+  checklistItem: TaskChecklistItem | null;
+
+  @Column({ name: 'checklist_item_id', type: 'uuid', nullable: true })
+  checklistItemId: string | null;
+
   @ManyToOne(() => Task, (task) => task.documents, {
     nullable: false,
     onDelete: 'CASCADE',

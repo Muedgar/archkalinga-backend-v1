@@ -12,10 +12,11 @@ import {
   Req,
   Res,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import {
   ApiBody,
@@ -149,6 +150,7 @@ import {
   TASK_GANTT_FETCHED,
   TASK_MINDMAP_CHECKS_FETCHED,
   TASK_MINDMAP_FETCHED,
+  TASK_PARENT_TASKS_FETCHED,
   TASK_TREE_FETCHED,
   TASK_VIEW_METADATA_SAVED,
   TASK_LABEL_ADDED,
@@ -177,6 +179,7 @@ import {
   TASK_DOCUMENT_DELETED,
   TASK_DOCUMENT_FETCHED,
   TASK_DOCUMENTS_FETCHED,
+  TASK_SUBTREE_DELIVERABLE_DOCUMENTS_FETCHED,
   TASK_DOCUMENT_UPDATED,
   TASK_CHANGE_REQUEST_ATTACHMENT_DOWNLOAD_URL_FETCHED,
   TASK_CHANGE_REQUEST_CREATED,
@@ -209,6 +212,7 @@ import {
   TASK_RESOURCE_ALLOCATION_UPDATED,
   TASK_RESOURCE_ALLOCATIONS_FETCHED,
 } from './messages';
+import { TaskPackageService } from './services/task-package.service';
 import { TasksService } from './tasks.service';
 import type { ActivityScheduleUploadFile } from './services';
 
@@ -217,7 +221,59 @@ import type { ActivityScheduleUploadFile } from './services';
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 export class TasksController {
-  constructor(private readonly tasksService: TasksService) {}
+  constructor(
+    private readonly tasksService: TasksService,
+    private readonly taskPackageService: TaskPackageService,
+  ) {}
+
+  @Post('task-packages')
+  @ApiOperation({
+    summary:
+      'Create a task with unbranched checklists; optionally branch a source checklist atomically',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['payload'],
+      properties: {
+        payload: {
+          type: 'string',
+          description:
+            'JSON task package. Existing starter files use sourceAttachmentId.',
+        },
+      },
+      additionalProperties: { type: 'string', format: 'binary' },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Complete task package committed' })
+  @ResponseMessage('Task package created')
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'create')
+  @UseInterceptors(
+    AnyFilesInterceptor({
+      limits: {
+        files: 25,
+        fileSize: 10 * 1024 * 1024,
+        fields: 1,
+        fieldSize: 2 * 1024 * 1024,
+        parts: 26,
+      },
+    }),
+  )
+  createTaskPackage(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Body('payload') payload: unknown,
+    @UploadedFiles() files: (UploadableFile & { fieldname: string })[],
+    @GetUser() user: RequestUser,
+  ) {
+    return this.taskPackageService.create(
+      projectId,
+      payload,
+      files ?? [],
+      user,
+    );
+  }
 
   @Get('tasks')
   @ApiOperation({
@@ -240,6 +296,28 @@ export class TasksController {
     return this.tasksService.getProjectTasks(
       projectId,
       filters,
+      user,
+      req.projectMembership,
+    );
+  }
+
+  @Get('tasks/parents')
+  @ApiOperation({
+    summary: 'List project parent tasks',
+    description:
+      'Returns detailed task rows for active, visible project tasks that have at least one active child task.',
+  })
+  @ApiResponse({ status: 200, description: 'Parent tasks fetched' })
+  @ResponseMessage(TASK_PARENT_TASKS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getProjectParentTasks(
+    @Req() req: any,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getProjectParentTasks(
+      projectId,
       user,
       req.projectMembership,
     );
@@ -2103,6 +2181,31 @@ export class TasksController {
     );
   }
 
+  @Get('tasks/:taskId/deliverable-documents')
+  @ApiOperation({
+    summary: 'List task subtree deliverable documents',
+    description:
+      'Returns deliverable documents attached to the selected task and all visible descendant subtasks, including task context and attachments.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Task subtree deliverable documents fetched',
+  })
+  @ResponseMessage(TASK_SUBTREE_DELIVERABLE_DOCUMENTS_FETCHED)
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  listTaskSubtreeDeliverableDocuments(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.listTaskSubtreeDeliverableDocuments(
+      projectId,
+      taskId,
+      user,
+    );
+  }
+
   @Get('tasks/:taskId/documents/:documentId')
   @ApiOperation({ summary: 'Get task document' })
   @ApiResponse({ status: 200, description: 'Task document fetched' })
@@ -2572,6 +2675,27 @@ export class TasksController {
     @GetUser() user: RequestUser,
   ) {
     return this.tasksService.getTaskChecklist(projectId, taskId, user);
+  }
+
+  @Get('tasks/:taskId/checklist/:itemId')
+  @ApiOperation({
+    summary:
+      'Read checklist description, documents, scheduling constraints and dependencies',
+  })
+  @UseGuards(ProjectPermissionGuard)
+  @RequireProjectPermission('taskManagement', 'view')
+  getTaskChecklistItem(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @GetUser() user: RequestUser,
+  ) {
+    return this.tasksService.getTaskChecklistItem(
+      projectId,
+      taskId,
+      itemId,
+      user,
+    );
   }
 
   @Post('tasks/:taskId/checklist')

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, IsNull, Repository } from 'typeorm';
-import { Task } from '../entities';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import { Task, TaskChecklistItem } from '../entities';
 
 @Injectable()
 export class TaskProgressService {
@@ -50,6 +50,17 @@ export class TaskProgressService {
       ],
     });
 
+    const items = tasks.length
+      ? await manager.find(TaskChecklistItem, {
+          where: { taskId: In(tasks.map((t) => t.id)), packageManaged: true },
+        })
+      : [];
+    const itemsByTask = new Map<string, TaskChecklistItem[]>();
+    for (const item of items)
+      itemsByTask.set(item.taskId, [
+        ...(itemsByTask.get(item.taskId) ?? []),
+        item,
+      ]);
     const childrenByParentId = new Map<string | null, Task[]>();
     const progressByTaskId = new Map<string, number>();
 
@@ -68,11 +79,30 @@ export class TaskProgressService {
         visit(child);
       }
 
-      const progress = this.calculateTaskProgress(
+      let progress = this.calculateTaskProgress(
         task,
         childrenByParentId,
         progressByTaskId,
       );
+      const workItems = itemsByTask.get(task.id) ?? [];
+      if (workItems.length) {
+        const linked = new Set(
+          workItems.map((item) => item.branchedTaskId).filter(Boolean),
+        );
+        const values = workItems.map((item) =>
+          item.branchedTaskId && progressByTaskId.has(item.branchedTaskId)
+            ? progressByTaskId.get(item.branchedTaskId)!
+            : item.completed
+              ? 100
+              : 0,
+        );
+        for (const child of childrenByParentId.get(task.id) ?? [])
+          if (!linked.has(child.id))
+            values.push(progressByTaskId.get(child.id) ?? 0);
+        progress = Math.round(
+          values.reduce((a, b) => a + b, 0) / values.length,
+        );
+      }
       progressByTaskId.set(task.id, progress);
       return progress;
     };

@@ -21,6 +21,14 @@ class ChecklistKanbanMemberSerializer {
 }
 
 export class ChecklistKanbanCardSerializer extends BaseSerializer {
+  @Expose() description?: Record<string, unknown> | null;
+  @Expose() packageManaged?: boolean;
+  @Expose() legacyBranch?: boolean;
+  @Expose() durationDays?: number;
+  @Expose() earliestStartDate?: string | null;
+  @Expose() plannedStartDate?: string | null;
+  @Expose() plannedEndDate?: string | null;
+
   @Expose() taskId: string;
   @Expose() taskTitle: string;
   @Expose() parentTaskId: string | null;

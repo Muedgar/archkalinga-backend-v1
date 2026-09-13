@@ -166,18 +166,14 @@ export class TaskCrudService {
     // part of creation because the actor becomes the task creator immediately.
     const dependencyInputs = this.normalizeDependencyInputs(dto) ?? [];
 
-    const [parent, reporteeMembership, dependencyTasks, actorUser] =
-      await Promise.all([
-        this.authSvc.ensureParentTask(projectId, dto.parentTaskId),
-        dto.reportee !== undefined
-          ? this.membersSvc.ensureReporteeMember(projectId, dto.reportee)
-          : Promise.resolve(null),
-        this.relationsSvc.ensureDependencyTasks(
-          projectId,
-          dependencyInputs.map((dependency) => dependency.dependsOnTaskId),
-        ),
-        this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
-      ]);
+    const [parent, dependencyTasks, actorUser] = await Promise.all([
+      this.authSvc.ensureParentTask(projectId, dto.parentTaskId),
+      this.relationsSvc.ensureDependencyTasks(
+        projectId,
+        dependencyInputs.map((dependency) => dependency.dependsOnTaskId),
+      ),
+      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
+    ]);
     const dependencyTaskById = new Map(
       dependencyTasks.map((task) => [task.id, task]),
     );
@@ -248,8 +244,8 @@ export class TaskCrudService {
         severityId: dto.severityId ?? null,
         createdByUser: actorUser,
         createdByUserId: actorUser.id,
-        reporteeUser: reporteeMembership?.user ?? null,
-        reporteeUserId: reporteeMembership?.userId ?? null,
+        reporteeUser: actorUser,
+        reporteeUserId: actorUser.id,
         title: dto.title.trim(),
         description: dto.description ?? null,
         startDate: dto.startDate ?? null,
@@ -906,6 +902,15 @@ export class TaskCrudService {
     projectId: string,
     taskId: string,
   ): Promise<void> {
+    if (
+      await this.checklistRepo.count({
+        where: { taskId, packageManaged: true },
+      })
+    ) {
+      throw new BadRequestException(
+        'Task progress is derived from checklist work',
+      );
+    }
     const childCount = await this.taskRepo.count({
       where: { projectId, parentTaskId: taskId, deletedAt: IsNull() },
     });

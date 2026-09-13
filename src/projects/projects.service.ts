@@ -503,6 +503,8 @@ export class ProjectsService {
         severityId: null,
         createdByUser: actorUser,
         createdByUserId: actorUser.id,
+        reporteeUser: actorUser,
+        reporteeUserId: actorUser.id,
         title: templateTask.name.trim(),
         description: null, // template tasks have text descriptions — not yet JSONB
         startDate: null,

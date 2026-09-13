@@ -27,6 +27,9 @@ export class TaskActivitySchedule extends AppBaseEntity {
   })
   durationDays: number | null;
 
+  @Column({ name: 'earliest_start_date', type: 'date', nullable: true })
+  earliestStartDate: string | null;
+
   @Column({ name: 'planned_start_date', type: 'date', nullable: true })
   plannedStartDate: string | null;
 

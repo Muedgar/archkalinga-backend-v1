@@ -11,7 +11,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
 }
 
 describe('TaskProgressService', () => {
-  const service = new TaskProgressService(null as any, null as any);
+  const service = new TaskProgressService(null as any);
 
   it('uses explicit progress for leaf tasks', () => {
     const leaf = task('leaf', { progress: 45 });
@@ -55,7 +55,7 @@ describe('TaskProgressService', () => {
 
     await service.recalculateProjectTaskProgress(manager as any, 'project-1');
 
-    expect(manager.find).toHaveBeenCalledTimes(1);
+    expect(manager.find).toHaveBeenCalledTimes(2);
     expect(manager.find).toHaveBeenCalledWith(Task, expect.any(Object));
     expect(manager.save).not.toHaveBeenCalled();
   });
