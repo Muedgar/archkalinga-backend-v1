@@ -20,6 +20,7 @@ export const TASK_FIELD_WORK_QUEUE_FETCHED =
   'Task field work queue fetched successfully';
 export const TASK_SYNC_EVENTS_PROCESSED =
   'Task sync events processed successfully';
+export const TASK_PARENT_TASKS_FETCHED = 'Parent tasks fetched successfully';
 export const TASK_TIMELINE_FETCHED = 'Task timeline fetched successfully';
 export const TASK_SNAPSHOT_FETCHED = 'Task snapshot fetched successfully';
 export const TASKS_FETCHED = 'Tasks fetched successfully';
@@ -85,6 +86,8 @@ export const TASK_MATERIAL_CREATED = 'Task material created successfully';
 export const TASK_MATERIAL_UPDATED = 'Task material updated successfully';
 export const TASK_MATERIAL_DELETED = 'Task material deleted successfully';
 export const TASK_DOCUMENTS_FETCHED = 'Task documents fetched successfully';
+export const TASK_SUBTREE_DELIVERABLE_DOCUMENTS_FETCHED =
+  'Task subtree deliverable documents fetched successfully';
 export const TASK_DOCUMENT_FETCHED = 'Task document fetched successfully';
 export const TASK_DOCUMENT_ATTACHMENT_DOWNLOAD_URL_FETCHED =
   'Task document attachment download URL fetched successfully';

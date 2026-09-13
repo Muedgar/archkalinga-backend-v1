@@ -49,6 +49,15 @@ class TaskChecklistStatusSnippet extends BaseSerializer {
 }
 
 class TaskChecklistItemSerializer extends BaseSerializer {
+  @Expose() description?: Record<string, unknown> | null;
+  @Expose() canBranch?: boolean;
+  @Expose() packageManaged?: boolean;
+  @Expose() legacyBranch?: boolean;
+  @Expose() durationDays?: number;
+  @Expose() earliestStartDate?: string | null;
+  @Expose() plannedStartDate?: string | null;
+  @Expose() plannedEndDate?: string | null;
+
   @Expose() statusId: string;
   @Expose()
   @Transform(({ obj }) => obj?.status ?? null)
@@ -106,6 +115,7 @@ class ChecklistSummarySerializer {
 class TaskActivityScheduleSerializer extends BaseSerializer {
   @Expose() taskId: string;
   @Expose() durationDays: number | null;
+  @Expose() earliestStartDate: string | null;
   @Expose() plannedStartDate: string | null;
   @Expose() plannedEndDate: string | null;
   @Expose() plannedStartOffset: number | null;
@@ -129,6 +139,13 @@ class TaskActivityScheduleSerializer extends BaseSerializer {
 }
 
 export class TaskSerializer extends BaseSerializer {
+  @Expose() branchedFromChecklist?: {
+    taskId: string;
+    checklistItemId: string;
+    title: string;
+    description: Record<string, unknown> | null;
+  } | null;
+
   @Expose() projectId: string;
   @Expose() parentTaskId: string | null;
   @Expose() supersededByTaskId: string | null;

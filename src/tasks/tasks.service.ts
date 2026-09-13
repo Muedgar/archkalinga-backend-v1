@@ -454,6 +454,18 @@ export class TasksService {
     );
   }
 
+  async getProjectParentTasks(
+    projectId: string,
+    requestUser: RequestUser,
+    prefetchedMembership?: ProjectMembership | null,
+  ) {
+    return this.querySvc.getProjectParentTasks(
+      projectId,
+      requestUser,
+      prefetchedMembership,
+    );
+  }
+
   async getMyFieldWorkToday(
     projectId: string,
     query: FieldWorkQueueQueryDto,
@@ -1032,6 +1044,33 @@ export class TasksService {
       membership,
     });
     return this.documentsSvc.getTaskDocument(taskId, documentId);
+  }
+
+  async listTaskSubtreeDeliverableDocuments(
+    projectId: string,
+    taskId: string,
+    requestUser: RequestUser,
+  ): Promise<TaskDocumentSerializer[]> {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser,
+      membership,
+    });
+    const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
+      projectId,
+      requestUser,
+    );
+
+    return this.documentsSvc.listTaskSubtreeDeliverableDocuments(
+      projectId,
+      taskId,
+      requestUser,
+      canViewAllProjectTasks,
+    );
   }
 
   async getTaskDocumentAttachmentDownloadUrl(
@@ -1719,7 +1758,26 @@ export class TasksService {
       requestUser,
       membership,
     });
-    return this.checklistSvc.listItems(taskId);
+    return this.checklistSvc.listItems(taskId, requestUser);
+  }
+
+  async getTaskChecklistItem(
+    projectId: string,
+    taskId: string,
+    itemId: string,
+    requestUser: RequestUser,
+  ) {
+    const { membership } = await this.authSvc.verifyProjectPermission(
+      projectId,
+      requestUser,
+      'view',
+    );
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      { requestUser, membership },
+    );
+    return this.checklistSvc.getItemDetail(task, itemId, requestUser);
   }
 
   async addChecklistItem(

@@ -21,6 +21,7 @@ import {
   ProjectTaskType,
 } from './project-config';
 import {
+  ChecklistDependency,
   ChangeRequest,
   ChangeRequestAuditEntry,
   ChangeRequestMessageAttachment,
@@ -53,6 +54,7 @@ import {
   TaskWatcher,
   TaskWbsCode,
 } from './entities';
+import { TaskPackageService } from './services/task-package.service';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
 import {
@@ -92,6 +94,7 @@ import {
 } from './services';
 
 const SUB_SERVICES = [
+  TaskPackageService,
   TaskAuthService,
   ActivityScheduleGanttService,
   ActivityScheduleImportService,
@@ -130,6 +133,7 @@ const SUB_SERVICES = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      ChecklistDependency,
       ChangeRequest,
       ChangeRequestAuditEntry,
       ChangeRequestReview,

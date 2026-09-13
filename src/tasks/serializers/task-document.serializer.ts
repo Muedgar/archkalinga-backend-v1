@@ -69,6 +69,7 @@ export class TaskDocumentAttachmentSerializer extends BaseSerializer {
 }
 
 export class TaskDocumentSerializer extends BaseSerializer {
+  @Expose() checklistItemId: string | null;
   @Expose()
   @Transform(({ obj }) => obj?.taskId ?? obj?.task?.id ?? null)
   taskId: string | null;

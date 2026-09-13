@@ -386,6 +386,84 @@ export class TaskAuthService {
     return targetTask;
   }
 
+  async decorateChecklistRead(
+    task: Task,
+    items: TaskChecklistItem[],
+    requestUser: RequestUser,
+  ): Promise<void> {
+    let allowed = false;
+    if (
+      !task.completed &&
+      !task.deletedAt &&
+      !task.supersededByTaskId &&
+      items.some(
+        (item) =>
+          !item.completed &&
+          !item.branchedTaskId &&
+          item.branchStatus !== 'branched',
+      )
+    ) {
+      try {
+        await this.verifyProjectPermission(
+          task.projectId,
+          requestUser,
+          'create',
+        );
+        allowed = await this.canBranchTaskChecklistItem(
+          task.projectId,
+          task.id,
+          requestUser.id,
+        );
+      } catch {
+        allowed = false;
+      }
+    }
+    for (const item of items)
+      item.canBranch =
+        allowed &&
+        !item.completed &&
+        !item.branchedTaskId &&
+        item.branchStatus !== 'branched';
+  }
+
+  async decorateTaskChecklistRead(
+    task: Task,
+    requestUser: RequestUser,
+  ): Promise<void> {
+    await this.decorateChecklistRead(
+      task,
+      task.checklistItems ?? [],
+      requestUser,
+    );
+    const source = await this.checklistItemRepo.findOne({
+      where: { branchedTaskId: task.id },
+    });
+    let inverse: {
+      taskId: string;
+      checklistItemId: string;
+      title: string;
+      description: Record<string, unknown> | null;
+    } | null = null;
+    if (source) {
+      const owner = await this.taskRepo.findOne({
+        where: {
+          id: source.taskId,
+          projectId: task.projectId,
+          deletedAt: IsNull(),
+        },
+        relations: ['assignees', 'project'],
+      });
+      if (owner && (await this.canViewTask(owner, requestUser)))
+        inverse = {
+          taskId: source.taskId,
+          checklistItemId: source.id,
+          title: source.text,
+          description: source.description ?? null,
+        };
+    }
+    Object.assign(task, { branchedFromChecklist: inverse });
+  }
+
   async canBranchTaskChecklistItem(
     projectId: string,
     taskId: string,
@@ -928,6 +1006,13 @@ export class TaskAuthService {
           'item.branchStatus',
           'item.branchedByUserId',
           'item.branchedAt',
+          'item.description',
+          'item.packageManaged',
+          'item.legacyBranch',
+          'item.durationDays',
+          'item.earliestStartDate',
+          'item.plannedStartDate',
+          'item.plannedEndDate',
           'item.text',
           'item.completed',
           'item.orderIndex',

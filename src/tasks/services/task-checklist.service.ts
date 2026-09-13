@@ -1,13 +1,19 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { EntityManager, Repository } from 'typeorm';
+import type { RequestUser } from 'src/auth/types';
+import { TaskDocumentsService } from './task-documents.service';
+import { ScheduleCalculationService } from './schedule-calculation.service';
 import { User } from 'src/users/entities';
 import {
+  ChecklistDependency,
+  TaskDependency,
   ScheduleType,
   Task,
   TaskActionType,
@@ -100,6 +106,8 @@ export class TaskChecklistService {
     private readonly progressSvc: TaskProgressService,
     private readonly rankingSvc: TaskRankingService,
     private readonly wbsSvc: TaskWbsService,
+    private readonly documentsSvc: TaskDocumentsService,
+    private readonly scheduleSvc: ScheduleCalculationService,
   ) {}
 
   // ── Serializers ───────────────────────────────────────────────────────────
@@ -124,6 +132,16 @@ export class TaskChecklistService {
     manager: EntityManager,
     task: Task,
   ): Promise<ChecklistMutationTaskSummary> {
+    const progress = await this.progressSvc.recalculateProjectTaskProgress(
+      manager,
+      task.projectId,
+    );
+    task.progress = progress.get(task.id) ?? task.progress;
+    await this.scheduleSvc.recalculateProject(
+      task.projectId,
+      { triggerTaskId: task.id, triggerType: 'checklist-change' },
+      manager,
+    );
     const [total, completed] = await Promise.all([
       manager.count(TaskChecklistItem, { where: { taskId: task.id } }),
       manager.count(TaskChecklistItem, {
@@ -340,13 +358,61 @@ export class TaskChecklistService {
 
   async listItems(
     taskId: string,
+    requestUser?: RequestUser,
   ): Promise<TaskChecklistItemDetailSerializer[]> {
     const items = await this.checklistRepo.find({
       where: { taskId },
       relations: ['status'],
       order: { orderIndex: 'ASC', id: 'ASC' },
     });
+    if (requestUser) {
+      const task = await this.checklistRepo.manager.findOneOrFail(Task, {
+        where: { id: taskId },
+      });
+      await this.authSvc.decorateChecklistRead(task, items, requestUser);
+    }
     return items.map((item) => this.serializeItem(item));
+  }
+
+  async getItemDetail(task: Task, itemId: string, requestUser: RequestUser) {
+    const item = await this.getItemOrFail(task.id, itemId);
+    await this.authSvc.decorateChecklistRead(task, [item], requestUser);
+    const documents = await this.documentsSvc.listTaskDocuments(task.id, {
+      checklistItemId: item.id,
+      limit: 200,
+      page: 1,
+    });
+    const dependencies = await this.checklistRepo.manager.find(
+      ChecklistDependency,
+      { where: { checklistItemId: item.id } },
+    );
+    const legacyTask =
+      item.legacyBranch && item.branchedTaskId
+        ? {
+            taskId: item.branchedTaskId,
+            documents: await this.documentsSvc.listTaskDocuments(
+              item.branchedTaskId,
+              { limit: 200, page: 1 },
+            ),
+            dependencies: await this.checklistRepo.manager.find(
+              TaskDependency,
+              {
+                where: [
+                  { taskId: item.branchedTaskId },
+                  { dependsOnTaskId: item.branchedTaskId },
+                ],
+              },
+            ),
+          }
+        : null;
+    return {
+      ...this.serializeItem(item),
+      assignedMembers: item.assignedMembers,
+      reporteeUserId: item.reporteeUserId,
+      documents,
+      dependencies,
+      legacyTask,
+    };
   }
 
   async addItem(
@@ -410,21 +476,27 @@ export class TaskChecklistService {
     actorUser: User,
     dto: UpdateChecklistItemDto,
   ): Promise<ChecklistItemMutationResponse> {
-    const item = await this.getItemOrFail(task.id, itemId);
-    const shouldApplyTransition =
-      dto.completed !== undefined || dto.statusId !== undefined;
-
-    if (dto.text !== undefined) item.text = dto.text.trim();
-    if (dto.orderIndex !== undefined) item.orderIndex = dto.orderIndex;
-    if (dto.rank !== undefined && !shouldApplyTransition) {
-      item.rank = dto.rank?.trim() || null;
-    }
-    const nextItemCode =
-      dto.itemCode !== undefined ? dto.itemCode?.trim() || null : item.itemCode;
-    if (dto.checklistGroupId !== undefined)
-      item.checklistGroupId = dto.checklistGroupId ?? null;
-
     return this.checklistRepo.manager.transaction(async (tx) => {
+      const item = await tx.findOne(TaskChecklistItem, {
+        where: { id: itemId, taskId: task.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) throw new NotFoundException(TASK_CHECKLIST_ITEM_NOT_FOUND);
+      const shouldApplyTransition =
+        dto.completed !== undefined || dto.statusId !== undefined;
+
+      if (dto.text !== undefined) item.text = dto.text.trim();
+      if (dto.orderIndex !== undefined) item.orderIndex = dto.orderIndex;
+      if (dto.rank !== undefined && !shouldApplyTransition) {
+        item.rank = dto.rank?.trim() || null;
+      }
+      const nextItemCode =
+        dto.itemCode !== undefined
+          ? dto.itemCode?.trim() || null
+          : item.itemCode;
+      if (dto.checklistGroupId !== undefined)
+        item.checklistGroupId = dto.checklistGroupId ?? null;
+
       if (dto.itemCode !== undefined) {
         await this.ensureUniqueItemCode(tx, task.id, nextItemCode, item.id);
         item.itemCode = nextItemCode;
@@ -483,7 +555,7 @@ export class TaskChecklistService {
       const [item, targetStatus] = await Promise.all([
         tx.findOne(TaskChecklistItem, {
           where: { id: itemId, taskId: task.id },
-          relations: ['status'],
+          lock: { mode: 'pessimistic_write' },
         }),
         tx.findOne(ProjectStatus, {
           where: { id: dto.statusId, projectId: task.projectId },
@@ -565,10 +637,15 @@ export class TaskChecklistService {
     return this.checklistRepo.manager.transaction(async (tx) => {
       const item = await tx.findOne(TaskChecklistItem, {
         where: { id: itemId, taskId: task.id },
+        lock: { mode: 'pessimistic_write' },
       });
       if (!item) throw new NotFoundException(TASK_CHECKLIST_ITEM_NOT_FOUND);
+      if (item.completed || task.completed)
+        throw new ConflictException(
+          'Completed work must be reopened before branching',
+        );
       if (item.branchedTaskId) {
-        throw new BadRequestException(TASK_CHECKLIST_ITEM_ALREADY_BRANCHED);
+        throw new ConflictException(TASK_CHECKLIST_ITEM_ALREADY_BRANCHED);
       }
 
       const itemCode = dto.itemCode?.trim() || item.itemCode || null;
@@ -640,8 +717,8 @@ export class TaskChecklistService {
           severityId: task.severityId ?? null,
           createdByUser: actorUser,
           createdByUserId: actorUser.id,
-          reporteeUser: task.reporteeUser ?? null,
-          reporteeUserId: task.reporteeUserId ?? null,
+          reporteeUser: actorUser,
+          reporteeUserId: actorUser.id,
           title: dto.title?.trim() || item.text.trim(),
           description: null,
           startDate: dto.startDate ?? null,
@@ -723,9 +800,16 @@ export class TaskChecklistService {
     itemId: string,
     actorUser: User,
   ): Promise<ChecklistItemDeleteResponse> {
-    const item = await this.getItemOrFail(task.id, itemId);
-
     return this.checklistRepo.manager.transaction(async (tx) => {
+      const item = await tx.findOne(TaskChecklistItem, {
+        where: { id: itemId, taskId: task.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) throw new NotFoundException(TASK_CHECKLIST_ITEM_NOT_FOUND);
+      if (item.branchedTaskId)
+        throw new ConflictException(
+          'A linked checklist cannot be deleted without handling its branched task',
+        );
       await tx.remove(item);
       await this.reorderItems(tx, task.id, null);
       await this.activitySvc.log(

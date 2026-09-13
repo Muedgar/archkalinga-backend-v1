@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import { Project } from 'src/projects/entities';
 import {
+  ChecklistDependency,
+  TaskChecklistItem,
   DependencyType,
   ProjectCalendar,
   ProjectCalendarException,
@@ -78,6 +80,7 @@ export class ScheduleCalculationService {
   async recalculateProject(
     projectId: string,
     dto: RecalculateActivityScheduleDto = {},
+    manager?: EntityManager,
   ): Promise<{
     calculationRunId: string;
     projectId: string;
@@ -87,6 +90,19 @@ export class ScheduleCalculationService {
     projectDurationDays: number;
     criticalTaskIds: string[];
   }> {
+    if (manager) {
+      const scoped = new ScheduleCalculationService(
+        manager.getRepository(Project),
+        manager.getRepository(Task),
+        manager.getRepository(ProjectCalendar),
+        manager.getRepository(ProjectCalendarException),
+        manager.getRepository(TaskDependency),
+        manager.getRepository(TaskActivitySchedule),
+        manager.getRepository(TaskScheduleCalculationRun),
+        manager.getRepository(TaskScheduleExplanation),
+      );
+      return scoped.recalculateProject(projectId, dto);
+    }
     const run = await this.runRepo.save(
       this.runRepo.create({
         projectId,
@@ -143,8 +159,22 @@ export class ScheduleCalculationService {
     const schedules = await this.scheduleRepo.find({
       where: { taskId: In(taskIds) },
     });
-    const calendar = await this.loadCalendarContext(projectId, tasks, schedules);
-    const nodes = this.buildNodes(schedules, calendar);
+    const checklistItems = await this.taskRepo.manager.find(TaskChecklistItem, {
+      where: { taskId: In(taskIds), packageManaged: true },
+    });
+    const checklistEdges = checklistItems.length
+      ? await this.taskRepo.manager.find(ChecklistDependency, {
+          where: { checklistItemId: In(checklistItems.map((i) => i.id)) },
+        })
+      : [];
+    const calendar = await this.loadCalendarContext(projectId, tasks, [
+      ...schedules,
+      ...checklistItems.map(
+        (i) =>
+          ({ earliestStartDate: i.earliestStartDate }) as TaskActivitySchedule,
+      ),
+    ]);
+    let nodes = this.buildNodes(schedules, calendar);
     if (!nodes.size) {
       return {
         taskCount: 0,
@@ -156,26 +186,46 @@ export class ScheduleCalculationService {
     }
 
     const edges = await this.loadEdges([...nodes.keys()]);
-    const { topologicalOrder, incoming, outgoing } = this.sortGraph(
-      nodes,
-      edges,
+    let summaryRollupTaskCount: number;
+    let projectDurationDays: number;
+    if (checklistItems.length) {
+      nodes = this.calculateChecklistGraph(
+        tasks,
+        schedules,
+        checklistItems,
+        edges,
+        checklistEdges,
+        calendar,
+      );
+      projectDurationDays = this.max(
+        [...nodes.values()].map((node) => node.ef),
+      );
+      summaryRollupTaskCount = [...nodes.values()].filter(
+        (node) => node.isSummaryRollup,
+      ).length;
+    } else {
+      const { topologicalOrder, incoming, outgoing } = this.sortGraph(
+        nodes,
+        edges,
+      );
+      this.forwardPass(topologicalOrder, nodes, incoming);
+      projectDurationDays = this.max(
+        [...nodes.values()].map((node) => node.ef),
+      );
+      this.backwardPass(
+        [...topologicalOrder].reverse(),
+        nodes,
+        outgoing,
+        projectDurationDays,
+      );
+      this.computeFloats(nodes, outgoing);
+      summaryRollupTaskCount = this.rollupSummaryRows(tasks, nodes);
+    }
+    const taskNodes = [...nodes.values()].filter(
+      (node) => !node.taskId.startsWith('checklist:'),
     );
-
-    this.forwardPass(topologicalOrder, nodes, incoming);
-    const projectDurationDays = this.max(
-      [...nodes.values()].map((node) => node.ef),
-    );
-    this.backwardPass(
-      [...topologicalOrder].reverse(),
-      nodes,
-      outgoing,
-      projectDurationDays,
-    );
-    this.computeFloats(nodes, outgoing);
-    const summaryRollupTaskCount = this.rollupSummaryRows(tasks, nodes);
-
     const now = new Date();
-    const schedulesToSave = [...nodes.values()].map((node) => {
+    const schedulesToSave = taskNodes.map((node) => {
       const duration = this.round(node.duration);
       const earlyStart = this.round(node.es);
       const earlyFinish = this.round(node.ef);
@@ -238,7 +288,7 @@ export class ScheduleCalculationService {
       return node.schedule;
     });
 
-    const explanations = [...nodes.values()].map((node) =>
+    const explanations = taskNodes.map((node) =>
       this.explanationRepo.create({
         calculationRunId,
         taskId: node.taskId,
@@ -260,6 +310,17 @@ export class ScheduleCalculationService {
 
     await this.scheduleRepo.manager.transaction(async (tx) => {
       await tx.save(TaskActivitySchedule, schedulesToSave);
+      for (const item of checklistItems) {
+        const node = nodes.get(`checklist:${item.id}`)!;
+        await tx.update(
+          TaskChecklistItem,
+          { id: item.id },
+          {
+            plannedStartDate: this.offsetToWorkingDate(node.es, calendar),
+            plannedEndDate: this.offsetToWorkingDate(node.ef, calendar),
+          },
+        );
+      }
       await Promise.all(
         schedulesToSave.map((schedule) =>
           tx.update(
@@ -276,17 +337,175 @@ export class ScheduleCalculationService {
       await tx.save(TaskScheduleExplanation, explanations);
     });
 
-    const criticalTaskIds = [...nodes.values()]
+    const criticalTaskIds = taskNodes
       .filter((node) => node.isCritical)
       .map((node) => node.taskId);
 
     return {
-      taskCount: nodes.size,
-      dependencyCount: edges.length,
+      taskCount: taskNodes.length,
+      dependencyCount: edges.length + checklistEdges.length,
       summaryRollupTaskCount,
       projectDurationDays: this.round(projectDurationDays),
       criticalTaskIds,
     };
+  }
+
+  /** Schedule checklist work in memory; only real task/checklist rows are persisted. */
+  private calculateChecklistGraph(
+    tasks: ScheduledTask[],
+    schedules: TaskActivitySchedule[],
+    items: TaskChecklistItem[],
+    taskEdges: CpmEdge[],
+    checklistEdges: ChecklistDependency[],
+    calendar: CalendarContext,
+  ): Map<string, CpmNode> {
+    const itemKey = (id: string) => `checklist:${id}`;
+    const nodes = this.buildNodes(
+      [
+        ...schedules,
+        ...items.map((item) =>
+          Object.assign(new TaskActivitySchedule(), {
+            taskId: itemKey(item.id),
+            durationDays: item.durationDays,
+            earliestStartDate: item.earliestStartDate,
+            isManuallyScheduled: false,
+          }),
+        ),
+      ],
+      calendar,
+    );
+    const aliases = new Map(
+      items
+        .filter((i) => i.branchedTaskId && nodes.has(i.branchedTaskId))
+        .map((i) => [itemKey(i.id), i.branchedTaskId!]),
+    );
+    const resolve = (id: string) => aliases.get(id) ?? id;
+    const children = new Map<string, Set<string>>();
+    const addChild = (parent: string | null, child: string) => {
+      if (!parent || !nodes.has(parent) || !nodes.has(child)) return;
+      const bucket = children.get(parent) ?? new Set<string>();
+      bucket.add(resolve(child));
+      children.set(parent, bucket);
+    };
+    for (const task of tasks) addChild(task.parentTaskId, task.id);
+    for (const item of items) addChild(item.taskId, itemKey(item.id));
+    type Event = { early: number; late: number };
+    const events = new Map<string, Event>();
+    const constraints: { from: string; to: string; lag: number }[] = [];
+    const start = (id: string) => `${resolve(id)}:start`;
+    const end = (id: string) => `${resolve(id)}:end`;
+    for (const [id, node] of nodes) {
+      if (aliases.has(id)) continue;
+      events.set(start(id), { early: node.es, late: 0 });
+      events.set(end(id), { early: node.es, late: 0 });
+    }
+    for (const alias of aliases.keys()) {
+      const event = events.get(start(alias))!;
+      event.early = Math.max(event.early, nodes.get(alias)!.es);
+    }
+    const edge = (from: string, to: string, lag = 0) => {
+      if (events.has(from) && events.has(to))
+        constraints.push({ from, to, lag });
+    };
+    for (const [id, node] of nodes) {
+      if (aliases.has(id)) continue;
+      const childIds = children.get(id);
+      if (childIds?.size) {
+        node.isSummaryRollup = true;
+        edge(start(id), end(id));
+        for (const child of childIds) {
+          edge(start(id), start(child));
+          edge(end(child), end(id));
+        }
+      } else {
+        edge(start(id), end(id), node.duration);
+        edge(end(id), start(id), -node.duration);
+      }
+    }
+    const addDependency = (
+      from: string,
+      to: string,
+      type: DependencyType,
+      lag: number,
+    ) => {
+      edge(
+        type[0] === 'F' ? end(from) : start(from),
+        type[1] === 'F' ? end(to) : start(to),
+        lag,
+      );
+    };
+    taskEdges.forEach((e) =>
+      addDependency(
+        e.predecessorId,
+        e.successorId,
+        e.dependencyType,
+        e.lagDays,
+      ),
+    );
+    checklistEdges.forEach((e) =>
+      addDependency(
+        itemKey(e.dependsOnChecklistItemId),
+        itemKey(e.checklistItemId),
+        e.dependencyType,
+        e.lagDays,
+      ),
+    );
+    // Bidirectional duration bounds keep leaf durations fixed when FF/SF constraints move a finish.
+    // Relaxation also handles summary start/finish events without manufacturing child Tasks.
+    const maxPasses = Math.max(1, events.size * 2);
+    for (let pass = 0; pass < maxPasses; pass++) {
+      let changed = false;
+      const raise = (key: string, value: number) => {
+        const event = events.get(key)!;
+        if (value > event.early + ScheduleCalculationService.EPSILON) {
+          event.early = value;
+          changed = true;
+        }
+      };
+      for (const c of constraints)
+        raise(c.to, events.get(c.from)!.early + c.lag);
+      for (const [id, childIds] of children) {
+        const list = [...childIds];
+        raise(
+          start(id),
+          Math.min(...list.map((child) => events.get(start(child))!.early)),
+        );
+        const latestChild = list.reduce((a, b) =>
+          events.get(end(a))!.early >= events.get(end(b))!.early ? a : b,
+        );
+        raise(end(latestChild), events.get(end(id))!.early);
+      }
+      if (!changed) break;
+      if (pass === maxPasses - 1)
+        throw new BadRequestException(
+          'Checklist/task scheduling constraints contain an incompatible cycle',
+        );
+    }
+    const finish = Math.max(0, ...[...events.values()].map((e) => e.early));
+    for (const event of events.values()) event.late = finish;
+    for (let pass = 0; pass < events.size; pass++) {
+      let changed = false;
+      for (const c of constraints) {
+        const from = events.get(c.from)!;
+        const candidate = events.get(c.to)!.late - c.lag;
+        if (candidate < from.late - ScheduleCalculationService.EPSILON) {
+          from.late = candidate;
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+    for (const [id, node] of nodes) {
+      node.es = events.get(start(id))!.early;
+      node.ef = events.get(end(id))!.early;
+      node.ls = events.get(start(id))!.late;
+      node.lf = events.get(end(id))!.late;
+      node.duration = node.ef - node.es;
+      node.totalFloat = Math.max(0, node.ls - node.es);
+      node.freeFloat = node.totalFloat;
+      node.isCritical = node.totalFloat < ScheduleCalculationService.EPSILON;
+    }
+    return nodes;
   }
 
   private buildNodes(
@@ -318,7 +537,11 @@ export class ScheduleCalculationService {
               ? manualPlannedEndOffset - duration
               : null) ??
             0)
-          : 0;
+          : Math.max(
+              0,
+              this.workingDateToOffset(schedule.earliestStartDate, calendar) ??
+                0,
+            );
         const node: CpmNode = {
           taskId: schedule.taskId,
           schedule,
@@ -688,6 +911,7 @@ export class ScheduleCalculationService {
     const dates = [
       ...tasks.flatMap((task) => [task.startDate, task.endDate]),
       ...schedules.flatMap((schedule) => [
+        schedule.earliestStartDate,
         schedule.plannedStartDate,
         schedule.plannedEndDate,
         schedule.earlyStartDate,

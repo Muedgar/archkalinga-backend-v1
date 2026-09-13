@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
+  Allow,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -328,7 +328,6 @@ export class CreateTaskDto {
   })
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => TaskAssignedMemberDto)
   assignedMembers?: TaskAssignedMemberDto[];
@@ -336,12 +335,11 @@ export class CreateTaskDto {
   @ApiPropertyOptional({
     type: () => TaskReporteeDto,
     description:
-      'Active project reportee. The backend derives projectRoleId from membership.',
+      'Ignored on creation. The authenticated creator is always the reportee.',
   })
   @IsOptional()
-  @ValidateNested()
-  @Type(() => TaskReporteeDto)
-  reportee?: TaskReporteeDto;
+  @Allow()
+  reportee?: TaskReporteeDto | null;
 
   @ApiPropertyOptional({ type: () => [CreateTaskChecklistItemDto] })
   @IsOptional()

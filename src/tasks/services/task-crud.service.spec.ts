@@ -100,7 +100,7 @@ function serviceWithMocks(overrides: Record<string, any> = {}) {
   const service = new TaskCrudService(
     taskRepo as any,
     {} as any,
-    {} as any,
+    { count: jest.fn().mockResolvedValue(0) } as any,
     {} as any,
     userRepo as any,
     projectStatusRepo as any,

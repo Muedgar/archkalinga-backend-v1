@@ -11,6 +11,15 @@ class TaskChecklistStatusSnippet extends BaseSerializer {
 }
 
 export class TaskChecklistItemDetailSerializer extends BaseSerializer {
+  @Expose() description?: Record<string, unknown> | null;
+  @Expose() canBranch?: boolean;
+  @Expose() packageManaged?: boolean;
+  @Expose() legacyBranch?: boolean;
+  @Expose() durationDays?: number;
+  @Expose() earliestStartDate?: string | null;
+  @Expose() plannedStartDate?: string | null;
+  @Expose() plannedEndDate?: string | null;
+
   @Expose() taskId: string;
   @Expose() checklistGroupId: string | null;
   @Expose() statusId: string;

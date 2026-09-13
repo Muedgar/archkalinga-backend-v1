@@ -6,7 +6,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
-import { Brackets, EntityManager, Repository } from 'typeorm';
+import { Brackets, EntityManager, In, IsNull, Repository } from 'typeorm';
+import type { RequestUser } from 'src/auth/types';
 import { FilterResponse } from 'src/common/interfaces';
 import { MinioService, UploadableFile } from 'src/common/services';
 import { User } from 'src/users/entities';
@@ -35,6 +36,7 @@ import {
 } from '../messages';
 import { TaskDocumentSerializer } from '../serializers';
 import { TaskActivityService } from './task-activity.service';
+import { TaskAuthService } from './task-auth.service';
 
 @Injectable()
 export class TaskDocumentsService {
@@ -43,7 +45,10 @@ export class TaskDocumentsService {
     private readonly documentRepo: Repository<TaskDocument>,
     @InjectRepository(TaskDocumentAttachment)
     private readonly attachmentRepo: Repository<TaskDocumentAttachment>,
+    @InjectRepository(Task)
+    private readonly taskRepo: Repository<Task>,
     private readonly activitySvc: TaskActivityService,
+    private readonly authSvc: TaskAuthService,
     private readonly minioSvc: MinioService,
     private readonly configService: ConfigService,
   ) {}
@@ -66,6 +71,10 @@ export class TaskDocumentsService {
       .leftJoinAndSelect('attachment.sourceAttachment', 'sourceAttachment')
       .where('document.taskId = :taskId', { taskId });
 
+    if (filters.checklistItemId)
+      qb.andWhere('document.checklistItemId = :checklistItemId', {
+        checklistItemId: filters.checklistItemId,
+      });
     if (filters.type) {
       qb.andWhere('document.type = :type', { type: filters.type });
     }
@@ -110,6 +119,46 @@ export class TaskDocumentsService {
     documentId: string,
   ): Promise<TaskDocumentSerializer> {
     return this.serialize(await this.getTaskDocumentOrFail(taskId, documentId));
+  }
+
+  async listTaskSubtreeDeliverableDocuments(
+    projectId: string,
+    rootTaskId: string,
+    requestUser: RequestUser,
+    canViewAllProjectTasks: boolean,
+  ): Promise<TaskDocumentSerializer[]> {
+    const taskIds = await this.loadSubtreeTaskIds(projectId, rootTaskId);
+
+    const qb = this.documentRepo
+      .createQueryBuilder('document')
+      .leftJoinAndSelect('document.task', 'task')
+      .leftJoinAndSelect('document.sourceTask', 'sourceTask')
+      .leftJoinAndSelect('document.sourceDocument', 'sourceDocument')
+      .leftJoinAndSelect('document.createdByUser', 'createdByUser')
+      .leftJoinAndSelect('document.updatedByUser', 'updatedByUser')
+      .leftJoinAndSelect('document.attachments', 'attachment')
+      .leftJoinAndSelect('attachment.createdByUser', 'attachmentCreatedByUser')
+      .leftJoinAndSelect('attachment.sourceAttachment', 'sourceAttachment')
+      .where('document.taskId IN (:...taskIds)', { taskIds })
+      .andWhere('document.type = :type', {
+        type: TaskDocumentType.DELIVERABLE,
+      })
+      .andWhere('task.deletedAt IS NULL')
+      .andWhere('task.supersededByTaskId IS NULL')
+      .orderBy('task.wbsSortKey', 'ASC', 'NULLS LAST')
+      .addOrderBy('task.rank', 'ASC', 'NULLS LAST')
+      .addOrderBy('task.createdAt', 'ASC')
+      .addOrderBy('document.updatedAt', 'DESC')
+      .addOrderBy('attachment.createdAt', 'DESC');
+
+    this.authSvc.applyTaskVisibilityScope(
+      qb,
+      requestUser,
+      canViewAllProjectTasks,
+    );
+
+    const documents = await qb.getMany();
+    return Promise.all(documents.map((document) => this.serialize(document)));
   }
 
   async createTaskDocument(
@@ -442,6 +491,33 @@ export class TaskDocumentsService {
         excludeExtraneousValues: true,
       },
     );
+  }
+
+  private async loadSubtreeTaskIds(
+    projectId: string,
+    rootTaskId: string,
+  ): Promise<string[]> {
+    const taskIds = [rootTaskId];
+    const visitedTaskIds = new Set(taskIds);
+    let frontierIds = [rootTaskId];
+
+    while (frontierIds.length > 0) {
+      const children = await this.taskRepo.find({
+        where: {
+          projectId,
+          parentTaskId: In(frontierIds),
+          deletedAt: IsNull(),
+        },
+        select: ['id'],
+      });
+      frontierIds = children
+        .map((task) => task.id)
+        .filter((id) => !visitedTaskIds.has(id));
+      frontierIds.forEach((id) => visitedTaskIds.add(id));
+      taskIds.push(...frontierIds);
+    }
+
+    return taskIds;
   }
 
   private toDocumentValues(
