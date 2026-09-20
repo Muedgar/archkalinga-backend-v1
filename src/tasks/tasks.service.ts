@@ -1,3 +1,4 @@
+import { TaskWorkflowService } from './services/task-workflow.service';
 /**
  * TasksService — public API facade.
  *
@@ -161,6 +162,7 @@ export class TasksService {
     private readonly resourceReportSvc: TaskResourceReportService,
     private readonly syncEventsSvc: TaskSyncEventsService,
     private readonly viewMetadataSvc: TaskViewMetadataService,
+    private readonly workflowSvc: TaskWorkflowService,
   ) {}
 
   // ── Convenience: auth (used externally by e.g. ProjectsService) ───────────
@@ -1096,6 +1098,55 @@ export class TasksService {
     );
   }
 
+  async documentContent(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    attachmentId: string,
+    actor: RequestUser,
+  ) {
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      { requestUser: actor },
+    );
+    return this.documentsSvc.getAttachmentContent(
+      task,
+      documentId,
+      attachmentId,
+    );
+  }
+  async documentHistory(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    actor: RequestUser,
+  ) {
+    await this.authSvc.ensureTaskForSubresource(projectId, taskId, {
+      requestUser: actor,
+    });
+    return this.documentsSvc.listDocumentHistory(taskId, documentId);
+  }
+  async deleteDocumentAttachment(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    attachmentId: string,
+    actor: RequestUser,
+  ) {
+    const task = await this.authSvc.ensureTaskForSubresource(
+      projectId,
+      taskId,
+      { requestUser: actor },
+    );
+    return this.documentsSvc.deleteAttachment(
+      task,
+      documentId,
+      attachmentId,
+      await this.actor(actor),
+    );
+  }
+
   async createTaskDocument(
     projectId: string,
     taskId: string,
@@ -1106,7 +1157,7 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
+      'view',
     );
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
@@ -1127,7 +1178,7 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
+      'view',
     );
     const [targetTask, sourceTask, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
@@ -1165,7 +1216,7 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
+      'view',
     );
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
@@ -1192,7 +1243,7 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
+      'view',
     );
     const [task, actorUser] = await Promise.all([
       this.authSvc.ensureTaskForSubresource(projectId, taskId, {
@@ -1278,7 +1329,7 @@ export class TasksService {
               projectId,
               requestUser,
               'view',
-              'changeRequestManagement',
+              'taskManagement',
             )
           ).membership
         : prefetchedMembership;
@@ -1302,7 +1353,7 @@ export class TasksService {
       projectId,
       requestUser,
       'view',
-      'changeRequestManagement',
+      'taskManagement',
     );
     const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
       projectId,
@@ -1336,7 +1387,7 @@ export class TasksService {
       projectId,
       requestUser,
       'view',
-      'changeRequestManagement',
+      'taskManagement',
     );
     const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
       projectId,
@@ -1370,8 +1421,8 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'create',
-      'changeRequestManagement',
+      'view',
+      'taskManagement',
     );
 
     const [task, actorUser] = await Promise.all([
@@ -1402,7 +1453,7 @@ export class TasksService {
       projectId,
       requestUser,
       'view',
-      'changeRequestManagement',
+      'taskManagement',
     );
 
     const [task, actorUser] = await Promise.all([
@@ -1432,8 +1483,8 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
-      'changeRequestManagement',
+      'view',
+      'taskManagement',
     );
 
     const [task, actorUser] = await Promise.all([
@@ -1464,7 +1515,7 @@ export class TasksService {
       projectId,
       requestUser,
       'view',
-      'changeRequestManagement',
+      'taskManagement',
     );
 
     const [task, actorUser] = await Promise.all([
@@ -1495,8 +1546,8 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
-      'changeRequestManagement',
+      'view',
+      'taskManagement',
     );
 
     const [task, actorUser] = await Promise.all([
@@ -1526,8 +1577,8 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
-      'changeRequestManagement',
+      'view',
+      'taskManagement',
     );
 
     const [task, actorUser] = await Promise.all([
@@ -1557,8 +1608,8 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
-      'changeRequestManagement',
+      'view',
+      'taskManagement',
     );
 
     const [task, actorUser] = await Promise.all([
@@ -1589,8 +1640,8 @@ export class TasksService {
     const { membership } = await this.authSvc.verifyProjectPermission(
       projectId,
       requestUser,
-      'update',
-      'changeRequestManagement',
+      'view',
+      'taskManagement',
     );
 
     const [task, actorUser] = await Promise.all([
@@ -1622,7 +1673,7 @@ export class TasksService {
       projectId,
       requestUser,
       'view',
-      'changeRequestManagement',
+      'taskManagement',
     );
     const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
       projectId,
@@ -1858,16 +1909,10 @@ export class TasksService {
     dto: MoveChecklistItemDto,
     requestUser: RequestUser,
   ) {
-    await this.authSvc.assertTaskChecklistExecutionAllowed({
-      projectId,
-      taskId,
-      requestUser,
+    return this.workflowSvc.execute(projectId, taskId, itemId, requestUser, {
+      ...dto,
+      source: 'drag',
     });
-    const [task, actorUser] = await Promise.all([
-      this.authSvc.ensureTaskForSubresource(projectId, taskId),
-      this.actor(requestUser),
-    ]);
-    return this.checklistSvc.moveItem(task, itemId, actorUser, dto);
   }
 
   async validateChecklistItemCompletion(
@@ -1882,7 +1927,7 @@ export class TasksService {
       requestUser,
     });
     const task = await this.authSvc.ensureTaskForSubresource(projectId, taskId);
-    return this.checklistSvc.validateItemCompletion(task, itemId);
+    return this.checklistSvc.validateItemCompletion(task, itemId, requestUser);
   }
 
   async deleteChecklistItem(
@@ -1993,7 +2038,7 @@ export class TasksService {
       requestUser,
       membership,
     });
-    return this.checklistSvc.listGroups(taskId);
+    return this.checklistSvc.listGroups(taskId, requestUser);
   }
 
   async createChecklistGroup(
@@ -2020,7 +2065,7 @@ export class TasksService {
         membership,
       },
     );
-    return this.checklistSvc.createGroup(task, dto);
+    return this.checklistSvc.createGroup(task, dto, requestUser);
   }
 
   async updateChecklistGroup(
@@ -2044,7 +2089,7 @@ export class TasksService {
       requestUser,
       membership,
     });
-    return this.checklistSvc.updateGroup(taskId, groupId, dto);
+    return this.checklistSvc.updateGroup(taskId, groupId, dto, requestUser);
   }
 
   async deleteChecklistGroup(
@@ -2067,7 +2112,7 @@ export class TasksService {
       requestUser,
       membership,
     });
-    return this.checklistSvc.deleteGroup(taskId, groupId);
+    return this.checklistSvc.deleteGroup(taskId, groupId, requestUser);
   }
 
   // ── Dependencies ──────────────────────────────────────────────────────────

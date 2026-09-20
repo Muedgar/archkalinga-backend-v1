@@ -67,6 +67,15 @@ import { ProjectConfigService } from './project-config.service';
 export class ProjectConfigController {
   constructor(private readonly configService: ProjectConfigService) {}
 
+  @Get()
+  @ApiOperation({ summary: 'Get all configuration lists for a project' })
+  @ApiResponse({ status: 200, description: 'Statuses, priorities, severities, task types, and labels' })
+  @ResponseMessage('Project configuration fetched')
+  @RequireProjectPermission('projectConfigManagement', 'view')
+  getConfig(@Param('projectId', ParseUUIDPipe) projectId: string) {
+    return this.configService.getConfig(projectId);
+  }
+
   // ── Statuses ───────────────────────────────────────────────────────────────
 
   @Get('statuses')

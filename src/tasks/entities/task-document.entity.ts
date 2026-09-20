@@ -15,6 +15,7 @@ import { TaskDocumentAttachment } from './task-document-attachment.entity';
 export enum TaskDocumentType {
   STARTER = 'STARTER',
   DELIVERABLE = 'DELIVERABLE',
+  REFERENCE = 'REFERENCE',
 }
 
 @Entity('task_documents')
@@ -24,7 +25,12 @@ export enum TaskDocumentType {
 @Index('idx_task_documents_source_task', ['sourceTaskId'])
 @Index('idx_task_documents_source_document', ['sourceDocumentId'])
 export class TaskDocument extends AppBaseEntity {
-  @ManyToOne(() => TaskChecklistItem, { nullable: true, onDelete: 'CASCADE' })
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
+  @Column({ name: 'deleted_by_user_id', type: 'uuid', nullable: true })
+  deletedByUserId: string | null;
+
+  @ManyToOne(() => TaskChecklistItem, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'checklist_item_id', referencedColumnName: 'id' })
   checklistItem: TaskChecklistItem | null;
 
@@ -33,7 +39,7 @@ export class TaskDocument extends AppBaseEntity {
 
   @ManyToOne(() => Task, (task) => task.documents, {
     nullable: false,
-    onDelete: 'CASCADE',
+    onDelete: 'RESTRICT',
   })
   @JoinColumn({ name: 'task_id', referencedColumnName: 'id' })
   task: Task;

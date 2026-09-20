@@ -1,3 +1,4 @@
+import { lockWorkflow } from '../workflow/workflow-domain';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
@@ -81,6 +82,7 @@ export class ScheduleCalculationService {
     projectId: string,
     dto: RecalculateActivityScheduleDto = {},
     manager?: EntityManager,
+    lockHeld = false,
   ): Promise<{
     calculationRunId: string;
     projectId: string;
@@ -90,7 +92,13 @@ export class ScheduleCalculationService {
     projectDurationDays: number;
     criticalTaskIds: string[];
   }> {
+    if (!manager && !lockHeld)
+      return this.taskRepo.manager.transaction(async (tx) => {
+        await lockWorkflow(tx, projectId);
+        return this.recalculateProject(projectId, dto, tx);
+      });
     if (manager) {
+      await lockWorkflow(manager, projectId);
       const scoped = new ScheduleCalculationService(
         manager.getRepository(Project),
         manager.getRepository(Task),
@@ -101,7 +109,7 @@ export class ScheduleCalculationService {
         manager.getRepository(TaskScheduleCalculationRun),
         manager.getRepository(TaskScheduleExplanation),
       );
-      return scoped.recalculateProject(projectId, dto);
+      return scoped.recalculateProject(projectId, dto, undefined, true);
     }
     const run = await this.runRepo.save(
       this.runRepo.create({

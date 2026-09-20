@@ -59,6 +59,9 @@ export enum ChangeRequestPriority {
 @Index('idx_change_requests_escalated_to', ['escalatedToUserId'])
 @Index('idx_change_requests_resolved_by', ['resolvedByUserId'])
 export class ChangeRequest extends AppBaseEntity {
+  @Column({ name: 'checklist_item_id', type: 'uuid', nullable: true })
+  checklistItemId: string | null;
+
   @ManyToOne(() => Project, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'project_id', referencedColumnName: 'id' })
   project: Project;

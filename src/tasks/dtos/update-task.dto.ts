@@ -1,7 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -182,7 +181,6 @@ export class UpdateTaskDto {
   })
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => TaskAssignedMemberDto)
   assignedMembers?: TaskAssignedMemberDto[];

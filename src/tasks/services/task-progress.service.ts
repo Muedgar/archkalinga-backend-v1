@@ -1,3 +1,4 @@
+import { lockWorkflow, rollupStatuses } from '../workflow/workflow-domain';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
@@ -38,6 +39,8 @@ export class TaskProgressService {
     manager: EntityManager,
     projectId: string,
   ): Promise<Map<string, number>> {
+    await lockWorkflow(manager, projectId);
+    await rollupStatuses(manager, projectId);
     const tasks = await manager.find(Task, {
       where: { projectId, deletedAt: IsNull() },
       select: [

@@ -6,7 +6,6 @@ import {
 } from '../project-config';
 import { TaskCompletionMode } from '../types/task-completion-mode.type';
 import { TaskCrudService } from './task-crud.service';
-import { ConflictException } from '@nestjs/common';
 
 const requestUser = { id: 'user-1' } as any;
 const actorUser = { id: 'user-1' } as any;
@@ -54,6 +53,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
 function serviceWithMocks(overrides: Record<string, any> = {}) {
   const manager = {
     transaction: jest.fn(async (callback: any) => callback(manager)),
+    query: jest.fn(),
     findOne: jest.fn(),
     save: jest.fn(),
     find: jest.fn(),
@@ -70,6 +70,7 @@ function serviceWithMocks(overrides: Record<string, any> = {}) {
     verifyProjectPermission: jest.fn(),
     assertWipLimit: jest.fn(),
     assertTaskSubresourceMutationAllowed: jest.fn(),
+    assertTaskOwnedChecklistManagementAllowed: jest.fn(),
     loadTasksForList: jest.fn(),
     ensureDateRange: jest.fn(),
     ...overrides.authSvc,
@@ -132,210 +133,22 @@ function serviceWithMocks(overrides: Record<string, any> = {}) {
 }
 
 describe('TaskCrudService completion validation', () => {
-  it('returns a side-effect-free validate_only response', async () => {
-    const root = task('root');
-    const doneStatus = status('done', {
-      category: StatusCategory.DONE,
-      isTerminal: true,
-      isDone: true,
-      completionPolicy: CompletionPolicy.COMPLETE_OPEN_WORK_ITEMS,
-    });
-    const transitionResult = {
-      task: root,
-      effects: {
-        checklistItemsCompleted: 0,
-        descendantTasksCompleted: 0,
-        rollupsRecalculated: false,
-      },
-      changedTaskIds: [],
-      warnings: [],
-      policy: CompletionPolicy.REQUIRE_ALL_WORK_ITEMS_DONE,
-      completionMode: TaskCompletionMode.VALIDATE_ONLY,
-    };
-    const mocks = serviceWithMocks();
-    mocks.authSvc.verifyProjectPermission.mockResolvedValue({
-      membership: { id: 'membership-1' },
-    });
-    mocks.taskRepo.findOne.mockResolvedValue(root);
-    mocks.userRepo.findOneOrFail.mockResolvedValue(actorUser);
-    mocks.projectStatusRepo.findOne.mockResolvedValue(doneStatus);
-    mocks.transitionSvc.applyTransition.mockResolvedValue(transitionResult);
-
-    const getTask = jest.fn();
-
-    await expect(
-      mocks.service.completeTask(
-        'project-1',
-        root.id,
-        {
-          statusId: doneStatus.id,
-          completionMode: TaskCompletionMode.VALIDATE_ONLY,
-        },
-        requestUser,
-        getTask,
-      ),
-    ).resolves.toEqual({
-      allowed: true,
-      taskId: root.id,
-      statusId: doneStatus.id,
-      effects: transitionResult.effects,
-      changedTaskIds: [],
-      warnings: [],
-    });
-
-    expect(mocks.transitionSvc.applyTransition).toHaveBeenCalledWith(
-      mocks.taskRepo.manager,
-      expect.objectContaining({
-        projectId: 'project-1',
-        task: root,
-        targetStatus: doneStatus,
-        actorUser,
-        completionMode: TaskCompletionMode.VALIDATE_ONLY,
-      }),
-    );
-    expect(mocks.activitySvc.log).not.toHaveBeenCalled();
-    expect(getTask).not.toHaveBeenCalled();
-  });
-
-  it('reopens a completed task into a non-Done status', async () => {
-    const doneStatus = status('done', {
-      category: StatusCategory.DONE,
-      isTerminal: true,
-      isDone: true,
-      completionPolicy: CompletionPolicy.COMPLETE_OPEN_WORK_ITEMS,
-    });
-    const activeStatus = status('active-2');
-    const root = task('root', {
-      statusId: doneStatus.id,
-      status: doneStatus,
-      completed: true,
-      progress: 100,
-    });
-    const transitionResult = {
-      task: root,
-      effects: {
-        checklistItemsCompleted: 0,
-        descendantTasksCompleted: 0,
-        rollupsRecalculated: true,
-      },
-      changedTaskIds: [root.id],
-      warnings: [],
-      policy: CompletionPolicy.NONE,
-      completionMode: TaskCompletionMode.APPLY_STATUS_POLICY,
-    };
-    const reopenedTask = { id: root.id, progress: 75 } as any;
-    const mocks = serviceWithMocks();
-    mocks.authSvc.verifyProjectPermission.mockResolvedValue({
-      membership: { id: 'membership-1' },
-    });
-    mocks.taskRepo.findOne.mockResolvedValue(root);
-    mocks.taskRepo.count.mockResolvedValue(0);
-    mocks.userRepo.findOneOrFail.mockResolvedValue(actorUser);
-    mocks.projectStatusRepo.findOne.mockResolvedValue(activeStatus);
-    mocks.transitionSvc.applyTransition.mockResolvedValue(transitionResult);
-    const getTask = jest.fn().mockResolvedValue(reopenedTask);
-
-    await expect(
-      mocks.service.reopenTask(
-        'project-1',
-        root.id,
-        {
-          statusId: activeStatus.id,
-          progress: 75,
-          reason: 'More work needed',
-        },
-        requestUser,
-        getTask,
-      ),
-    ).resolves.toEqual({
-      task: reopenedTask,
-      audit: {
-        previousStatusId: doneStatus.id,
-        nextStatusId: activeStatus.id,
-        previousProgress: 100,
-        nextProgress: 75,
-        reason: 'More work needed',
-      },
-    });
-
-    expect(mocks.transitionSvc.applyTransition).toHaveBeenCalledWith(
-      mocks.taskRepo.manager,
-      expect.objectContaining({
-        projectId: 'project-1',
-        task: root,
-        targetStatus: activeStatus,
-        actorUser,
-        progress: 75,
-        reason: 'More work needed',
-      }),
-    );
-    expect(
-      mocks.progressSvc.recalculateProjectTaskProgress,
-    ).toHaveBeenCalledWith(mocks.taskRepo.manager, 'project-1');
-    expect(mocks.activitySvc.log).toHaveBeenCalledWith(
-      mocks.taskRepo.manager,
-      root,
-      actorUser,
-      'task:updated',
-      expect.objectContaining({
-        operation: 'task_reopened',
-        previousStatusId: doneStatus.id,
-        nextStatusId: activeStatus.id,
-      }),
-    );
-  });
-
-  it('propagates completion invariant conflicts when reopen is blocked', async () => {
-    const doneStatus = status('done', {
-      category: StatusCategory.DONE,
-      isTerminal: true,
-      isDone: true,
-    });
-    const activeStatus = status('active-2');
-    const root = task('root', {
-      statusId: doneStatus.id,
-      status: doneStatus,
-      completed: true,
-      progress: 100,
-    });
-    const conflict = new ConflictException({
-      message:
-        'Task cannot be moved to Done until required work items are complete.',
-      code: 'TASK_DONE_BLOCKED_BY_OPEN_WORK_ITEMS',
-      details: {
-        openChecklistItemIds: [],
-        openChildTaskIds: [root.id],
-        openChecklistItems: [],
-        openChildTasks: [
-          {
-            id: root.id,
-            title: root.title,
-            statusId: doneStatus.id,
-            progress: 100,
-          },
-        ],
-      },
-    });
-    const mocks = serviceWithMocks();
-    mocks.authSvc.verifyProjectPermission.mockResolvedValue({
-      membership: { id: 'membership-1' },
-    });
-    mocks.taskRepo.findOne.mockResolvedValue(root);
-    mocks.userRepo.findOneOrFail.mockResolvedValue(actorUser);
-    mocks.projectStatusRepo.findOne.mockResolvedValue(activeStatus);
-    mocks.transitionSvc.applyTransition.mockRejectedValue(conflict);
-
-    await expect(
-      mocks.service.reopenTask(
-        'project-1',
-        root.id,
-        { statusId: activeStatus.id },
-        requestUser,
-        jest.fn(),
-      ),
-    ).rejects.toBe(conflict);
-    expect(mocks.activitySvc.log).not.toHaveBeenCalled();
-  });
+  it.each(['moveTask', 'completeTask', 'reopenTask'] as const)(
+    'rejects manual workflow through %s',
+    async (method) => {
+      const mocks = serviceWithMocks();
+      await expect(
+        (mocks.service[method] as any)(
+          'project-1',
+          'task-1',
+          {},
+          requestUser,
+          jest.fn(),
+        ),
+      ).rejects.toMatchObject({ response: { code: 'TASK_STATUS_IS_DERIVED' } });
+      expect(mocks.taskRepo.manager.transaction).not.toHaveBeenCalled();
+    },
+  );
 
   it('returns partial outcomes for bulk updates', async () => {
     const activeStatus = status('active');

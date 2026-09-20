@@ -1,3 +1,4 @@
+import { CanonicalStage } from 'src/tasks/project-config/project-status.entity';
 import {
   BadRequestException,
   ConflictException,
@@ -265,6 +266,7 @@ export class ProjectConfigService {
       {
         name: 'To Do',
         key: 'todo',
+        canonicalStage: CanonicalStage.TODO,
         color: '#6B7280',
         orderIndex: 0,
         category: StatusCategory.NOT_STARTED,
@@ -276,6 +278,7 @@ export class ProjectConfigService {
       {
         name: 'In Progress',
         key: 'in_progress',
+        canonicalStage: CanonicalStage.IN_PROGRESS,
         color: '#3B82F6',
         orderIndex: 1,
         category: StatusCategory.ACTIVE,
@@ -287,6 +290,7 @@ export class ProjectConfigService {
       {
         name: 'In Review',
         key: 'in_review',
+        canonicalStage: CanonicalStage.IN_REVIEW,
         color: '#F59E0B',
         orderIndex: 2,
         category: StatusCategory.ACTIVE,
@@ -298,13 +302,14 @@ export class ProjectConfigService {
       {
         name: 'Done',
         key: 'done',
+        canonicalStage: CanonicalStage.DONE,
         color: '#10B981',
         orderIndex: 3,
         category: StatusCategory.DONE,
         isDefault: false,
         isTerminal: true,
         isDone: true,
-        completionPolicy: CompletionPolicy.COMPLETE_OPEN_WORK_ITEMS,
+        completionPolicy: CompletionPolicy.NONE,
       },
       {
         name: 'Blocked',
@@ -463,6 +468,25 @@ export class ProjectConfigService {
     // Labels: no defaults seeded
   }
 
+  async getConfig(projectId: string): Promise<{
+    statuses: ProjectStatusSerializer[];
+    priorities: ProjectPrioritySerializer[];
+    severities: ProjectSeveritySerializer[];
+    taskTypes: ProjectTaskTypeSerializer[];
+    labels: ProjectLabelSerializer[];
+  }> {
+    const [statuses, priorities, severities, taskTypes, labels] =
+      await Promise.all([
+        this.listStatuses(projectId),
+        this.listPriorities(projectId),
+        this.listSeverities(projectId),
+        this.listTaskTypes(projectId),
+        this.listLabels(projectId),
+      ]);
+
+    return { statuses, priorities, severities, taskTypes, labels };
+  }
+
   // ── Status CRUD ────────────────────────────────────────────────────────────
 
   async listStatuses(projectId: string): Promise<ProjectStatusSerializer[]> {
@@ -535,12 +559,32 @@ export class ProjectConfigService {
     statusId: string,
     dto: UpdateProjectStatusDto,
   ): Promise<ProjectStatusSerializer> {
+    if (dto.isDone || dto.isTerminal || dto.isDefault)
+      throw new BadRequestException('CUSTOM_STATUS_MUST_BE_ACTIVE_WORK');
     await this.ensureProject(projectId);
     const row = await this.statusRepo.findOne({
       where: { id: statusId, projectId },
     });
     if (!row) throw new NotFoundException(CONFIG_STATUS_NOT_FOUND);
 
+    if (
+      row.canonicalStage &&
+      [
+        'key',
+        'category',
+        'isDefault',
+        'isTerminal',
+        'isDone',
+        'completionPolicy',
+        'isActive',
+      ].some(
+        (k) =>
+          (dto as any)[k] !== undefined && (dto as any)[k] !== (row as any)[k],
+      )
+    )
+      throw new BadRequestException('CANONICAL_STATUS_SEMANTICS_IMMUTABLE');
+    if (!row.canonicalStage && (dto.isDone || dto.isTerminal || dto.isDefault))
+      throw new BadRequestException('CUSTOM_STATUS_MUST_BE_ACTIVE_WORK');
     Object.assign(row, this.normalizeStatusSemantics({ ...row, ...dto }));
     await this.assertCanUpdateStatus(projectId, statusId, row);
 
@@ -571,6 +615,8 @@ export class ProjectConfigService {
     });
     if (!row) throw new NotFoundException(CONFIG_STATUS_NOT_FOUND);
 
+    if (row.canonicalStage)
+      throw new BadRequestException('CANONICAL_STATUS_REQUIRED');
     // Guard: cannot delete if tasks reference this status
     const taskCount = await this.statusRepo.manager
       .getRepository('tasks')

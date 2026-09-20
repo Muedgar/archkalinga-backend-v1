@@ -4,6 +4,8 @@ import { BaseSerializer } from 'src/common/serializers';
 // ── Status ────────────────────────────────────────────────────────────────────
 
 export class ProjectStatusSerializer extends BaseSerializer {
+  @Expose() canonicalStage: string | null;
+
   @Expose() projectId: string;
   @Expose() name: string;
   @Expose() key: string;

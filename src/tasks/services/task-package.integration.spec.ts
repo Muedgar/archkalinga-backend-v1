@@ -1,3 +1,5 @@
+import { TaskWorkflowService } from './task-workflow.service';
+import { CanonicalStage } from '../project-config/project-status.entity';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { DataSource } from 'typeorm';
@@ -11,7 +13,6 @@ import { JwtAuthGuard, ProjectPermissionGuard } from 'src/auth/guards';
 import { ResponseInterceptor } from 'src/common/interceptors/response.interceptor';
 import { TasksController } from '../tasks.controller';
 import { TasksService } from '../tasks.service';
-import { CompletionPolicy, StatusCategory } from '../project-config';
 import { ConfigService } from '@nestjs/config';
 import {
   Project,
@@ -187,11 +188,27 @@ describeDatabase('Task packages against PostgreSQL', () => {
     status = await db.getRepository(ProjectStatus).save({
       project,
       projectId: project.id,
-      name: 'Active',
-      key: 'active',
+      name: 'Todo',
+      key: 'todo',
+      canonicalStage: CanonicalStage.TODO,
       isDefault: true,
       isActive: true,
     });
+    for (const stage of [
+      CanonicalStage.IN_PROGRESS,
+      CanonicalStage.IN_REVIEW,
+      CanonicalStage.DONE,
+    ])
+      await db.getRepository(ProjectStatus).save({
+        project,
+        projectId: project.id,
+        name: stage,
+        key: stage.toLowerCase(),
+        canonicalStage: stage,
+        isDone: stage === CanonicalStage.DONE,
+        isTerminal: stage === CanonicalStage.DONE,
+        isActive: true,
+      });
     await db.getRepository(ProjectTaskType).save({
       project,
       projectId: project.id,
@@ -218,6 +235,7 @@ describeDatabase('Task packages against PostgreSQL', () => {
     Object.assign(auth, {
       taskRepo: db.getRepository(Task),
       checklistItemRepo: db.getRepository(TaskChecklistItem),
+      projectStatusRepo: db.getRepository(ProjectStatus),
     });
     auth.verifyProjectPermission = jest.fn().mockResolvedValue({ project });
     auth.canViewTask = canView;
@@ -474,6 +492,7 @@ describeDatabase('Task packages against PostgreSQL', () => {
       controllers: [TasksController],
       providers: [
         { provide: TasksService, useValue: {} },
+        { provide: TaskWorkflowService, useValue: {} },
         { provide: TaskPackageService, useValue: service },
       ],
     })
@@ -518,29 +537,17 @@ describeDatabase('Task packages against PostgreSQL', () => {
     }
   });
 
-  it('creates completed packages consistently under strict completion policy', async () => {
-    const done = await db.getRepository(ProjectStatus).save({
-      project,
+  it('rejects completed package creation even under a legacy completion policy', async () => {
+    const done = await db.getRepository(ProjectStatus).findOneByOrFail({
       projectId: project.id,
-      name: 'Done',
-      key: 'done',
-      isActive: true,
-      category: StatusCategory.DONE,
-      isDone: true,
-      isTerminal: true,
-      completionPolicy: CompletionPolicy.REQUIRE_ALL_WORK_ITEMS_DONE,
+      canonicalStage: CanonicalStage.DONE,
     });
     const body = payload();
     body.task.statusId = done.id;
-    body.checklists.forEach((item) => {
-      item.statusId = done.id;
-    });
-    const result = await create(body);
-    expect(result.parentTask.completed).toBe(true);
-    expect(
-      result.parentTask.checklistItems.every((item) => item.completed),
-    ).toBe(true);
-    expect(result.checklistItems.every((item) => item.completed)).toBe(true);
+    body.checklists.forEach((item) => (item.statusId = done.id));
+    await expect(create(body)).rejects.toThrow(
+      'TASK_INITIAL_STATUS_MUST_BE_TODO',
+    );
   });
 
   it('overwrites reportees on standalone task and subtask creation with empty assignees', async () => {
@@ -627,7 +634,7 @@ describeDatabase('Task packages against PostgreSQL', () => {
       .getRepository(TaskChecklistItem)
       .findOneByOrFail({ id: result.checklistItems[0].id });
     expect(item.reporteeUserId).toBe(actor.id);
-    expect(item.assignedMembers[0].userId).toBe(actor.id);
+    expect(item.assignedMembers).toEqual([]);
     const doc = await db
       .getRepository(TaskDocument)
       .findOneByOrFail({ checklistItemId: item.id });
@@ -722,7 +729,7 @@ describeDatabase('Task packages against PostgreSQL', () => {
         ...payload(),
         branchFrom: { ...branchFrom, taskId: randomUUID() },
       }),
-    ).rejects.toThrow('specified task');
+    ).rejects.toThrow('INVALID_TASK_HIERARCHY');
     jest
       .spyOn(auth, 'assertTaskChecklistBranchAllowed')
       .mockRejectedValueOnce(new Error('Forbidden branch'));
@@ -829,11 +836,12 @@ describeDatabase('Task packages against PostgreSQL', () => {
     expect(response.checklistItems.every((i) => i.canBranch)).toBe(true);
     jest
       .spyOn(auth, 'verifyProjectPermission')
-      .mockRejectedValueOnce(new Error('No task-create permission'));
-    await auth.decorateChecklistRead(task, task.checklistItems, {
-      id: actor.id,
-    } as RequestUser);
-    expect(task.checklistItems.every((i) => !i.canBranch)).toBe(true);
+      .mockRejectedValueOnce(new Error('Active project membership required'));
+    await expect(
+      auth.decorateChecklistRead(task, task.checklistItems, {
+        id: actor.id,
+      } as RequestUser),
+    ).rejects.toThrow('Active project membership required');
     jest.spyOn(auth, 'canBranchTaskChecklistItem').mockResolvedValueOnce(false);
     await auth.decorateChecklistRead(task, task.checklistItems, {
       id: actor.id,

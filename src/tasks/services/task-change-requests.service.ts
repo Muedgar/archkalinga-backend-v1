@@ -1,3 +1,5 @@
+import { TaskChecklistItem } from '../entities';
+import { lockWorkflow } from '../workflow/workflow-domain';
 import {
   BadRequestException,
   ForbiddenException,
@@ -199,6 +201,10 @@ export class TaskChangeRequestsService {
         );
     }
 
+    if (filters.checklistItemId)
+      qb.andWhere('changeRequest.checklistItemId = :checklistItemId', {
+        checklistItemId: filters.checklistItemId,
+      });
     if (filters.status) {
       qb.andWhere('changeRequest.status = :status', {
         status: filters.status,
@@ -361,7 +367,16 @@ export class TaskChangeRequestsService {
     try {
       const result = await this.changeRequestRepo.manager.transaction(
         async (tx) => {
+          await lockWorkflow(tx, task.projectId);
+          if (
+            dto.checklistItemId &&
+            !(await tx.exists(TaskChecklistItem, {
+              where: { id: dto.checklistItemId, taskId: task.id },
+            }))
+          )
+            throw new BadRequestException('Checklist does not belong to task');
           const changeRequest = tx.create(ChangeRequest, {
+            checklistItemId: dto.checklistItemId ?? null,
             projectId: task.projectId,
             taskId: task.id,
             createdByUserId: actorUser.id,

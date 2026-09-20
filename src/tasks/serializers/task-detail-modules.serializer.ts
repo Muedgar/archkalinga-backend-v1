@@ -1,7 +1,9 @@
+import { ChecklistSubmissionSerializer } from './checklist-submission.serializer';
 import { Expose, Transform, Type } from 'class-transformer';
 import { BaseSerializer } from 'src/common/serializers';
 
 class TaskChecklistStatusSnippet extends BaseSerializer {
+  @Expose() canonicalStage: string | null;
   @Expose() declare id: string;
   @Expose() name: string;
   @Expose() key: string;
@@ -11,6 +13,15 @@ class TaskChecklistStatusSnippet extends BaseSerializer {
 }
 
 export class TaskChecklistItemDetailSerializer extends BaseSerializer {
+  @Expose() @Transform(({ obj }) => obj.version) revision: number;
+  @Expose() capabilities: Record<string, unknown>;
+  @Expose()
+  @Type(() => ChecklistSubmissionSerializer)
+  activeSubmission: unknown;
+  @Expose() assignedMembers: unknown;
+  @Expose() reporteeUserId: string | null;
+  @Expose() effectiveStage: string;
+  @Expose() legacyCompletion: boolean;
   @Expose() description?: Record<string, unknown> | null;
   @Expose() canBranch?: boolean;
   @Expose() packageManaged?: boolean;

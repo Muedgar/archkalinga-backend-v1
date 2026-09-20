@@ -15,9 +15,14 @@ import { TaskDocument } from './task-document.entity';
   where: '"is_active" = true',
 })
 export class TaskDocumentAttachment extends AppBaseEntity {
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
+  @Column({ name: 'deleted_by_user_id', type: 'uuid', nullable: true })
+  deletedByUserId: string | null;
+
   @ManyToOne(() => TaskDocument, (document) => document.attachments, {
     nullable: false,
-    onDelete: 'CASCADE',
+    onDelete: 'RESTRICT',
   })
   @JoinColumn({ name: 'document_id', referencedColumnName: 'id' })
   document: TaskDocument;
@@ -42,6 +47,14 @@ export class TaskDocumentAttachment extends AppBaseEntity {
   @Column({ name: 'source_attachment_id', type: 'uuid', nullable: true })
   sourceAttachmentId: string | null;
 
+  @Column({ name: 'original_name', type: 'text', nullable: true })
+  originalName: string | null;
+  @Column({ name: 'mime_type', type: 'text', nullable: true }) mimeType:
+    | string
+    | null;
+  @Column({ name: 'size_bytes', type: 'bigint', nullable: true }) sizeBytes:
+    | string
+    | null;
   @Column({ type: 'varchar', length: 500, nullable: false })
   filename: string;
 

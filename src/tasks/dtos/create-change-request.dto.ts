@@ -56,6 +56,11 @@ const optionalJsonObject = ({ value }: { value: unknown }) => {
 };
 
 export class CreateChangeRequestDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  checklistItemId?: string;
+
   @ApiProperty({ example: 'Revise window schedule for level 2' })
   @IsString()
   @Length(1, 255)

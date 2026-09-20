@@ -1,5 +1,9 @@
+import { lockWorkflow } from '../workflow/workflow-domain';
 import {
   BadRequestException,
+  GoneException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -24,6 +28,8 @@ import {
   TaskDocument,
   TaskDocumentAttachment,
   TaskDocumentType,
+  TaskChecklistItem,
+  TaskDocumentRevision,
 } from '../entities';
 import {
   INVALID_TASK_DOCUMENT_ATTACHMENTS,
@@ -71,6 +77,10 @@ export class TaskDocumentsService {
       .leftJoinAndSelect('attachment.sourceAttachment', 'sourceAttachment')
       .where('document.taskId = :taskId', { taskId });
 
+    if (filters.scope === 'TASK')
+      qb.andWhere('document.checklistItemId IS NULL');
+    if (filters.scope === 'CHECKLIST')
+      qb.andWhere('document.checklistItemId IS NOT NULL');
     if (filters.checklistItemId)
       qb.andWhere('document.checklistItemId = :checklistItemId', {
         checklistItemId: filters.checklistItemId,
@@ -167,19 +177,24 @@ export class TaskDocumentsService {
     dto: CreateTaskDocumentDto,
     file?: UploadableFile,
   ): Promise<TaskDocumentSerializer> {
-    if (!file) {
+    if (!file && dto.type !== TaskDocumentType.DELIVERABLE) {
       throw new BadRequestException(INVALID_TASK_DOCUMENT_FILE_REQUIRED);
     }
 
-    const uploadedAttachment = await this.uploadDocumentAttachment(
-      task,
-      actorUser,
-      dto,
-      file,
-    );
+    const uploadedAttachment = file
+      ? await this.uploadDocumentAttachment(task, actorUser, dto, file)
+      : null;
 
     try {
       return await this.documentRepo.manager.transaction(async (tx) => {
+        await lockWorkflow(tx, task.projectId);
+        await this.authorizeWrite(tx, task, actorUser, dto.type, !file);
+        await this.validateScope(tx, task.id, dto.checklistItemId, dto.type);
+        if (file) await this.assertUploadOpen(tx, task.id, dto.checklistItemId);
+        if (dto.attachments !== undefined)
+          throw new BadRequestException(
+            'Use file uploads, not storage references',
+          );
         const document = tx.create(TaskDocument, {
           task,
           createdByUser: actorUser,
@@ -187,9 +202,11 @@ export class TaskDocumentsService {
           ...this.toDocumentValues(dto),
         });
         const saved = await tx.save(document);
-        uploadedAttachment.document = saved;
-        uploadedAttachment.documentId = saved.id;
-        saved.attachments = [await tx.save(uploadedAttachment)];
+        if (uploadedAttachment) {
+          uploadedAttachment.document = saved;
+          uploadedAttachment.documentId = saved.id;
+          saved.attachments = [await tx.save(uploadedAttachment)];
+        }
 
         await this.activitySvc.log(
           tx,
@@ -206,10 +223,11 @@ export class TaskDocumentsService {
         return this.serialize(await this.reloadDocumentForResponse(tx, saved));
       });
     } catch (error) {
-      await this.minioSvc.deleteFile(
-        uploadedAttachment.bucketName,
-        uploadedAttachment.filename,
-      );
+      if (uploadedAttachment)
+        await this.minioSvc.deleteFile(
+          uploadedAttachment.bucketName,
+          uploadedAttachment.filename,
+        );
       throw error;
     }
   }
@@ -222,15 +240,64 @@ export class TaskDocumentsService {
     file?: UploadableFile,
   ): Promise<TaskDocumentSerializer> {
     const document = await this.getTaskDocumentOrFail(task.id, documentId);
-    Object.assign(document, this.toDocumentValues(dto));
-    document.updatedByUser = actorUser;
+    if (document.deletedAt)
+      throw new GoneException({ code: 'FILE_CONTENT_DELETED' });
+    if (dto.attachments !== undefined)
+      throw new BadRequestException(
+        'ATTACHMENT_LIST_REPLACEMENT_FORBIDDEN: use upload or delete a version',
+      );
     const uploadedAttachment = file
       ? await this.uploadDocumentAttachment(task, actorUser, dto, file)
       : null;
 
     try {
       return await this.documentRepo.manager.transaction(async (tx) => {
-        const saved = await tx.save(document);
+        await lockWorkflow(tx, task.projectId);
+        await this.authorizeWrite(
+          tx,
+          task,
+          actorUser,
+          document.type,
+          dto.name !== undefined ||
+            dto.description !== undefined ||
+            dto.type !== undefined,
+        );
+        const current = await tx.findOneOrFail(TaskDocument, {
+          where: { id: documentId, taskId: task.id },
+        });
+        if (file)
+          await this.assertUploadOpen(tx, task.id, current.checklistItemId);
+        if (current.deletedAt)
+          throw new GoneException({ code: 'FILE_CONTENT_DELETED' });
+        await this.validateScope(
+          tx,
+          task.id,
+          dto.checklistItemId === undefined
+            ? current.checklistItemId
+            : dto.checklistItemId,
+          dto.type ?? current.type,
+        );
+        if (
+          dto.checklistItemId !== undefined &&
+          dto.checklistItemId !== current.checklistItemId
+        )
+          throw new ConflictException('DOCUMENT_SCOPE_IS_IMMUTABLE');
+        await tx.save(
+          TaskDocumentRevision,
+          tx.create(TaskDocumentRevision, {
+            documentId,
+            actorUserId: actorUser.id,
+            snapshot: {
+              name: current.name,
+              description: current.description,
+              type: current.type,
+              version: current.version,
+            },
+          }),
+        );
+        Object.assign(current, this.toDocumentValues(dto));
+        current.updatedByUserId = actorUser.id;
+        const saved = await tx.save(current);
 
         if (uploadedAttachment) {
           await tx.update(
@@ -245,14 +312,6 @@ export class TaskDocumentsService {
             where: { documentId: saved.id },
             order: { createdAt: 'DESC' },
           });
-        } else if (dto.attachments !== undefined) {
-          await tx.delete(TaskDocumentAttachment, { documentId: saved.id });
-          const attachments = this.toAttachments(dto.attachments, actorUser);
-          attachments.forEach((attachment) => {
-            attachment.document = saved;
-            attachment.documentId = saved.id;
-          });
-          saved.attachments = await tx.save(attachments);
         }
 
         await this.activitySvc.log(
@@ -298,7 +357,7 @@ export class TaskDocumentsService {
     }
 
     const activeAttachments = (sourceDocument.attachments ?? []).filter(
-      (attachment) => attachment.isActive,
+      (attachment) => attachment.isActive && !attachment.deletedAt,
     );
     if (activeAttachments.length !== 1) {
       throw new BadRequestException(
@@ -308,6 +367,22 @@ export class TaskDocumentsService {
     const sourceAttachment = activeAttachments[0];
 
     return this.documentRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, targetTask.projectId);
+      await this.authorizeWrite(
+        tx,
+        targetTask,
+        actorUser,
+        TaskDocumentType.STARTER,
+        true,
+      );
+      const currentSource = await tx.findOneOrFail(TaskDocument, {
+        where: { id: sourceDocument.id },
+      });
+      const currentAttachment = await tx.findOneOrFail(TaskDocumentAttachment, {
+        where: { id: sourceAttachment.id },
+      });
+      if (currentSource.deletedAt || currentAttachment.deletedAt)
+        throw new GoneException({ code: 'FILE_CONTENT_DELETED' });
       const document = tx.create(TaskDocument, {
         task: targetTask,
         sourceTask,
@@ -373,7 +448,22 @@ export class TaskDocumentsService {
     const document = await this.getTaskDocumentOrFail(task.id, documentId);
 
     await this.documentRepo.manager.transaction(async (tx) => {
-      await tx.remove(document);
+      await lockWorkflow(tx, task.projectId);
+      await this.authorizeWrite(tx, task, actorUser, document.type, true);
+      await tx.update(
+        TaskDocument,
+        { id: document.id },
+        { deletedAt: new Date(), deletedByUserId: actorUser.id },
+      );
+      await tx.update(
+        TaskDocumentAttachment,
+        { documentId: document.id, deletedAt: IsNull() },
+        {
+          deletedAt: new Date(),
+          deletedByUserId: actorUser.id,
+          isActive: false,
+        },
+      );
       await this.activitySvc.log(
         tx,
         task,
@@ -449,7 +539,7 @@ export class TaskDocumentsService {
     documentId: string,
     attachmentId: string,
   ): Promise<{ downloadUrl: string }> {
-    await this.getTaskDocumentOrFail(taskId, documentId);
+    const document = await this.getTaskDocumentOrFail(taskId, documentId);
     const attachment = await this.attachmentRepo.findOne({
       where: { id: attachmentId, documentId },
     });
@@ -458,28 +548,75 @@ export class TaskDocumentsService {
       throw new NotFoundException(TASK_DOCUMENT_ATTACHMENT_NOT_FOUND);
     }
 
+    if (document.deletedAt || attachment.deletedAt)
+      throw new GoneException({ code: 'FILE_CONTENT_DELETED' });
     return {
-      downloadUrl:
-        (await this.minioSvc.getFileUrl(
-          attachment.bucketName,
-          attachment.filename,
-        )) ?? '',
+      downloadUrl: this.contentPath(
+        document.task.projectId,
+        taskId,
+        documentId,
+        attachmentId,
+      ),
     };
+  }
+
+  private contentPath(
+    projectId: string,
+    taskId: string,
+    documentId: string,
+    attachmentId: string,
+  ) {
+    return `/projects/${projectId}/tasks/${taskId}/documents/${documentId}/attachments/${attachmentId}/content`;
+  }
+
+  async getAttachmentContent(
+    task: Task,
+    documentId: string,
+    attachmentId: string,
+  ) {
+    // Hold workflow lock until storage read is authorized/completed, serializing deletion.
+    return this.documentRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, task.projectId);
+      const document = await tx.findOne(TaskDocument, {
+        where: { id: documentId, taskId: task.id },
+      });
+      const file = await tx.findOne(TaskDocumentAttachment, {
+        where: { id: attachmentId, documentId },
+      });
+      if (!document || !file)
+        throw new NotFoundException(TASK_DOCUMENT_ATTACHMENT_NOT_FOUND);
+      if (document.deletedAt || file.deletedAt)
+        throw new GoneException({ code: 'FILE_CONTENT_DELETED' });
+      return {
+        buffer: await this.minioSvc.getFileContent(
+          file.bucketName,
+          file.filename,
+        ),
+        name: file.originalName ?? file.filename,
+        mimeType: file.mimeType ?? 'application/octet-stream',
+      };
+    });
   }
 
   private async serialize(
     document: Partial<TaskDocument>,
   ): Promise<TaskDocumentSerializer> {
-    const attachments = await Promise.all(
-      (document.attachments ?? []).map(async (attachment) => ({
-        ...attachment,
-        downloadUrl:
-          (await this.minioSvc.getFileUrl(
-            attachment.bucketName,
-            attachment.filename,
-          )) ?? null,
-      })),
-    );
+    const owner =
+      document.task ??
+      (await this.taskRepo.findOneOrFail({ where: { id: document.taskId } }));
+    const attachments = (document.attachments ?? []).map((attachment) => ({
+      ...attachment,
+      fileAvailable: !document.deletedAt && !attachment.deletedAt,
+      downloadUrl:
+        document.deletedAt || attachment.deletedAt
+          ? null
+          : this.contentPath(
+              owner.projectId,
+              owner.id,
+              document.id!,
+              attachment.id,
+            ),
+    }));
 
     return plainToInstance(
       TaskDocumentSerializer,
@@ -491,6 +628,103 @@ export class TaskDocumentsService {
         excludeExtraneousValues: true,
       },
     );
+  }
+
+  private async authorizeWrite(
+    tx: EntityManager,
+    task: Task,
+    actor: User,
+    type: TaskDocumentType,
+    definition: boolean,
+  ) {
+    await this.authSvc.verifyProjectPermission(task.projectId, actor, 'view');
+    const live = await tx.findOneOrFail(Task, {
+      where: { id: task.id, projectId: task.projectId, deletedAt: IsNull() },
+      relations: ['assignees'],
+    });
+    if (live.supersededByTaskId)
+      throw new ConflictException('TASK_WORKFLOW_CLOSED');
+    const manager = await this.authSvc.canManageTaskOwnedChecklist(
+      task.projectId,
+      task.id,
+      actor.id,
+    );
+    const assignee = live.assignees.some((a) => a.userId === actor.id);
+    if (
+      !manager &&
+      !(type === TaskDocumentType.DELIVERABLE && assignee && !definition)
+    )
+      throw new ForbiddenException('DOCUMENT_ACTION_FORBIDDEN');
+  }
+
+  private async assertUploadOpen(
+    tx: EntityManager,
+    taskId: string,
+    itemId?: string | null,
+  ) {
+    const task = await tx.findOneOrFail(Task, { where: { id: taskId } });
+    const item = itemId
+      ? await tx.findOne(TaskChecklistItem, { where: { id: itemId, taskId } })
+      : null;
+    if (task.completed || item?.completed)
+      throw new ConflictException('CHECKLIST_DONE_IS_TERMINAL');
+    if (item?.branchedTaskId)
+      throw new ConflictException('BRANCHED_CHECKLIST_IS_READ_ONLY');
+  }
+
+  private async validateScope(
+    tx: EntityManager,
+    taskId: string,
+    itemId: string | null | undefined,
+    type: TaskDocumentType,
+  ) {
+    if (type === TaskDocumentType.REFERENCE && itemId)
+      throw new BadRequestException('REFERENCE documents belong to tasks');
+    if (type === TaskDocumentType.DELIVERABLE && !itemId)
+      throw new BadRequestException('Deliverables require checklistItemId');
+    if (
+      itemId &&
+      !(await tx.exists(TaskChecklistItem, { where: { id: itemId, taskId } }))
+    )
+      throw new BadRequestException('Checklist does not belong to task');
+  }
+
+  async listDocumentHistory(taskId: string, documentId: string) {
+    await this.getTaskDocumentOrFail(taskId, documentId);
+    return this.documentRepo.manager.find(TaskDocumentRevision, {
+      where: { documentId },
+      order: { createdAt: 'DESC', id: 'DESC' },
+    });
+  }
+
+  async deleteAttachment(
+    task: Task,
+    documentId: string,
+    attachmentId: string,
+    actor: User,
+  ) {
+    return this.documentRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, task.projectId);
+      const document = await tx.findOneOrFail(TaskDocument, {
+        where: { id: documentId, taskId: task.id },
+      });
+      await this.authorizeWrite(tx, task, actor, document.type, false);
+      const attachment = await tx.findOne(TaskDocumentAttachment, {
+        where: { id: attachmentId, documentId },
+      });
+      if (!attachment)
+        throw new NotFoundException(TASK_DOCUMENT_ATTACHMENT_NOT_FOUND);
+      attachment.deletedAt ??= new Date();
+      attachment.deletedByUserId ??= actor.id;
+      attachment.isActive = false;
+      await tx.save(attachment);
+      await this.activitySvc.log(tx, task, actor, TaskActionType.TASK_UPDATED, {
+        operation: 'document_version_deleted',
+        documentId,
+        attachmentId,
+      });
+      return { id: attachmentId, deleted: true };
+    });
   }
 
   private async loadSubtreeTaskIds(
@@ -527,6 +761,8 @@ export class TaskDocumentsService {
     this.assignString(values, 'name', dto.name);
     this.assignString(values, 'description', dto.description);
     if (dto.type !== undefined) values.type = dto.type;
+    if (dto.checklistItemId !== undefined)
+      values.checklistItemId = dto.checklistItemId;
     return values;
   }
 
@@ -563,6 +799,9 @@ export class TaskDocumentsService {
     });
 
     return this.attachmentRepo.create({
+      originalName: uploaded.originalName,
+      mimeType: uploaded.mimeType,
+      sizeBytes: String(uploaded.size),
       filename: uploaded.fileName,
       bucketName: uploaded.bucketName,
       createdByUser: actorUser,

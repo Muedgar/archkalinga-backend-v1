@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsUUID,
   IsEnum,
   IsOptional,
   IsString,
@@ -13,6 +14,11 @@ import { TaskDocumentType } from '../entities';
 import { TaskDocumentAttachmentDto } from './task-document-attachment.dto';
 
 export class CreateTaskDocumentDto {
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsOptional()
+  @IsUUID()
+  checklistItemId?: string | null;
+
   @ApiProperty({ example: 'Site survey starter pack' })
   @IsString()
   @Length(1, 255)

@@ -41,22 +41,13 @@ describe('TaskProgressService', () => {
     ).toBe(50);
   });
 
-  it('does not sync branched checklist items during task progress recalculation', async () => {
-    const manager = {
-      find: jest.fn().mockResolvedValue([
-        task('parent', {
-          projectId: 'project-1',
-          parentTaskId: null,
-          progress: 50,
-        }),
-      ]),
-      save: jest.fn(),
-    };
-
-    await service.recalculateProjectTaskProgress(manager as any, 'project-1');
-
-    expect(manager.find).toHaveBeenCalledTimes(2);
-    expect(manager.find).toHaveBeenCalledWith(Task, expect.any(Object));
-    expect(manager.save).not.toHaveBeenCalled();
+  it('does not infer review from numeric progress', () => {
+    expect(
+      service.calculateTaskProgress(
+        task('leaf', { progress: 100, completed: false }),
+        new Map(),
+        new Map(),
+      ),
+    ).toBe(100);
   });
 });

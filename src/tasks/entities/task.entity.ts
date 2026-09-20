@@ -191,7 +191,7 @@ export class Task extends AppBaseEntity {
   @Column({ type: 'uuid', nullable: false })
   createdByUserId: string;
 
-  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => User, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'reportee_user_id' })
   reporteeUser: User | null;
 

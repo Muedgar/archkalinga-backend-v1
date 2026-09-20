@@ -2,6 +2,13 @@ import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
 import { AppBaseEntity } from 'src/common/entities';
 import { Project } from 'src/projects/entities';
 
+export enum CanonicalStage {
+  TODO = 'TODO',
+  IN_PROGRESS = 'IN_PROGRESS',
+  IN_REVIEW = 'IN_REVIEW',
+  DONE = 'DONE',
+}
+
 export enum StatusCategory {
   NOT_STARTED = 'not_started',
   ACTIVE = 'active',
@@ -24,6 +31,14 @@ export enum CompletionPolicy {
 @Entity('project_statuses')
 @Unique(['projectId', 'key'])
 export class ProjectStatus extends AppBaseEntity {
+  @Column({
+    name: 'canonical_stage',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  canonicalStage: CanonicalStage | null;
+
   @ManyToOne(() => Project, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'project_id' })
   project: Project;

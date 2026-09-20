@@ -9,6 +9,11 @@ import {
 } from '../entities';
 
 export class ChangeRequestFiltersDto extends ListFilterDTO {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  checklistItemId?: string;
+
   @ApiPropertyOptional({ enum: ChangeRequestStatus })
   @IsOptional()
   @IsEnum(ChangeRequestStatus)

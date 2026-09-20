@@ -1,3 +1,11 @@
+import {
+  IsObject,
+  IsNumber,
+  IsDateString,
+  IsArray,
+  ValidateNested,
+} from 'class-validator';
+import { ChecklistDefinitionDependencyDto } from './checklist-definition-dependency.dto';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
@@ -11,6 +19,30 @@ import {
 } from 'class-validator';
 
 export class UpdateChecklistItemDto {
+  @ApiPropertyOptional() @IsOptional() @IsObject() description?: Record<
+    string,
+    unknown
+  > | null;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  durationDays?: number;
+  @ApiPropertyOptional() @IsOptional() @IsDateString() earliestStartDate?:
+    | string
+    | null;
+  @ApiPropertyOptional({ type: [ChecklistDefinitionDependencyDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ChecklistDefinitionDependencyDto)
+  dependencies?: ChecklistDefinitionDependencyDto[];
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedRevision?: number;
+
   @ApiPropertyOptional({ example: 'Adjusted checklist line' })
   @IsOptional()
   @IsString()
