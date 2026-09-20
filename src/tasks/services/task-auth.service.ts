@@ -1,3 +1,9 @@
+import { checklistCapabilities } from '../workflow/checklist-policy';
+import {
+  TaskWorkflowActivation,
+  ChecklistSubmission,
+  SubmissionOutcome,
+} from '../entities';
 import {
   BadRequestException,
   ForbiddenException,
@@ -17,7 +23,6 @@ import { Project, ProjectMembership } from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
 import type { ProjectPermissionAction } from 'src/projects/types/project-permission-matrix.type';
 import type { ProjectPermissionDomain } from 'src/projects/types/project-permission-matrix.type';
-import { User } from 'src/users/entities';
 import {
   WorkspaceMember,
   WorkspaceMemberStatus,
@@ -251,39 +256,15 @@ export class TaskAuthService {
     action: TaskSubresourceMutationAction;
     membership?: ProjectMembership | null;
   }): Promise<boolean> {
-    const { projectId, taskId, requestUser, resource, action } = params;
-    const permissionConfig = TASK_SUBRESOURCE_PERMISSION_CONFIG[resource];
-
-    const targetTask = await this.taskRepo.findOne({
-      where: { id: taskId, projectId, deletedAt: IsNull() },
-      select: ['id', 'parentTaskId', 'createdByUserId'],
-    });
-
-    if (!targetTask) {
-      throw new NotFoundException(TASK_NOT_FOUND);
-    }
-
-    if (
-      await this.isTaskOrAncestorCreator(projectId, targetTask, requestUser.id)
-    ) {
-      return true;
-    }
-
-    const membership =
-      params.membership ??
-      (await this.membershipRepo.findOne({
-        where: {
-          projectId,
-          userId: requestUser.id,
-          status: MembershipStatus.ACTIVE,
-        },
-        relations: ['projectRole'],
-      }));
-
-    return this.membershipHasTaskPermission(
-      membership,
-      action,
-      permissionConfig.domain,
+    await this.verifyProjectPermission(
+      params.projectId,
+      params.requestUser,
+      'view',
+    );
+    return this.canManageTaskOwnedChecklist(
+      params.projectId,
+      params.taskId,
+      params.requestUser.id,
     );
   }
 
@@ -316,16 +297,21 @@ export class TaskAuthService {
     taskId: string,
     userId: string,
   ): Promise<boolean> {
+    await this.verifyProjectPermission(
+      projectId,
+      { id: userId } as RequestUser,
+      'view',
+    );
     const targetTask = await this.taskRepo.findOne({
       where: { id: taskId, projectId, deletedAt: IsNull() },
-      select: ['id', 'parentTaskId', 'createdByUserId'],
+      select: ['id', 'parentTaskId', 'reporteeUserId'],
     });
 
     if (!targetTask) {
       throw new NotFoundException(TASK_NOT_FOUND);
     }
 
-    return this.isTaskOrAncestorCreator(projectId, targetTask, userId);
+    return this.isTaskOrAncestorReportee(projectId, targetTask, userId);
   }
 
   async assertTaskOwnedChecklistManagementAllowed(params: {
@@ -391,6 +377,75 @@ export class TaskAuthService {
     items: TaskChecklistItem[],
     requestUser: RequestUser,
   ): Promise<void> {
+    const currentTask = await this.taskRepo.findOneOrFail({
+      where: { id: task.id },
+      relations: ['assignees'],
+    });
+    const manages = await this.canManageTaskOwnedChecklist(
+      task.projectId,
+      task.id,
+      requestUser.id,
+    );
+    const canRemoveReportee =
+      !!currentTask.parentTaskId &&
+      (await this.canManageTaskOwnedChecklist(
+        task.projectId,
+        currentTask.parentTaskId,
+        requestUser.id,
+      ));
+    Object.assign(task, {
+      revision: currentTask.version,
+      capabilities: {
+        canManageAssignees: manages,
+        canEditDefinition: manages,
+        canRemoveReportee,
+        canMove: false,
+        canComplete: false,
+        canReopen: false,
+      },
+    });
+    const statuses = await this.projectStatusRepo.find({
+      where: { projectId: task.projectId, isActive: true },
+    });
+    const pending = await this.taskRepo.manager.exists(TaskWorkflowActivation, {
+      where: { projectId: task.projectId, activatedAt: IsNull() },
+    });
+    for (const item of items) {
+      const status = statuses.find((s) => s.id === item.statusId);
+      item.assignedMembers = currentTask.assignees.map((a) => ({
+        userId: a.userId,
+        projectRoleId: a.projectRoleId ?? undefined,
+      }));
+      item.reporteeUserId = currentTask.reporteeUserId;
+      item.activeSubmission = await this.taskRepo.manager.findOne(
+        ChecklistSubmission,
+        {
+          where: {
+            checklistItemId: item.id,
+            outcome: SubmissionOutcome.SUBMITTED,
+          },
+        },
+      );
+      item.capabilities = status
+        ? checklistCapabilities(
+            item,
+            status,
+            statuses,
+            currentTask,
+            requestUser.id,
+          )
+        : {};
+      if (pending)
+        item.capabilities = {
+          allowedTargetStatusIds: [],
+          canSubmit: false,
+          canWithdraw: false,
+          canReview: false,
+          canEditSubmissionNotes: false,
+          canUploadDeliverables: false,
+          workflowReady: false,
+        };
+    }
     let allowed = false;
     if (
       !task.completed &&
@@ -404,11 +459,7 @@ export class TaskAuthService {
       )
     ) {
       try {
-        await this.verifyProjectPermission(
-          task.projectId,
-          requestUser,
-          'create',
-        );
+        await this.verifyProjectPermission(task.projectId, requestUser, 'view');
         allowed = await this.canBranchTaskChecklistItem(
           task.projectId,
           task.id,
@@ -421,6 +472,8 @@ export class TaskAuthService {
     for (const item of items)
       item.canBranch =
         allowed &&
+        !pending &&
+        item.effectiveStage !== 'IN_REVIEW' &&
         !item.completed &&
         !item.branchedTaskId &&
         item.branchStatus !== 'branched';
@@ -430,6 +483,29 @@ export class TaskAuthService {
     task: Task,
     requestUser: RequestUser,
   ): Promise<void> {
+    const manages = await this.canManageTaskOwnedChecklist(
+      task.projectId,
+      task.id,
+      requestUser.id,
+    );
+    let canRemoveReportee = false;
+    if (task.parentTaskId)
+      canRemoveReportee = await this.canManageTaskOwnedChecklist(
+        task.projectId,
+        task.parentTaskId,
+        requestUser.id,
+      );
+    Object.assign(task, {
+      capabilities: {
+        canManageAssignees: manages,
+        canEditDefinition: manages,
+        canRemoveReportee,
+        canMove: false,
+        canComplete: false,
+        canReopen: false,
+      },
+      revision: task.version,
+    });
     await this.decorateChecklistRead(
       task,
       task.checklistItems ?? [],
@@ -469,10 +545,15 @@ export class TaskAuthService {
     taskId: string,
     userId: string,
   ): Promise<boolean> {
+    await this.verifyProjectPermission(
+      projectId,
+      { id: userId } as RequestUser,
+      'view',
+    );
     const targetTask = await this.loadChecklistAuthTask(projectId, taskId);
 
     return (
-      (await this.isTaskOrAncestorCreator(projectId, targetTask, userId)) ||
+      (await this.isTaskOrAncestorReportee(projectId, targetTask, userId)) ||
       this.isTaskAssignee(targetTask, userId)
     );
   }
@@ -525,16 +606,14 @@ export class TaskAuthService {
     userId: string,
     textOnly: boolean,
   ): Promise<boolean> {
+    await this.verifyProjectPermission(
+      projectId,
+      { id: userId } as RequestUser,
+      'view',
+    );
     const targetTask = await this.loadChecklistAuthTask(projectId, taskId);
 
-    if (
-      (await this.isTaskOrAncestorCreator(projectId, targetTask, userId)) ||
-      this.isTaskAssignee(targetTask, userId)
-    ) {
-      return true;
-    }
-
-    return textOnly && this.isTaskReportee(targetTask, userId);
+    return this.isTaskOrAncestorReportee(projectId, targetTask, userId);
   }
 
   async assertTaskChecklistUpdateAllowed(params: {
@@ -560,12 +639,12 @@ export class TaskAuthService {
     });
   }
 
-  private async isTaskOrAncestorCreator(
+  private async isTaskOrAncestorReportee(
     projectId: string,
-    task: Pick<Task, 'id' | 'parentTaskId' | 'createdByUserId'>,
+    task: Pick<Task, 'id' | 'parentTaskId' | 'reporteeUserId'>,
     userId: string,
   ): Promise<boolean> {
-    if (task.createdByUserId === userId) {
+    if (task.reporteeUserId === userId) {
       return true;
     }
 
@@ -580,14 +659,14 @@ export class TaskAuthService {
 
       const parentTask = await this.taskRepo.findOne({
         where: { id: parentTaskId, projectId, deletedAt: IsNull() },
-        select: ['id', 'parentTaskId', 'createdByUserId'],
+        select: ['id', 'parentTaskId', 'reporteeUserId'],
       });
 
       if (!parentTask) {
         return false;
       }
 
-      if (parentTask.createdByUserId === userId) {
+      if (parentTask.reporteeUserId === userId) {
         return true;
       }
 
@@ -654,6 +733,14 @@ export class TaskAuthService {
     requestUser: RequestUser,
     project?: Project | null,
   ): Promise<boolean> {
+    const activeMember = await this.membershipRepo.findOne({
+      where: {
+        projectId: task.projectId,
+        userId: requestUser.id,
+        status: MembershipStatus.ACTIVE,
+      },
+    });
+    if (!activeMember) return false;
     if (
       await this.canViewAllProjectTasks(task.projectId, requestUser, project)
     ) {
@@ -669,10 +756,22 @@ export class TaskAuthService {
       relations: ['projectRole'],
     });
 
-    if (!this.membershipHasTaskPermission(membership, 'view')) return false;
+    if (!membership) return false;
 
+    const hierarchyTask = await this.taskRepo.findOne({
+      where: { id: task.id, projectId: task.projectId },
+      select: ['id', 'parentTaskId', 'reporteeUserId'],
+    });
+    if (
+      hierarchyTask &&
+      (await this.isTaskOrAncestorReportee(
+        task.projectId,
+        hierarchyTask,
+        requestUser.id,
+      ))
+    )
+      return true;
     return (
-      task.createdByUserId === requestUser.id ||
       task.reporteeUserId === requestUser.id ||
       (task.assignees ?? []).some((a) => a.userId === requestUser.id)
     );
@@ -779,12 +878,17 @@ export class TaskAuthService {
   ): void {
     if (canViewAllProjectTasks) return;
 
-    // Assigned-only members keep a narrow task surface: tasks they created,
-    // tasks where they are the reportee, or tasks where they are an assignee.
+    // Narrow visibility follows current reportee ancestry and current assignments.
     // Watchers are intentionally notification subscribers, not visibility grants.
     qb.andWhere(
-      `(task.createdByUserId = :visibilityUserId
-        OR task.reporteeUserId = :visibilityUserId
+      `(EXISTS (
+        WITH RECURSIVE ancestors AS (
+          SELECT p.id, p."parentTaskId", p."reporteeUserId" FROM tasks p WHERE p.id = task.id AND p."deletedAt" IS NULL
+          UNION
+          SELECT p.id, p."parentTaskId", p."reporteeUserId" FROM tasks p JOIN ancestors a ON p.id = a."parentTaskId"
+          WHERE p."projectId" = task."projectId" AND p."deletedAt" IS NULL
+        ) SELECT 1 FROM ancestors WHERE "reporteeUserId" = :visibilityUserId
+      ) OR task.reporteeUserId = :visibilityUserId
         OR EXISTS (
           SELECT 1
           FROM "task_assignees" "ta_visibility"
@@ -853,7 +957,10 @@ export class TaskAuthService {
     if (!project) throw new NotFoundException(TASK_PROJECT_NOT_FOUND);
     if (this.isAdmin(requestUser)) return { project, membership: null };
 
-    if (!this.membershipHasTaskPermission(membership, action, domain)) {
+    if (
+      !(action === 'view' && membership) &&
+      !this.membershipHasTaskPermission(membership, action, domain)
+    ) {
       throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
     }
 
@@ -872,7 +979,7 @@ export class TaskAuthService {
 
     if (!task) throw new NotFoundException(TASK_NOT_FOUND);
 
-    if (opts?.requestUser && opts?.membership !== undefined) {
+    if (opts?.requestUser) {
       const canView = await this.canViewTask(task, opts.requestUser);
       if (!canView) throw new ForbiddenException(TASK_PROJECT_ACCESS_DENIED);
     }
@@ -912,6 +1019,7 @@ export class TaskAuthService {
         .leftJoinAndSelect('task.taskType', 'taskType')
         .leftJoinAndSelect('task.severity', 'severity')
         .select([
+          'task.version',
           'task.pkid',
           'task.id',
           'task.projectId',
@@ -944,6 +1052,7 @@ export class TaskAuthService {
           'reporteeUser.lastName',
           'reporteeUser.email',
           'reporteeUser.title',
+          'status.canonicalStage',
           'status.pkid',
           'status.id',
           'status.name',

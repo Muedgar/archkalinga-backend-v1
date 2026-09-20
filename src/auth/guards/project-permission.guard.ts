@@ -11,7 +11,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from 'src/users/entities';
 import { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
-import { Project, ProjectInvite, ProjectMembership } from 'src/projects/entities';
+import {
+  Project,
+  ProjectInvite,
+  ProjectMembership,
+} from 'src/projects/entities';
 import { MembershipStatus } from 'src/projects/entities/project-membership.entity';
 import { WorkspaceMemberStatus } from 'src/workspaces/entities/workspace-member.entity';
 import type {
@@ -113,13 +117,11 @@ export class ProjectPermissionGuard implements CanActivate {
     return workspaceId && workspaceId.length > 0 ? workspaceId : null;
   }
 
-  private async resolveWorkspaceMember(
-    request: {
-      user?: User;
-      workspaceMember?: WorkspaceMember;
-      headers?: Record<string, string | string[] | undefined>;
-    },
-  ): Promise<WorkspaceMember | null> {
+  private async resolveWorkspaceMember(request: {
+    user?: User;
+    workspaceMember?: WorkspaceMember;
+    headers?: Record<string, string | string[] | undefined>;
+  }): Promise<WorkspaceMember | null> {
     if (request.workspaceMember) {
       return request.workspaceMember;
     }
@@ -199,7 +201,10 @@ export class ProjectPermissionGuard implements CanActivate {
       this.resolveWorkspaceProjectManagementAction(required);
 
     if (projectManagementAction) {
-      return workspacePermissions.projectManagement?.[projectManagementAction] === true;
+      return (
+        workspacePermissions.projectManagement?.[projectManagementAction] ===
+        true
+      );
     }
 
     if (!required?.action) {
@@ -298,11 +303,17 @@ export class ProjectPermissionGuard implements CanActivate {
     // Some project routes only require active membership, not a specific project
     // permission. In that mode the guard still does useful work by attaching the
     // membership for the service layer.
-    if (!required) return true;
+    if (
+      !required ||
+      (required.domain === 'taskManagement' && required.action === 'view')
+    )
+      return true;
 
     // ── Resource domain + action ───────────────────────────────────────────────
     if (required.domain !== 'canManageProject' && !required.action) {
-      throw new BadRequestException('Permission action is required for resource domains');
+      throw new BadRequestException(
+        'Permission action is required for resource domains',
+      );
     }
 
     if (!this.canUseProjectPermission(required, permissions)) {

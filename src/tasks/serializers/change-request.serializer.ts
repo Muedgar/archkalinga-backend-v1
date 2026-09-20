@@ -226,6 +226,7 @@ export class ChangeRequestAuditEntrySerializer extends BaseSerializer {
 }
 
 export class ChangeRequestSerializer extends BaseSerializer {
+  @Expose() checklistItemId: string | null;
   @Expose()
   @Transform(({ obj }) => obj?.projectId ?? obj?.project?.id ?? null)
   projectId: string | null;

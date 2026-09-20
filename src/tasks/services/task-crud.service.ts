@@ -1,9 +1,15 @@
 import {
+  assertOpenHierarchy,
+  canonicalStatuses,
+  conflict,
+  lockWorkflow,
+} from '../workflow/workflow-domain';
+import { CanonicalStage } from '../project-config/project-status.entity';
+import {
   BadRequestException,
   HttpException,
   Injectable,
   NotFoundException,
-  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
@@ -39,8 +45,6 @@ import {
 } from '../project-config';
 import {
   INVALID_TASK_SUPERSESSION,
-  INVALID_DONE_STATUS,
-  INVALID_REOPEN_STATUS,
   TASK_ALREADY_SUPERSEDED,
   TASK_NOT_FOUND,
   TASK_REPLACEMENT_ALREADY_USED,
@@ -55,7 +59,6 @@ import { TaskRelationsService } from './task-relations.service';
 import { ScheduleCalculationService } from './schedule-calculation.service';
 import { TaskProgressService } from './task-progress.service';
 import { TaskWbsService } from './task-wbs.service';
-import { TaskCompletionMode } from '../types/task-completion-mode.type';
 
 type NormalizedTaskDependencyInput = {
   dependsOnTaskId: string;
@@ -209,6 +212,17 @@ export class TaskCrudService {
     this.assertCompletedParentCanReceiveChild(parent, defaultStatus);
 
     const savedTask = await this.taskRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, projectId);
+      await assertOpenHierarchy(tx, projectId, dto.parentTaskId);
+      const canonical = await canonicalStatuses(tx, projectId);
+      if (defaultStatus.id !== canonical.get(CanonicalStage.TODO)!.id)
+        conflict('TASK_INITIAL_STATUS_MUST_BE_TODO');
+      if (
+        dto.checklistItems?.some(
+          (i) => i.statusId && i.statusId !== defaultStatus.id,
+        )
+      )
+        conflict('CHECKLIST_INITIAL_STATUS_MUST_BE_TODO');
       await this.authSvc.assertWipLimit(tx, defaultStatus.id, projectId);
 
       const assignedUsers =
@@ -358,6 +372,15 @@ export class TaskCrudService {
       membership?: ProjectMembership | null,
     ) => Promise<TaskSerializer>,
   ): Promise<TaskSerializer> {
+    if (dto.reportee !== undefined) conflict('USE_REPORTEE_REMOVAL_ENDPOINT');
+    if (dto.statusId !== undefined) conflict('TASK_STATUS_IS_DERIVED');
+    if (dto.checklistItems !== undefined)
+      conflict('CHECKLIST_LIST_REPLACEMENT_FORBIDDEN');
+    await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+      projectId,
+      taskId,
+      requestUser,
+    });
     // Wave 1: fire all independent queries simultaneously.
     //
     // - verifyProjectPermission: 2 parallel queries internally (project + membership)
@@ -380,7 +403,7 @@ export class TaskCrudService {
       actorUser,
       newStatus,
     ] = await Promise.all([
-      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'view'),
       this.taskRepo.findOne({
         where: { id: taskId, projectId, deletedAt: IsNull() },
         relations: ['project', 'status'], // ManyToOne only — no Cartesian product
@@ -519,6 +542,16 @@ export class TaskCrudService {
     }
 
     await this.taskRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId,
+        taskId,
+        requestUser,
+      });
+      const live = await tx.findOneOrFail(Task, {
+        where: { id: taskId, projectId },
+      });
+      if (live.version !== task.version) conflict('STALE_WORKFLOW_REVISION');
       if (dto.statusId && dto.statusId !== originalStatusId) {
         await this.authSvc.assertWipLimit(tx, dto.statusId, projectId);
       }
@@ -568,26 +601,6 @@ export class TaskCrudService {
             ),
           );
         changedFields.push('assignedMembers');
-      }
-
-      if (dto.checklistItems !== undefined) {
-        await tx.delete(TaskChecklistItem, { taskId: task.id });
-        if (dto.checklistItems.length) {
-          await tx.save(
-            dto.checklistItems.map((item) =>
-              tx.create(TaskChecklistItem, {
-                task,
-                taskId: task.id,
-                text: item.text.trim(),
-                orderIndex: item.orderIndex,
-                statusId: item.statusId ?? task.statusId,
-                rank: item.rank?.trim() || null,
-                itemCode: item.itemCode?.trim() || null,
-              }),
-            ),
-          );
-        }
-        changedFields.push('checklistItems');
       }
 
       if (dependencyInputs !== undefined) {
@@ -1138,382 +1151,48 @@ export class TaskCrudService {
   }
 
   async moveTask(
-    projectId: string,
-    taskId: string,
-    dto: MoveTaskDto,
-    requestUser: RequestUser,
-    getTask: (
+    _projectId: string,
+    _taskId: string,
+    _dto: MoveTaskDto,
+    _requestUser: RequestUser,
+    _getTask: (
       projectId: string,
       taskId: string,
       requestUser: RequestUser,
       membership?: ProjectMembership | null,
     ) => Promise<TaskSerializer>,
   ): Promise<TaskSerializer> {
-    // All three are independent — fire in one wave
-    const [{ membership }, task, actorUser] = await Promise.all([
-      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
-      this.taskRepo.findOne({
-        where: { id: taskId, projectId, deletedAt: IsNull() },
-        relations: ['project', 'status'],
-      }),
-      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
-    ]);
-    if (!task) throw new NotFoundException(TASK_NOT_FOUND);
-
-    const sourceScope = this.rankingSvc.buildScope(
-      projectId,
-      task.parentTaskId,
-      task.statusId,
-    );
-    const nextParentTaskId =
-      dto.parentTaskId !== undefined
-        ? (dto.parentTaskId ?? null)
-        : task.parentTaskId;
-    const nextStatusId: string =
-      dto.statusId != null ? dto.statusId : task.statusId;
-    const targetStatus =
-      nextStatusId === task.statusId && task.status
-        ? task.status
-        : await this.projectStatusRepo.findOne({
-            where: { id: nextStatusId, projectId },
-          });
-    if (!targetStatus) {
-      throw new BadRequestException(
-        'Target status is invalid for this project',
-      );
-    }
-
-    await this.rankingSvc.assertNotDescendant(
-      projectId,
-      task.id,
-      nextParentTaskId,
-    );
-    const parent = await this.authSvc.ensureParentTask(
-      projectId,
-      nextParentTaskId,
-    );
-    this.assertCompletedParentCanReceiveChild(parent, targetStatus);
-
-    await this.taskRepo.manager.transaction(async (tx) => {
-      if (dto.statusId && dto.statusId !== task.statusId) {
-        await this.authSvc.assertWipLimit(tx, dto.statusId, projectId);
-      }
-
-      if (dto.completionMode === TaskCompletionMode.VALIDATE_ONLY) {
-        await this.transitionSvc.applyTransition(tx, {
-          projectId,
-          task,
-          targetStatus,
-          actorUser,
-          completionMode: dto.completionMode,
-          progress: dto.progress,
-          reason: dto.reason,
-        });
-        return;
-      }
-
-      const destinationScope = this.rankingSvc.buildScope(
-        projectId,
-        parent?.id ?? null,
-        nextStatusId,
-      );
-      const nextRank = await this.rankingSvc.calculateRankWithinScope(
-        tx,
-        destinationScope,
-        dto.beforeTaskId,
-        dto.afterTaskId,
-        task.id,
-      );
-
-      task.parent = parent ?? null;
-      task.parentTaskId = parent?.id ?? null;
-      task.rank = nextRank;
-
-      const shouldApplyTransition =
-        task.statusId !== nextStatusId ||
-        dto.progress !== undefined ||
-        dto.completionMode !== undefined;
-      const transitionResult = shouldApplyTransition
-        ? await this.transitionSvc.applyTransition(tx, {
-            projectId,
-            task,
-            targetStatus,
-            actorUser,
-            completionMode: dto.completionMode,
-            progress: dto.progress,
-            reason: dto.reason,
-          })
-        : null;
-
-      if (!shouldApplyTransition) {
-        task.statusId = nextStatusId;
-        await tx.save(task);
-      }
-      const movedAcrossScope =
-        sourceScope.parentTaskId !== destinationScope.parentTaskId ||
-        sourceScope.statusId !== destinationScope.statusId;
-      if (movedAcrossScope || transitionResult?.effects.rollupsRecalculated) {
-        await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
-      }
-      await this.rankingSvc.rebalanceScopeRanks(tx, destinationScope);
-
-      if (movedAcrossScope) {
-        await this.rankingSvc.rebalanceScopeRanks(tx, sourceScope);
-      }
-
-      const refreshed = await tx.findOne(Task, { where: { id: task.id } });
-      if (refreshed?.rank) task.rank = refreshed.rank;
-
-      await this.activitySvc.log(
-        tx,
-        task,
-        actorUser,
-        TaskActionType.TASK_MOVED,
-        {
-          parentTaskId: task.parentTaskId,
-          statusId: task.statusId,
-          rank: task.rank,
-          completionMode: dto.completionMode ?? null,
-          transitionEffects: transitionResult?.effects ?? null,
-          changedTaskIds: transitionResult?.changedTaskIds ?? [task.id],
-        },
-      );
-    });
-
-    return getTask(projectId, task.id, requestUser, membership);
+    conflict('TASK_STATUS_IS_DERIVED');
   }
 
   async completeTask(
-    projectId: string,
-    taskId: string,
-    dto: CompleteTaskDto,
-    requestUser: RequestUser,
-    getTask: (
+    _projectId: string,
+    _taskId: string,
+    _dto: CompleteTaskDto,
+    _requestUser: RequestUser,
+    _getTask: (
       projectId: string,
       taskId: string,
       requestUser: RequestUser,
       membership?: ProjectMembership | null,
     ) => Promise<TaskSerializer>,
   ): Promise<CompleteTaskResponse | ValidateTaskCompletionResponse> {
-    const [{ membership }, task, actorUser, targetStatus] = await Promise.all([
-      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
-      this.taskRepo.findOne({
-        where: { id: taskId, projectId, deletedAt: IsNull() },
-        relations: ['project', 'status'],
-      }),
-      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
-      dto.statusId
-        ? this.projectStatusRepo.findOne({
-            where: { id: dto.statusId, projectId },
-          })
-        : this.loadSingleActiveDoneStatus(projectId),
-    ]);
-    if (!task) throw new NotFoundException(TASK_NOT_FOUND);
-    if (!targetStatus) {
-      throw new BadRequestException(
-        'Project must have exactly one active Done status or provide statusId.',
-      );
-    }
-    if (targetStatus.isDone !== true) {
-      throw new UnprocessableEntityException({
-        message: INVALID_DONE_STATUS,
-        code: 'INVALID_DONE_STATUS',
-        details: { statusId: targetStatus.id },
-      });
-    }
-
-    if (dto.completionMode === TaskCompletionMode.VALIDATE_ONLY) {
-      if (task.statusId !== targetStatus.id) {
-        await this.authSvc.assertWipLimit(
-          this.taskRepo.manager,
-          targetStatus.id,
-          projectId,
-        );
-      }
-
-      const validationResult = await this.transitionSvc.applyTransition(
-        this.taskRepo.manager,
-        {
-          projectId,
-          task,
-          targetStatus,
-          actorUser,
-          completionMode: TaskCompletionMode.VALIDATE_ONLY,
-          reason: dto.reason,
-        },
-      );
-
-      return {
-        allowed: true,
-        taskId: task.id,
-        statusId: targetStatus.id,
-        effects: validationResult.effects,
-        changedTaskIds: [],
-        warnings: validationResult.warnings,
-      };
-    }
-
-    const alreadyCompleteInTargetDone =
-      task.completed === true &&
-      task.status?.isDone === true &&
-      task.statusId === targetStatus.id;
-    if (alreadyCompleteInTargetDone) {
-      return {
-        task: await getTask(projectId, task.id, requestUser, membership),
-        effects: {
-          checklistItemsCompleted: 0,
-          descendantTasksCompleted: 0,
-          rollupsRecalculated: false,
-        },
-        changedTaskIds: [],
-        warnings: [],
-      };
-    }
-
-    let transitionResult: Awaited<
-      ReturnType<TaskCompletionTransitionService['applyTransition']>
-    >;
-    await this.taskRepo.manager.transaction(async (tx) => {
-      const previousStatusId = task.statusId;
-      if (task.statusId !== targetStatus.id) {
-        await this.authSvc.assertWipLimit(tx, targetStatus.id, projectId);
-      }
-
-      transitionResult = await this.transitionSvc.applyTransition(tx, {
-        projectId,
-        task,
-        targetStatus,
-        actorUser,
-        completionMode: dto.completionMode,
-        reason: dto.reason,
-      });
-      if (transitionResult.effects.rollupsRecalculated) {
-        await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
-      }
-
-      await this.activitySvc.log(
-        tx,
-        task,
-        actorUser,
-        TaskActionType.TASK_COMPLETED,
-        {
-          previousStatusId,
-          nextStatusId: targetStatus.id,
-          completionMode: dto.completionMode ?? null,
-          reason: dto.reason ?? null,
-          transitionEffects: transitionResult.effects,
-          changedTaskIds: transitionResult.changedTaskIds,
-        },
-      );
-    });
-
-    return {
-      task: await getTask(projectId, task.id, requestUser, membership),
-      effects: transitionResult!.effects,
-      changedTaskIds: transitionResult!.changedTaskIds,
-      warnings: transitionResult!.warnings,
-    };
+    conflict('TASK_STATUS_IS_DERIVED');
   }
 
   async reopenTask(
-    projectId: string,
-    taskId: string,
-    dto: ReopenTaskDto,
-    requestUser: RequestUser,
-    getTask: (
+    _projectId: string,
+    _taskId: string,
+    _dto: ReopenTaskDto,
+    _requestUser: RequestUser,
+    _getTask: (
       projectId: string,
       taskId: string,
       requestUser: RequestUser,
       membership?: ProjectMembership | null,
     ) => Promise<TaskSerializer>,
   ): Promise<ReopenTaskResponse> {
-    const [{ membership }, task, actorUser, targetStatus] = await Promise.all([
-      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
-      this.taskRepo.findOne({
-        where: { id: taskId, projectId, deletedAt: IsNull() },
-        relations: ['project', 'status'],
-      }),
-      this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
-      dto.statusId
-        ? this.projectStatusRepo.findOne({
-            where: { id: dto.statusId, projectId },
-          })
-        : this.loadDefaultReopenStatus(projectId),
-    ]);
-    if (!task) throw new NotFoundException(TASK_NOT_FOUND);
-    if (
-      !targetStatus ||
-      targetStatus.isActive !== true ||
-      targetStatus.isDone
-    ) {
-      throw new UnprocessableEntityException({
-        message: INVALID_REOPEN_STATUS,
-        code: 'INVALID_REOPEN_STATUS',
-        details: { statusId: dto.statusId ?? null },
-      });
-    }
-    if (task.status?.isDone !== true && task.completed !== true) {
-      throw new BadRequestException('Task is not completed');
-    }
-    if (dto.progress !== undefined) {
-      await this.assertLeafProgressMutationAllowed(projectId, task.id);
-    }
-
-    const previousStatusId = task.statusId;
-    const previousProgress = task.progress;
-
-    await this.taskRepo.manager.transaction(async (tx) => {
-      if (task.statusId !== targetStatus.id) {
-        await this.authSvc.assertWipLimit(tx, targetStatus.id, projectId);
-      }
-
-      const transitionResult = await this.transitionSvc.applyTransition(tx, {
-        projectId,
-        task,
-        targetStatus,
-        actorUser,
-        progress: dto.progress,
-        reason: dto.reason,
-      });
-      if (transitionResult.effects.rollupsRecalculated) {
-        await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
-      }
-
-      await this.activitySvc.log(
-        tx,
-        task,
-        actorUser,
-        TaskActionType.TASK_UPDATED,
-        {
-          operation: 'task_reopened',
-          previousStatusId,
-          nextStatusId: targetStatus.id,
-          previousProgress,
-          nextProgress: dto.progress ?? task.progress,
-          reason: dto.reason ?? null,
-          transitionEffects: transitionResult.effects,
-          changedTaskIds: transitionResult.changedTaskIds,
-        },
-      );
-    });
-
-    const reopenedTask = await getTask(
-      projectId,
-      task.id,
-      requestUser,
-      membership,
-    );
-
-    return {
-      task: reopenedTask,
-      audit: {
-        previousStatusId,
-        nextStatusId: targetStatus.id,
-        previousProgress,
-        nextProgress: reopenedTask.progress,
-        reason: dto.reason ?? null,
-      },
-    };
+    conflict('TASK_STATUS_IS_DERIVED');
   }
 
   async updateTaskProgress(
@@ -1537,7 +1216,7 @@ export class TaskCrudService {
     };
   }> {
     const [{ membership }, task, actorUser] = await Promise.all([
-      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'view'),
       this.taskRepo.findOne({
         where: { id: taskId, projectId, deletedAt: IsNull() },
         relations: ['project'],
@@ -1556,6 +1235,17 @@ export class TaskCrudService {
     task.progress = dto.progress;
 
     await this.taskRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId,
+        taskId,
+        requestUser,
+      });
+      const live = await tx.findOneOrFail(Task, {
+        where: { id: taskId, projectId, deletedAt: IsNull() },
+      });
+      if (live.version !== task.version) conflict('STALE_WORKFLOW_REVISION');
+      await this.assertLeafProgressMutationAllowed(projectId, taskId);
       await tx.save(Task, task);
       await this.progressSvc.recalculateProjectTaskProgress(tx, projectId);
       await this.activitySvc.log(
@@ -1603,7 +1293,7 @@ export class TaskCrudService {
     }
 
     const [{ membership }, actorUser, tasks] = await Promise.all([
-      this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+      this.authSvc.verifyProjectPermission(projectId, requestUser, 'view'),
       this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
       this.taskRepo.find({
         where: {
@@ -1629,6 +1319,22 @@ export class TaskCrudService {
     }
 
     await this.taskRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId,
+        taskId,
+        requestUser,
+      });
+      await assertOpenHierarchy(tx, projectId, taskId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId,
+        taskId: dto.replacementTaskId,
+        requestUser,
+      });
+      const linked = await tx.findOne(TaskChecklistItem, {
+        where: { branchedTaskId: taskId },
+      });
+      if (linked) conflict('BRANCH_LINK_MUST_BE_PRESERVED');
       const now = new Date();
       supersededTask.supersededByTask = replacementTask;
       supersededTask.supersededByTaskId = replacementTask.id;
@@ -1679,6 +1385,14 @@ export class TaskCrudService {
     dto: BulkUpdateTasksDto,
     requestUser: RequestUser,
   ): Promise<BulkTaskUpdateResponse> {
+    if (dto.items.some((i) => i.statusId !== undefined))
+      conflict('TASK_STATUS_IS_DERIVED');
+    for (const item of dto.items)
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId,
+        taskId: item.taskId,
+        requestUser,
+      });
     const requestedIds = [...new Set(dto.items.map((item) => item.taskId))];
     const requestedStatusIds = [
       ...new Set(
@@ -1694,7 +1408,7 @@ export class TaskCrudService {
     // Three independent queries — fire in one wave
     const [{ membership }, actorUser, tasks, statuses, progressChildRows] =
       await Promise.all([
-        this.authSvc.verifyProjectPermission(projectId, requestUser, 'update'),
+        this.authSvc.verifyProjectPermission(projectId, requestUser, 'view'),
         this.userRepo.findOneOrFail({ where: { id: requestUser.id } }),
         this.taskRepo.find({
           where: { id: In(requestedIds), projectId, deletedAt: IsNull() },
@@ -1765,6 +1479,7 @@ export class TaskCrudService {
 
       try {
         await this.taskRepo.manager.transaction(async (tx) => {
+          await lockWorkflow(tx, projectId);
           const task = await tx.findOne(Task, {
             where: { id: item.taskId, projectId, deletedAt: IsNull() },
             relations: ['project', 'status'],
@@ -1797,7 +1512,20 @@ export class TaskCrudService {
               ? (item.parentTaskId ?? null)
               : task.parentTaskId;
 
+          await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+            projectId,
+            taskId: task.id,
+            requestUser,
+          });
           if (item.parentTaskId !== undefined) {
+            await assertOpenHierarchy(tx, projectId, task.id);
+            await assertOpenHierarchy(tx, projectId, nextParentTaskId);
+            if (
+              await tx.exists(TaskChecklistItem, {
+                where: { branchedTaskId: task.id },
+              })
+            )
+              conflict('BRANCH_LINK_MUST_BE_PRESERVED');
             await this.rankingSvc.assertNotDescendant(
               projectId,
               task.id,
@@ -1988,6 +1716,35 @@ export class TaskCrudService {
     }
 
     await this.taskRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId,
+        taskId,
+        requestUser,
+      });
+      await assertOpenHierarchy(tx, projectId, taskId);
+      // Resolve the subtree after acquiring the structural lock, including children added since admission.
+      const liveTasks = await tx.find(Task, {
+        where: { projectId, deletedAt: IsNull() },
+      });
+      toDelete.clear();
+      toDelete.add(taskId);
+      const pending = [taskId];
+      while (pending.length) {
+        const parentId = pending.shift()!;
+        for (const child of liveTasks)
+          if (child.parentTaskId === parentId && !toDelete.has(child.id)) {
+            toDelete.add(child.id);
+            pending.push(child.id);
+          }
+      }
+      if (liveTasks.some((t) => toDelete.has(t.id) && t.completed))
+        conflict('COMPLETED_TASK_STRUCTURE_IS_TERMINAL');
+
+      const linked = await tx.findOne(TaskChecklistItem, {
+        where: { branchedTaskId: taskId },
+      });
+      if (linked) conflict('BRANCH_LINK_MUST_BE_PRESERVED');
       await tx.update(
         Task,
         { id: In([...toDelete]) },

@@ -1,3 +1,11 @@
+import { TaskWorkflowService } from './services/task-workflow.service';
+import {
+  WorkflowRevisionDto,
+  SubmitChecklistDto,
+  DecideChecklistDto,
+  ChecklistReviewNoteDto,
+  SubmissionHistoryDto,
+} from './dtos/checklist-workflow.dto';
 import {
   Body,
   Controller,
@@ -224,7 +232,136 @@ export class TasksController {
   constructor(
     private readonly tasksService: TasksService,
     private readonly taskPackageService: TaskPackageService,
+    private readonly workflowService: TaskWorkflowService,
   ) {}
+
+  @Get('tasks/:taskId/documents/:documentId/attachments/:attachmentId/content')
+  async documentContent(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+    @GetUser() actor: RequestUser,
+    @Res() response: Response,
+  ) {
+    const content = await this.tasksService.documentContent(
+      projectId,
+      taskId,
+      documentId,
+      attachmentId,
+      actor,
+    );
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('Content-Type', content.mimeType);
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(content.name)}`,
+    );
+    response.send(content.buffer);
+  }
+  @Get('tasks/:taskId/documents/:documentId/history')
+  documentHistory(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @GetUser() actor: RequestUser,
+  ) {
+    return this.tasksService.documentHistory(
+      projectId,
+      taskId,
+      documentId,
+      actor,
+    );
+  }
+  @Delete('tasks/:taskId/documents/:documentId/attachments/:attachmentId')
+  deleteDocumentAttachment(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+    @GetUser() actor: RequestUser,
+  ) {
+    return this.tasksService.deleteDocumentAttachment(
+      projectId,
+      taskId,
+      documentId,
+      attachmentId,
+      actor,
+    );
+  }
+
+  @Delete('tasks/:taskId/reportee')
+  removeReportee(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @GetUser() actor: RequestUser,
+    @Body() dto: WorkflowRevisionDto,
+  ) {
+    return this.workflowService.removeReportee(projectId, taskId, actor, dto);
+  }
+  @Post('tasks/:taskId/checklist/:itemId/submissions')
+  submitChecklist(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @GetUser() actor: RequestUser,
+    @Body() dto: SubmitChecklistDto,
+  ) {
+    return this.workflowService.execute(projectId, taskId, itemId, actor, {
+      ...dto,
+      intent: 'SUBMIT',
+      source: 'submit',
+    });
+  }
+  @Get('tasks/:taskId/checklist/:itemId/submissions')
+  submissionHistory(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @GetUser() actor: RequestUser,
+    @Query() query: SubmissionHistoryDto,
+  ) {
+    return this.workflowService.history(
+      projectId,
+      taskId,
+      itemId,
+      actor,
+      query,
+    );
+  }
+  @Post('tasks/:taskId/checklist/:itemId/submissions/:submissionId/decision')
+  decideChecklist(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @GetUser() actor: RequestUser,
+    @Body() dto: DecideChecklistDto,
+  ) {
+    return this.workflowService.execute(projectId, taskId, itemId, actor, {
+      ...dto,
+      intent: dto.decision,
+      submissionId,
+    });
+  }
+  @Patch('tasks/:taskId/checklist/:itemId/submissions/:submissionId/notes')
+  reviewNote(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @GetUser() actor: RequestUser,
+    @Body() dto: ChecklistReviewNoteDto,
+  ) {
+    return this.workflowService.notes(
+      projectId,
+      taskId,
+      itemId,
+      submissionId,
+      actor,
+      dto,
+    );
+  }
 
   @Post('task-packages')
   @ApiOperation({
@@ -249,7 +386,6 @@ export class TasksController {
   @ApiResponse({ status: 201, description: 'Complete task package committed' })
   @ResponseMessage('Task package created')
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'create')
   @UseInterceptors(
     AnyFilesInterceptor({
       limits: {
@@ -333,7 +469,6 @@ export class TasksController {
   @ResponseMessage(CHECKLIST_KANBAN_FETCHED)
   @Throttle({ default: { ttl: 60000, limit: 300 } })
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'view')
   getChecklistKanban(
     @Req() req: any,
     @Param('projectId', ParseUUIDPipe) projectId: string,
@@ -1294,7 +1429,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task fetched' })
   @ResponseMessage(TASK_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'view')
   getTask(
     @Req() req: any,
     @Param('projectId', ParseUUIDPipe) projectId: string,
@@ -1618,7 +1752,6 @@ export class TasksController {
   @ResponseMessage(TASK_CHANGE_REQUESTS_FETCHED)
   @Throttle({ default: { ttl: 60000, limit: 300 } })
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('changeRequestManagement', 'view')
   listTaskChangeRequests(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -1638,7 +1771,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task change request fetched' })
   @ResponseMessage(TASK_CHANGE_REQUEST_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('changeRequestManagement', 'view')
   getTaskChangeRequest(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -1782,7 +1914,6 @@ export class TasksController {
   @ResponseMessage(TASK_CHANGE_REQUEST_CREATED)
   @UseInterceptors(FileInterceptor('file'))
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('changeRequestManagement', 'create')
   @LogActivity({
     action: 'create:task-change-request',
     resource: 'task-change-request',
@@ -1832,7 +1963,6 @@ export class TasksController {
   @ResponseMessage(TASK_CHANGE_REQUEST_MESSAGE_CREATED)
   @UseInterceptors(FileInterceptor('file'))
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('changeRequestManagement', 'view')
   @LogActivity({
     action: 'create:task-change-request-message',
     resource: 'task-change-request-message',
@@ -1886,7 +2016,6 @@ export class TasksController {
   })
   @ResponseMessage(TASK_CHANGE_REQUEST_REVIEW_ASSIGNED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('changeRequestManagement', 'update')
   @LogActivity({
     action: 'assign:task-change-request-review',
     resource: 'task-change-request-review',
@@ -1988,7 +2117,6 @@ export class TasksController {
   @ResponseMessage(TASK_CHANGE_REQUEST_REVISION_SUBMITTED)
   @UseInterceptors(FileInterceptor('file'))
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('changeRequestManagement', 'update')
   @LogActivity({
     action: 'revise:task-change-request',
     resource: 'task-change-request',
@@ -2033,7 +2161,6 @@ export class TasksController {
   })
   @ResponseMessage(TASK_CHANGE_REQUEST_REOPENED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('changeRequestManagement', 'update')
   @LogActivity({
     action: 'reopen:task-change-request',
     resource: 'task-change-request',
@@ -2081,7 +2208,6 @@ export class TasksController {
   @ResponseMessage(TASK_CHANGE_REQUEST_ESCALATED)
   @UseInterceptors(FileInterceptor('file'))
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('changeRequestManagement', 'update')
   @LogActivity({
     action: 'escalate:task-change-request',
     resource: 'task-change-request',
@@ -2137,7 +2263,6 @@ export class TasksController {
   @ResponseMessage(TASK_CHANGE_REQUEST_RESOLVED)
   @UseInterceptors(FileInterceptor('file'))
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('changeRequestManagement', 'update')
   @LogActivity({
     action: 'resolve:task-change-request',
     resource: 'task-change-request',
@@ -2166,7 +2291,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task documents fetched' })
   @ResponseMessage(TASK_DOCUMENTS_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'view')
   listTaskDocuments(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -2193,7 +2317,6 @@ export class TasksController {
   })
   @ResponseMessage(TASK_SUBTREE_DELIVERABLE_DOCUMENTS_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'view')
   listTaskSubtreeDeliverableDocuments(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -2211,7 +2334,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task document fetched' })
   @ResponseMessage(TASK_DOCUMENT_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'view')
   getTaskDocument(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -2262,7 +2384,6 @@ export class TasksController {
   })
   @ResponseMessage(TASK_STARTER_DOCUMENT_CREATED_FROM_DELIVERABLE)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'create:task-document-from-deliverable',
     resource: 'task-document',
@@ -2315,7 +2436,6 @@ export class TasksController {
   @ResponseMessage(TASK_DOCUMENT_CREATED)
   @UseInterceptors(FileInterceptor('file'))
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'create:task-document',
     resource: 'task-document',
@@ -2369,7 +2489,6 @@ export class TasksController {
   @ResponseMessage(TASK_DOCUMENT_UPDATED)
   @UseInterceptors(FileInterceptor('file'))
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'update:task-document',
     resource: 'task-document',
@@ -2398,7 +2517,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task document deleted' })
   @ResponseMessage(TASK_DOCUMENT_DELETED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'delete:task-document',
     resource: 'task-document',
@@ -2433,7 +2551,6 @@ export class TasksController {
   @ApiResponse({ status: 404, description: 'Task or project not found' })
   @ResponseMessage(TASK_UPDATED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({ action: 'update:task', resource: 'task', includeBody: true })
   updateTask(
     @Param('projectId', ParseUUIDPipe) projectId: string,
@@ -2446,11 +2563,12 @@ export class TasksController {
 
   @Post('tasks/:taskId/complete')
   @ApiOperation({
-    summary: 'Complete a task',
+    summary: 'Retired: complete a task',
+    deprecated: true,
     description:
-      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Applies the configured Done status completion policy.",
+      'Task status is derived from checklist/child work. This endpoint rejects with TASK_STATUS_IS_DERIVED.',
   })
-  @ApiResponse({ status: 201, description: 'Task completed' })
+  @ApiResponse({ status: 409, description: 'TASK_STATUS_IS_DERIVED' })
   @ResponseMessage(TASK_COMPLETED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
@@ -2470,11 +2588,12 @@ export class TasksController {
 
   @Post('tasks/:taskId/reopen')
   @ApiOperation({
-    summary: 'Reopen a completed task',
+    summary: 'Retired: reopen a completed task',
+    deprecated: true,
     description:
-      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Moves a completed task into a non-Done status while preserving progress unless explicitly supplied.",
+      'Task status is derived from checklist/child work. This endpoint rejects with TASK_STATUS_IS_DERIVED.',
   })
-  @ApiResponse({ status: 201, description: 'Task reopened' })
+  @ApiResponse({ status: 409, description: 'TASK_STATUS_IS_DERIVED' })
   @ResponseMessage(TASK_REOPENED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
@@ -2518,11 +2637,12 @@ export class TasksController {
 
   @Patch('tasks/:taskId/move')
   @ApiOperation({
-    summary: 'Move or reorder a task',
+    summary: 'Retired: move or reorder a task',
+    deprecated: true,
     description:
-      "Project-scoped action. Requires taskManagement.update through the caller's active project role. Supports drag-and-drop across workflow columns, sibling reordering, and subtask reparenting.",
+      'Task status is derived from checklist/child work. This endpoint rejects with TASK_STATUS_IS_DERIVED.',
   })
-  @ApiResponse({ status: 200, description: 'Task moved' })
+  @ApiResponse({ status: 409, description: 'TASK_STATUS_IS_DERIVED' })
   @ResponseMessage(TASK_MOVED)
   @UseGuards(ProjectPermissionGuard)
   @RequireProjectPermission('taskManagement', 'update')
@@ -2571,7 +2691,6 @@ export class TasksController {
   @ApiResponse({ status: 404, description: 'Task or project not found' })
   @ResponseMessage(TASK_DELETED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'delete')
   @LogActivity({ action: 'delete:task', resource: 'task' })
   deleteTask(
     @Param('projectId', ParseUUIDPipe) projectId: string,
@@ -2668,7 +2787,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task checklist fetched' })
   @ResponseMessage(TASK_CHECKLIST_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'view')
   getTaskChecklist(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -2683,7 +2801,6 @@ export class TasksController {
       'Read checklist description, documents, scheduling constraints and dependencies',
   })
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'view')
   getTaskChecklistItem(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -2707,7 +2824,6 @@ export class TasksController {
   @ApiResponse({ status: 201, description: 'Checklist item and task summary' })
   @ResponseMessage(TASK_CHECKLIST_ITEM_ADDED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'create:task-checklist-item',
     resource: 'task-checklist-item',
@@ -2755,13 +2871,13 @@ export class TasksController {
   @ApiOperation({
     summary: 'Move a checklist item across checklist Kanban statuses',
     description:
-      'Updates checklist item status, binary completion state, and Kanban rank. Moving into Done marks the item complete; moving out of Done marks it incomplete.',
+      'Uses revision and idempotency key to execute the checklist workflow. Review creates a submission; only its current reportee can accept it into terminal Done. Branched source status is derived.',
   })
   @ApiResponse({ status: 200, description: 'Checklist item moved' })
   @ApiResponse({
     status: 409,
     description:
-      'Branched checklist item has incomplete or missing descendant checklist work',
+      'Stale revision, invalid workflow transition, terminal Done, or derived branch status',
   })
   @ResponseMessage(TASK_CHECKLIST_ITEM_MOVED)
   @LogActivity({
@@ -2795,7 +2911,7 @@ export class TasksController {
   @ApiResponse({
     status: 409,
     description:
-      'Branched checklist item has incomplete or missing descendant checklist work',
+      'Stale revision, invalid workflow transition, terminal Done, or derived branch status',
   })
   @ResponseMessage(TASK_CHECKLIST_ITEM_COMPLETION_VALIDATED)
   validateChecklistItemCompletion(
@@ -2850,7 +2966,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Deleted item and task summary' })
   @ResponseMessage(TASK_CHECKLIST_ITEM_DELETED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'delete:task-checklist-item',
     resource: 'task-checklist-item',
@@ -3038,7 +3153,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task checklist groups fetched' })
   @ResponseMessage(TASK_CHECKLIST_GROUPS_FETCHED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'view')
   getChecklistGroups(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
@@ -3052,7 +3166,6 @@ export class TasksController {
   @ApiResponse({ status: 201, description: 'Task checklist group created' })
   @ResponseMessage(TASK_CHECKLIST_GROUP_CREATED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'create:task-checklist-group',
     resource: 'task-checklist-group',
@@ -3072,7 +3185,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task checklist group updated' })
   @ResponseMessage(TASK_CHECKLIST_GROUP_UPDATED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'update:task-checklist-group',
     resource: 'task-checklist-group',
@@ -3101,7 +3213,6 @@ export class TasksController {
   @ApiResponse({ status: 200, description: 'Task checklist group deleted' })
   @ResponseMessage(TASK_CHECKLIST_GROUP_DELETED)
   @UseGuards(ProjectPermissionGuard)
-  @RequireProjectPermission('taskManagement', 'update')
   @LogActivity({
     action: 'delete:task-checklist-group',
     resource: 'task-checklist-group',

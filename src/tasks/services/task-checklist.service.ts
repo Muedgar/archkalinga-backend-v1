@@ -1,3 +1,12 @@
+import { DependencyType } from '../entities/task-dependency.entity';
+import {
+  assertOpenHierarchy,
+  canonicalStatuses,
+  conflict,
+  lockWorkflow,
+  rollupStatuses,
+} from '../workflow/workflow-domain';
+import { CanonicalStage } from '../project-config/project-status.entity';
 import {
   BadRequestException,
   ConflictException,
@@ -14,6 +23,9 @@ import { User } from 'src/users/entities';
 import {
   ChecklistDependency,
   TaskDependency,
+  TaskDocumentType,
+  TaskDocument,
+  ChecklistSubmission,
   ScheduleType,
   Task,
   TaskActionType,
@@ -52,6 +64,9 @@ import { TaskWbsService } from './task-wbs.service';
 
 type ChecklistMutationTaskSummary = {
   id: string;
+  statusId: string;
+  revision: number;
+  cascade: { calculationRunId: string; refreshTaskIds: string[] };
   progress: number | null;
   completed: boolean;
   checklistSummary: {
@@ -131,13 +146,14 @@ export class TaskChecklistService {
   private async buildTaskSummary(
     manager: EntityManager,
     task: Task,
+    actor: RequestUser,
   ): Promise<ChecklistMutationTaskSummary> {
     const progress = await this.progressSvc.recalculateProjectTaskProgress(
       manager,
       task.projectId,
     );
     task.progress = progress.get(task.id) ?? task.progress;
-    await this.scheduleSvc.recalculateProject(
+    const schedule = await this.scheduleSvc.recalculateProject(
       task.projectId,
       { triggerTaskId: task.id, triggerType: 'checklist-change' },
       manager,
@@ -149,10 +165,25 @@ export class TaskChecklistService {
       }),
     ]);
 
+    const refreshTaskIds: string[] = [];
+    for (const candidate of await manager.find(Task, {
+      where: { projectId: task.projectId },
+      relations: ['assignees'],
+    })) {
+      if (
+        !candidate.deletedAt &&
+        (await this.authSvc.canViewTask(candidate, actor))
+      )
+        refreshTaskIds.push(candidate.id);
+    }
+    const current = await manager.findOneByOrFail(Task, { id: task.id });
     return {
       id: task.id,
-      progress: task.progress,
-      completed: task.completed,
+      statusId: current.statusId,
+      revision: current.version,
+      cascade: { calculationRunId: schedule.calculationRunId, refreshTaskIds },
+      progress: current.progress,
+      completed: current.completed,
       checklistSummary: { total, completed },
     };
   }
@@ -213,7 +244,10 @@ export class TaskChecklistService {
     task: Pick<Task, 'projectId' | 'statusId'>,
     statusId?: string | null,
   ): Promise<string> {
-    const resolvedStatusId = statusId ?? task.statusId;
+    const canonical = await canonicalStatuses(manager, task.projectId);
+    const resolvedStatusId = statusId ?? canonical.get(CanonicalStage.TODO)!.id;
+    if (resolvedStatusId !== canonical.get(CanonicalStage.TODO)!.id)
+      conflict('CHECKLIST_INITIAL_STATUS_MUST_BE_TODO');
     const status = await manager.findOne(ProjectStatus, {
       where: { id: resolvedStatusId, projectId: task.projectId },
       select: ['id'],
@@ -386,8 +420,20 @@ export class TaskChecklistService {
       ChecklistDependency,
       { where: { checklistItemId: item.id } },
     );
+    const inheritedStarterDocuments = await this.documentsSvc.listTaskDocuments(
+      task.id,
+      { type: TaskDocumentType.STARTER, scope: 'TASK', limit: 200, page: 1 },
+    );
+    const legacyOwner = item.branchedTaskId
+      ? await this.checklistRepo.manager.findOne(Task, {
+          where: { id: item.branchedTaskId },
+          relations: ['assignees'],
+        })
+      : null;
+    const canReadLegacy =
+      legacyOwner && (await this.authSvc.canViewTask(legacyOwner, requestUser));
     const legacyTask =
-      item.legacyBranch && item.branchedTaskId
+      item.legacyBranch && item.branchedTaskId && canReadLegacy
         ? {
             taskId: item.branchedTaskId,
             documents: await this.documentsSvc.listTaskDocuments(
@@ -410,6 +456,25 @@ export class TaskChecklistService {
       assignedMembers: item.assignedMembers,
       reporteeUserId: item.reporteeUserId,
       documents,
+      inheritedStarterDocuments,
+      warnings: [
+        ...((item.earliestStartDate ?? item.plannedStartDate ?? '') >
+        new Date().toISOString().slice(0, 10)
+          ? [{ code: 'BEFORE_PLANNED_START' }]
+          : []),
+        ...(
+          await Promise.all(
+            dependencies.map(async (d) => {
+              const predecessor = await this.checklistRepo.findOne({
+                where: { id: d.dependsOnChecklistItemId },
+              });
+              return predecessor && !predecessor.completed
+                ? { code: 'PREDECESSOR_INCOMPLETE' }
+                : null;
+            }),
+          )
+        ).filter(Boolean),
+      ],
       dependencies,
       legacyTask,
     };
@@ -421,6 +486,13 @@ export class TaskChecklistService {
     dto: AddChecklistItemDto,
   ): Promise<ChecklistItemMutationResponse> {
     return this.checklistRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, task.projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId: task.projectId,
+        taskId: task.id,
+        requestUser: actorUser,
+      });
+      await assertOpenHierarchy(tx, task.projectId, task.id);
       const itemCode = dto.itemCode?.trim() || null;
       await this.ensureUniqueItemCode(tx, task.id, itemCode);
       const statusId = await this.resolveChecklistStatusId(
@@ -464,7 +536,7 @@ export class TaskChecklistService {
 
       return {
         item: this.serializeItem(saved),
-        task: await this.buildTaskSummary(tx, task),
+        task: await this.buildTaskSummary(tx, task, actorUser),
       };
     });
   }
@@ -476,12 +548,77 @@ export class TaskChecklistService {
     actorUser: User,
     dto: UpdateChecklistItemDto,
   ): Promise<ChecklistItemMutationResponse> {
+    if (dto.statusId !== undefined || dto.completed !== undefined)
+      conflict('WORKFLOW_COMMAND_REQUIRED');
     return this.checklistRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, task.projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId: task.projectId,
+        taskId: task.id,
+        requestUser: actorUser,
+      });
       const item = await tx.findOne(TaskChecklistItem, {
         where: { id: itemId, taskId: task.id },
         lock: { mode: 'pessimistic_write' },
       });
       if (!item) throw new NotFoundException(TASK_CHECKLIST_ITEM_NOT_FOUND);
+      if (
+        dto.expectedRevision !== undefined &&
+        dto.expectedRevision !== item.version
+      )
+        conflict('STALE_WORKFLOW_REVISION');
+      if (dto.description !== undefined) item.description = dto.description;
+      if (dto.durationDays !== undefined) item.durationDays = dto.durationDays;
+      if (dto.earliestStartDate !== undefined)
+        item.earliestStartDate = dto.earliestStartDate;
+      if (dto.dependencies) {
+        const targets = dto.dependencies.map((d) => d.dependsOnChecklistItemId);
+        if (
+          new Set(targets).size !== targets.length ||
+          targets.includes(item.id)
+        )
+          throw new BadRequestException('INVALID_CHECKLIST_DEPENDENCY');
+        for (const targetId of targets) {
+          const target = await tx.findOne(TaskChecklistItem, {
+            where: { id: targetId },
+            relations: ['task', 'task.assignees'],
+          });
+          if (
+            !target ||
+            target.task.projectId !== task.projectId ||
+            !(await this.authSvc.canViewTask(target.task, actorUser))
+          )
+            throw new BadRequestException('INVALID_CHECKLIST_DEPENDENCY');
+        }
+        const edges = await tx
+          .createQueryBuilder(ChecklistDependency, 'd')
+          .innerJoin(TaskChecklistItem, 'i', 'i.id = d.checklistItemId')
+          .innerJoin(Task, 't', 't.id = i.taskId')
+          .where('t.projectId = :projectId', { projectId: task.projectId })
+          .getMany();
+        const reaches = (id: string, seen = new Set<string>()): boolean => {
+          if (id === item.id) return true;
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return edges
+            .filter((e) => e.checklistItemId === id)
+            .some((e) => reaches(e.dependsOnChecklistItemId, seen));
+        };
+        if (targets.some((id) => reaches(id)))
+          throw new BadRequestException('CHECKLIST_DEPENDENCY_CYCLE');
+        await tx.delete(ChecklistDependency, { checklistItemId: item.id });
+        for (const d of dto.dependencies)
+          await tx.save(
+            ChecklistDependency,
+            tx.create(ChecklistDependency, {
+              ...d,
+              checklistItemId: item.id,
+              dependencyType:
+                d.dependencyType ?? DependencyType.FINISH_TO_START,
+              lagDays: d.lagDays ?? 0,
+            }),
+          );
+      }
       const shouldApplyTransition =
         dto.completed !== undefined || dto.statusId !== undefined;
 
@@ -540,85 +677,29 @@ export class TaskChecklistService {
       });
       return {
         item: this.serializeItem(refreshed),
-        task: await this.buildTaskSummary(tx, task),
+        task: await this.buildTaskSummary(tx, task, actorUser),
       };
     });
   }
 
   async moveItem(
-    task: Task,
-    itemId: string,
-    actorUser: User,
-    dto: MoveChecklistItemDto,
+    _task: Task,
+    _itemId: string,
+    _actorUser: User,
+    _dto: MoveChecklistItemDto,
   ): Promise<ChecklistItemMoveResponse> {
-    return this.checklistRepo.manager.transaction(async (tx) => {
-      const [item, targetStatus] = await Promise.all([
-        tx.findOne(TaskChecklistItem, {
-          where: { id: itemId, taskId: task.id },
-          lock: { mode: 'pessimistic_write' },
-        }),
-        tx.findOne(ProjectStatus, {
-          where: { id: dto.statusId, projectId: task.projectId },
-        }),
-      ]);
-      if (!item) throw new NotFoundException(TASK_CHECKLIST_ITEM_NOT_FOUND);
-      if (!targetStatus) {
-        throw new BadRequestException(
-          'Checklist status is invalid for this project',
-        );
-      }
-
-      const transitionResult =
-        await this.checklistTransitionSvc.applyChecklistTransition(tx, {
-          projectId: task.projectId,
-          task,
-          item,
-          targetStatus,
-          actorUser,
-          beforeItemId: dto.beforeItemId,
-          afterItemId: dto.afterItemId,
-          reason: dto.reason,
-        });
-
-      await this.activitySvc.log(
-        tx,
-        task,
-        actorUser,
-        TaskActionType.CHECKLIST_UPDATED,
-        {
-          itemId: transitionResult.item.id,
-          operation: 'checklist_item_moved',
-          reason: dto.reason ?? null,
-          effects: transitionResult.effects,
-        },
-      );
-
-      const refreshed = await tx.findOneOrFail(TaskChecklistItem, {
-        where: { id: transitionResult.item.id, taskId: task.id },
-        relations: ['status'],
-      });
-
-      return {
-        item: this.serializeItem(refreshed),
-        task: await this.buildTaskSummary(tx, task),
-        effects: transitionResult.effects,
-        changedItemIds: transitionResult.changedItemIds,
-        changedTaskIds: transitionResult.changedTaskIds,
-      };
-    });
+    conflict('WORKFLOW_COMMAND_REQUIRED');
   }
 
   async validateItemCompletion(
     task: Task,
     itemId: string,
+    actor: RequestUser,
   ): Promise<ChecklistItemCompletionValidationResponse> {
     const item = await this.getItemOrFail(task.id, itemId);
-    await this.checklistTransitionSvc.validateChecklistCompletion(
-      this.checklistRepo.manager,
-      task.projectId,
-      item,
-    );
-
+    await this.authSvc.decorateChecklistRead(task, [item], actor);
+    if (!item.capabilities?.canReview || !item.activeSubmission)
+      conflict('CHECKLIST_REVIEW_REQUIRED');
     return {
       allowed: true,
       itemId: item.id,
@@ -635,11 +716,20 @@ export class TaskChecklistService {
     this.authSvc.ensureDateRange(dto.startDate, dto.endDate);
 
     return this.checklistRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, task.projectId);
+      await this.authSvc.assertTaskChecklistBranchAllowed({
+        projectId: task.projectId,
+        taskId: task.id,
+        requestUser: actorUser,
+      });
+      await assertOpenHierarchy(tx, task.projectId, task.id);
       const item = await tx.findOne(TaskChecklistItem, {
         where: { id: itemId, taskId: task.id },
         lock: { mode: 'pessimistic_write' },
       });
       if (!item) throw new NotFoundException(TASK_CHECKLIST_ITEM_NOT_FOUND);
+      if (item.effectiveStage === 'IN_REVIEW')
+        conflict('WITHDRAW_BEFORE_BRANCHING');
       if (item.completed || task.completed)
         throw new ConflictException(
           'Completed work must be reopened before branching',
@@ -703,7 +793,13 @@ export class TaskChecklistService {
         status.id,
       );
       const initialWbs = this.wbsSvc.prepareAssignment(dto.wbsCode);
-      const completedAt = status.isDone === true ? new Date() : null;
+      if (
+        status.id !==
+        (await canonicalStatuses(tx, task.projectId)).get(CanonicalStage.TODO)!
+          .id
+      )
+        conflict('TASK_INITIAL_STATUS_MUST_BE_TODO');
+      const completedAt = null;
 
       const childTask = await tx.save(
         tx.create(Task, {
@@ -801,6 +897,13 @@ export class TaskChecklistService {
     actorUser: User,
   ): Promise<ChecklistItemDeleteResponse> {
     return this.checklistRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, task.projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId: task.projectId,
+        taskId: task.id,
+        requestUser: actorUser,
+      });
+      await assertOpenHierarchy(tx, task.projectId, task.id);
       const item = await tx.findOne(TaskChecklistItem, {
         where: { id: itemId, taskId: task.id },
         lock: { mode: 'pessimistic_write' },
@@ -810,7 +913,16 @@ export class TaskChecklistService {
         throw new ConflictException(
           'A linked checklist cannot be deleted without handling its branched task',
         );
+      if (item.completed) conflict('CHECKLIST_DONE_IS_TERMINAL');
+      if (
+        (await tx.exists(ChecklistSubmission, {
+          where: { checklistItemId: item.id },
+        })) ||
+        (await tx.exists(TaskDocument, { where: { checklistItemId: item.id } }))
+      )
+        conflict('CHECKLIST_HAS_RETAINED_HISTORY');
       await tx.remove(item);
+      await rollupStatuses(tx, task.projectId);
       await this.reorderItems(tx, task.id, null);
       await this.activitySvc.log(
         tx,
@@ -825,7 +937,7 @@ export class TaskChecklistService {
 
       return {
         item: { id: itemId, deleted: true },
-        task: await this.buildTaskSummary(tx, task),
+        task: await this.buildTaskSummary(tx, task, actorUser),
       };
     });
   }
@@ -834,67 +946,105 @@ export class TaskChecklistService {
 
   async listGroups(
     taskId: string,
+    requestUser: RequestUser,
   ): Promise<TaskChecklistGroupDetailSerializer[]> {
     const groups = await this.checklistGroupRepo.find({
       where: { taskId },
       relations: ['items', 'items.status'],
       order: { orderIndex: 'ASC', createdAt: 'ASC' },
     });
+    const task = await this.checklistGroupRepo.manager.findOneByOrFail(Task, {
+      id: taskId,
+    });
+    await this.authSvc.decorateChecklistRead(
+      task,
+      groups.flatMap((g) => g.items),
+      requestUser,
+    );
     return groups.map((g) => this.serializeGroup(g));
   }
 
   async createGroup(
     task: Task,
     dto: CreateChecklistGroupDto,
+    actor: RequestUser,
   ): Promise<TaskChecklistGroupDetailSerializer> {
-    const count = await this.checklistGroupRepo.count({
-      where: { taskId: task.id },
-    });
-    const orderIndex = dto.orderIndex ?? count;
-
-    const group = await this.checklistGroupRepo.save(
-      this.checklistGroupRepo.create({
-        task,
+    return this.checklistGroupRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, task.projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId: task.projectId,
         taskId: task.id,
-        title: dto.title.trim(),
-        orderIndex,
-      }),
-    );
-
-    const withItems = await this.checklistGroupRepo.findOne({
-      where: { id: group.id },
-      relations: ['items', 'items.status'],
+        requestUser: actor,
+      });
+      await assertOpenHierarchy(tx, task.projectId, task.id);
+      const count = await tx.count(TaskChecklist, {
+        where: { taskId: task.id },
+      });
+      const group = await tx.save(
+        TaskChecklist,
+        tx.create(TaskChecklist, {
+          task,
+          taskId: task.id,
+          title: dto.title.trim(),
+          orderIndex: dto.orderIndex ?? count,
+        }),
+      );
+      return this.serializeGroup({ ...group, items: [] });
     });
-
-    return this.serializeGroup(withItems ?? group);
   }
 
   async updateGroup(
     taskId: string,
     groupId: string,
     dto: UpdateChecklistGroupDto,
+    actor: RequestUser,
   ): Promise<TaskChecklistGroupDetailSerializer> {
-    const group = await this.getGroupOrFail(taskId, groupId);
-
-    if (dto.title !== undefined) group.title = dto.title.trim();
-    if (dto.orderIndex !== undefined) group.orderIndex = dto.orderIndex;
-
-    await this.checklistGroupRepo.save(group);
-
-    const refreshed = await this.checklistGroupRepo.findOne({
-      where: { id: group.id },
-      relations: ['items', 'items.status'],
+    return this.checklistGroupRepo.manager.transaction(async (tx) => {
+      const task = await tx.findOneByOrFail(Task, { id: taskId });
+      await lockWorkflow(tx, task.projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId: task.projectId,
+        taskId,
+        requestUser: actor,
+      });
+      await assertOpenHierarchy(tx, task.projectId, taskId);
+      const group = await tx.findOneOrFail(TaskChecklist, {
+        where: { id: groupId, taskId },
+        relations: ['items', 'items.status'],
+      });
+      if (dto.title !== undefined) group.title = dto.title.trim();
+      if (dto.orderIndex !== undefined) group.orderIndex = dto.orderIndex;
+      await tx.save(group);
+      await this.authSvc.decorateChecklistRead(task, group.items, actor);
+      return this.serializeGroup(group);
     });
-
-    return this.serializeGroup(refreshed ?? group);
   }
 
   async deleteGroup(
     taskId: string,
     groupId: string,
+    actor: RequestUser,
   ): Promise<{ id: string; success: true }> {
-    const group = await this.getGroupOrFail(taskId, groupId);
-    await this.checklistGroupRepo.remove(group);
-    return { id: groupId, success: true };
+    return this.checklistGroupRepo.manager.transaction(async (tx) => {
+      const task = await tx.findOneByOrFail(Task, { id: taskId });
+      await lockWorkflow(tx, task.projectId);
+      await this.authSvc.assertTaskOwnedChecklistManagementAllowed({
+        projectId: task.projectId,
+        taskId,
+        requestUser: actor,
+      });
+      await assertOpenHierarchy(tx, task.projectId, taskId);
+      const group = await tx.findOneOrFail(TaskChecklist, {
+        where: { id: groupId, taskId },
+      });
+      if (
+        await tx.exists(TaskChecklistItem, {
+          where: { checklistGroupId: groupId },
+        })
+      )
+        conflict('CHECKLIST_GROUP_NOT_EMPTY');
+      await tx.remove(group);
+      return { id: groupId, success: true };
+    });
   }
 }

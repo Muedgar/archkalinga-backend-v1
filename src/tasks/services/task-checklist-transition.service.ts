@@ -62,6 +62,16 @@ type ChecklistRankSibling = Pick<TaskChecklistItem, 'id' | 'rank'>;
 @Injectable()
 export class TaskChecklistTransitionService {
   async applyChecklistTransition(
+    ..._args: unknown[]
+  ): Promise<ChecklistTransitionResult> {
+    throw new ConflictException({
+      code: 'WORKFLOW_COMMAND_REQUIRED',
+      message:
+        'Use checklist move/submission with revision and idempotency key',
+    });
+  }
+
+  async persistAuthorizedTransition(
     manager: EntityManager,
     input: ChecklistTransitionInput,
   ): Promise<ChecklistTransitionResult> {
@@ -445,9 +455,13 @@ export class TaskChecklistTransitionService {
     for (const sibling of siblings) {
       const nextRank = this.formatRankValue(current);
       if (sibling.rank !== nextRank) {
-        await manager.update(TaskChecklistItem, sibling.id, {
-          rank: nextRank,
-        });
+        await manager.update(
+          TaskChecklistItem,
+          { id: sibling.id },
+          {
+            rank: nextRank,
+          },
+        );
       }
       current += RANK_STEP;
     }

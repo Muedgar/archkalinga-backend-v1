@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import type { RequestUser } from 'src/auth/types';
@@ -7,10 +11,7 @@ import { MembershipStatus } from 'src/projects/entities/project-membership.entit
 import { Task, TaskAssignee } from 'src/tasks/entities';
 import { User } from 'src/users/entities';
 import type { WorkspaceMember } from 'src/workspaces/entities/workspace-member.entity';
-import {
-  SearchQueryDto,
-  SearchResultType,
-} from './dtos';
+import { SearchQueryDto, SearchResultType } from './dtos';
 import { SearchRecentItem } from './entities';
 import {
   SearchResponseSerializer,
@@ -74,10 +75,18 @@ export class SearchService {
   ): Promise<SearchResponseSerializer> {
     const query = dto.q?.trim();
     if (!query || query.length < 2) {
-      return this.recent({ ...dto, limit: dto.limit ?? 6 }, requestUser, workspaceMember);
+      return this.recent(
+        { ...dto, limit: dto.limit ?? 6 },
+        requestUser,
+        workspaceMember,
+      );
     }
 
-    return this.search({ ...dto, limit: dto.limit ?? 6 }, requestUser, workspaceMember);
+    return this.search(
+      { ...dto, limit: dto.limit ?? 6 },
+      requestUser,
+      workspaceMember,
+    );
   }
 
   async recent(
@@ -105,13 +114,17 @@ export class SearchService {
       requestUser.id,
       workspaceMember.workspaceId,
     );
-    const projectById = new Map(projects.map((project) => [project.id, project]));
+    const projectById = new Map(
+      projects.map((project) => [project.id, project]),
+    );
 
     return {
       items: recentRows
         .map((row) => {
           const project = projectById.get(row.resourceId);
-          return project ? this.toRecentProjectResult(project, row.openedAt) : null;
+          return project
+            ? this.toRecentProjectResult(project, row.openedAt)
+            : null;
         })
         .filter((item): item is SearchResultItemSerializer => item !== null),
     };
@@ -124,10 +137,16 @@ export class SearchService {
     workspaceMember: WorkspaceMember,
   ): Promise<{ type: SearchResultType; id: string }> {
     if (type !== 'project') {
-      throw new BadRequestException('Only project search recents are supported');
+      throw new BadRequestException(
+        'Only project search recents are supported',
+      );
     }
 
-    await this.ensureProjectAccessible(id, requestUser.id, workspaceMember.workspaceId);
+    await this.ensureProjectAccessible(
+      id,
+      requestUser.id,
+      workspaceMember.workspaceId,
+    );
 
     const existing = await this.recentRepo.findOne({
       where: {
@@ -180,6 +199,14 @@ export class SearchService {
           'matchedTask.projectId = project.id',
           'matchedTask.deletedAt IS NULL',
           'matchedTask.title ILIKE :like',
+          `(project."createdByUserId" = :userId
+            OR ("accessRole"."permissions"->'taskManagement'->>'view' = 'true' AND "accessRole"."permissions"->'taskManagement'->>'viewScope' = 'all')
+            OR EXISTS (SELECT 1 FROM workspace_members wm JOIN workspace_roles wr ON wr.pkid=wm.workspace_role_id WHERE wm."workspaceId"=project."workspaceId" AND wm."userId"=:userId AND wm.status='ACTIVE' AND wr.status AND wr.slug='admin')
+            OR EXISTS (SELECT 1 FROM task_assignees ta WHERE ta."taskId"= "matchedTask"."id" AND ta."userId"=:userId)
+            OR EXISTS (WITH RECURSIVE ancestors AS (
+              SELECT p.id,p."parentTaskId",p."reporteeUserId" FROM tasks p WHERE p.id= "matchedTask"."id" AND p."deletedAt" IS NULL
+              UNION SELECT p.id,p."parentTaskId",p."reporteeUserId" FROM tasks p JOIN ancestors a ON p.id=a."parentTaskId" WHERE p."projectId"=project.id AND p."deletedAt" IS NULL
+            ) SELECT 1 FROM ancestors WHERE "reporteeUserId"=:userId))`,
         ].join(' AND '),
         { like },
       )
@@ -233,8 +260,7 @@ export class SearchService {
       }),
     );
 
-    qb
-      .select('project.id', 'project_id')
+    qb.select('project.id', 'project_id')
       .addSelect('project.title', 'project_title')
       .addSelect('project.description', 'project_description')
       .addSelect('project.status', 'project_status')
@@ -346,13 +372,19 @@ export class SearchService {
       projectId: row.project_id,
       icon: 'folder-kanban',
       score: this.projectScore(row, query),
-      updatedAt: row.project_updated_at?.toISOString?.() ?? String(row.project_updated_at),
+      updatedAt:
+        row.project_updated_at?.toISOString?.() ??
+        String(row.project_updated_at),
     };
   }
 
-  private projectSnippet(row: ProjectSearchRow, query: string): string | undefined {
+  private projectSnippet(
+    row: ProjectSearchRow,
+    query: string,
+  ): string | undefined {
     if (this.matches(row.project_title, query)) return 'Project name match';
-    if (this.matches(row.project_description, query)) return row.project_description ?? undefined;
+    if (this.matches(row.project_description, query))
+      return row.project_description ?? undefined;
     if (row.matched_task_title) return `Task match: ${row.matched_task_title}`;
     if (row.matched_user_name) return `Member match: ${row.matched_user_name}`;
     return undefined;

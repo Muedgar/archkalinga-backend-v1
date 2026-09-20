@@ -55,10 +55,10 @@ export class ProjectMembership extends AppBaseEntity {
   invitedByUserId: string | null;
 
   @ManyToOne(() => ProjectInvite, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'invite_id' })
+  @JoinColumn({ name: 'invite_id', referencedColumnName: 'id' })
   invite: ProjectInvite | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ name: 'invite_id', type: 'uuid', nullable: true })
   inviteId: string | null;
 
   @Column({ type: 'timestamptz', nullable: true })

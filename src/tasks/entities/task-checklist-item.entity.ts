@@ -16,6 +16,18 @@ export enum TaskChecklistBranchStatus {
   where: '"branched_task_id" IS NOT NULL',
 })
 export class TaskChecklistItem extends AppBaseEntity {
+  @Column({
+    name: 'effective_stage',
+    type: 'varchar',
+    length: 20,
+    default: 'TODO',
+  })
+  effectiveStage: string;
+  @Column({ name: 'legacy_completion', type: 'boolean', default: false })
+  legacyCompletion: boolean;
+  capabilities?: Record<string, unknown>;
+  activeSubmission?: unknown;
+
   @ManyToOne(() => Task, (task) => task.checklistItems, {
     nullable: false,
     onDelete: 'CASCADE',

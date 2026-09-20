@@ -1,10 +1,21 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsUUID, IsEnum, IsOptional, IsString, Length } from 'class-validator';
+import {
+  IsIn,
+  IsUUID,
+  IsEnum,
+  IsOptional,
+  IsString,
+  Length,
+} from 'class-validator';
 import { ListFilterDTO } from 'src/common/dtos';
 import { TaskDocumentType } from '../entities';
 
 export class TaskDocumentFiltersDto extends ListFilterDTO {
+  @ApiPropertyOptional({ enum: ['TASK', 'CHECKLIST'] })
+  @IsOptional()
+  @IsIn(['TASK', 'CHECKLIST'])
+  scope?: 'TASK' | 'CHECKLIST';
   @ApiPropertyOptional({
     description: 'Filter documents owned by a checklist item of this task',
   })

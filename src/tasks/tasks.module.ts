@@ -1,3 +1,4 @@
+import { TaskWorkflowService } from './services/task-workflow.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProjectPermissionGuard } from 'src/auth/guards';
@@ -21,6 +22,13 @@ import {
   ProjectTaskType,
 } from './project-config';
 import {
+  TaskWorkflowActivation,
+  TaskWorkflowReceipt,
+  ChecklistSubmission,
+  ChecklistSubmissionEvidence,
+  ChecklistReviewNote,
+  ChecklistWorkflowReceipt,
+  TaskDocumentRevision,
   ChecklistDependency,
   ChangeRequest,
   ChangeRequestAuditEntry,
@@ -94,6 +102,7 @@ import {
 } from './services';
 
 const SUB_SERVICES = [
+  TaskWorkflowService,
   TaskPackageService,
   TaskAuthService,
   ActivityScheduleGanttService,
@@ -133,6 +142,13 @@ const SUB_SERVICES = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      TaskWorkflowActivation,
+      TaskWorkflowReceipt,
+      ChecklistSubmission,
+      ChecklistSubmissionEvidence,
+      ChecklistReviewNote,
+      ChecklistWorkflowReceipt,
+      TaskDocumentRevision,
       ChecklistDependency,
       ChangeRequest,
       ChangeRequestAuditEntry,

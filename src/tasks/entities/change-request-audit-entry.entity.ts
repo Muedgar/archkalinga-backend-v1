@@ -51,18 +51,16 @@ export class ChangeRequestAuditEntry extends AppBaseEntity {
 
   @Column({
     name: 'from_status',
-    type: 'enum',
-    enum: ChangeRequestStatus,
-    enumName: 'change_requests_status_enum',
+    type: 'varchar',
+    length: 40,
     nullable: true,
   })
   fromStatus: ChangeRequestStatus | null;
 
   @Column({
     name: 'to_status',
-    type: 'enum',
-    enum: ChangeRequestStatus,
-    enumName: 'change_requests_status_enum',
+    type: 'varchar',
+    length: 40,
     nullable: true,
   })
   toStatus: ChangeRequestStatus | null;

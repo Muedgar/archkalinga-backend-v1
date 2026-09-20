@@ -1,3 +1,4 @@
+import { ChecklistSubmissionSerializer } from './checklist-submission.serializer';
 import { Expose, Transform, Type } from 'class-transformer';
 import { BaseSerializer } from 'src/common/serializers';
 
@@ -7,6 +8,7 @@ class ChecklistKanbanStatusSerializer extends BaseSerializer {
   @Expose() key: string;
   @Expose() color: string;
   @Expose() orderIndex: number;
+  @Expose() canonicalStage: string | null;
   @Expose() category: string;
   @Expose() isDone: boolean;
   @Expose() isActive: boolean;
@@ -21,6 +23,11 @@ class ChecklistKanbanMemberSerializer {
 }
 
 export class ChecklistKanbanCardSerializer extends BaseSerializer {
+  @Expose() revision: number;
+  @Expose() capabilities: Record<string, unknown>;
+  @Expose()
+  @Type(() => ChecklistSubmissionSerializer)
+  activeSubmission: unknown;
   @Expose() description?: Record<string, unknown> | null;
   @Expose() packageManaged?: boolean;
   @Expose() legacyBranch?: boolean;

@@ -1,3 +1,11 @@
+import { checklistCapabilities } from '../workflow/checklist-policy';
+import {
+  assertOpenHierarchy,
+  canonicalStatuses,
+  conflict,
+  lockWorkflow,
+} from '../workflow/workflow-domain';
+import { CanonicalStage } from '../project-config/project-status.entity';
 import {
   BadRequestException,
   ConflictException,
@@ -77,7 +85,7 @@ export class TaskPackageService {
     const { project } = await this.auth.verifyProjectPermission(
       projectId,
       user,
-      'create',
+      dto.branchFrom ? 'view' : 'create',
     );
     if (dto.branchFrom)
       await this.auth.assertTaskChecklistBranchAllowed({
@@ -89,6 +97,15 @@ export class TaskPackageService {
     const attemptedUploads: StoredFile[] = [];
     try {
       return await this.taskRepo.manager.transaction(async (tx) => {
+        await lockWorkflow(tx, projectId);
+        if (dto.branchFrom) {
+          await assertOpenHierarchy(tx, projectId, dto.branchFrom.taskId);
+          await this.auth.assertTaskChecklistBranchAllowed({
+            projectId,
+            taskId: dto.branchFrom.taskId,
+            requestUser: user,
+          });
+        }
         const actor = await tx.findOneOrFail(User, { where: { id: user.id } });
         let sourceItem: TaskChecklistItem | null = null;
         let sourceOwner: Task | null = null;
@@ -120,12 +137,23 @@ export class TaskPackageService {
             sourceItem.branchStatus === TaskChecklistBranchStatus.BRANCHED
           )
             throw new ConflictException('Checklist is already branched');
+          if (sourceItem.effectiveStage === 'IN_REVIEW')
+            conflict('WITHDRAW_BEFORE_BRANCHING');
           if (sourceItem.completed || sourceOwner.completed)
             throw new ConflictException(
               'Completed checklist work must be reopened before branching',
             );
         }
+        for (const item of dto.checklists)
+          item.assignedMembers = dto.task.assignedMembers;
         const taskInputs = [dto.task, ...dto.checklists];
+        const canonical = await canonicalStatuses(tx, projectId);
+        if (
+          taskInputs.some(
+            (t) => t.statusId !== canonical.get(CanonicalStage.TODO)!.id,
+          )
+        )
+          conflict('TASK_INITIAL_STATUS_MUST_BE_TODO');
         const statuses = await tx.find(ProjectStatus, {
           where: {
             projectId,
@@ -329,6 +357,32 @@ export class TaskPackageService {
           ],
         });
         for (const task of saved) {
+          Object.assign(task, {
+            revision: task.version,
+            capabilities: {
+              canManageAssignees: true,
+              canEditDefinition: true,
+              canRemoveReportee: false,
+              canMove: false,
+              canComplete: false,
+              canReopen: false,
+            },
+          });
+          for (const item of task.checklistItems ?? []) {
+            item.capabilities = checklistCapabilities(
+              item,
+              canonical.get(CanonicalStage.TODO)!,
+              [...canonical.values()],
+              task,
+              actor.id,
+            );
+            item.activeSubmission = null;
+            item.assignedMembers = task.assignees.map((a) => ({
+              userId: a.userId,
+              projectRoleId: a.projectRoleId ?? undefined,
+            }));
+            item.reporteeUserId = task.reporteeUserId;
+          }
           for (const item of task.checklistItems ?? [])
             item.canBranch =
               !item.completed && !task.completed && !item.branchedTaskId;
@@ -450,6 +504,8 @@ export class TaskPackageService {
       if (
         !source ||
         !document ||
+        source.deletedAt ||
+        document.deletedAt ||
         !task ||
         task.deletedAt ||
         task.projectId !== projectId ||

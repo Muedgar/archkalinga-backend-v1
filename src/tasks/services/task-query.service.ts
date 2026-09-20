@@ -682,7 +682,7 @@ export class TaskQueryService {
     const limit = query.limit ?? 100;
     const includeDone = query.includeDone !== false;
     const includeFlat = query.includeFlat !== false;
-    const includeBranched = query.includeBranched !== false;
+    const includeBranched = false;
     const canViewAllProjectTasks = await this.authSvc.canViewAllProjectTasks(
       projectId,
       requestUser,
@@ -1105,6 +1105,13 @@ export class TaskQueryService {
               }
             } else {
               flatChecklistItems.push({
+                revision: item.revision,
+                capabilities: item.capabilities ?? {},
+                activeSubmission: item.activeSubmission,
+                assignedMembers: item.assignedMembers,
+                reporteeUserId: item.reporteeUserId,
+                effectiveStage: item.effectiveStage,
+                legacyCompletion: item.legacyCompletion,
                 id: item.id,
                 taskId: item.taskId,
                 itemCode: item.itemCode,
@@ -1436,8 +1443,10 @@ export class TaskQueryService {
       permissions: includes.has('permissions')
         ? {
             canView: true,
-            canEdit: canUpdate,
-            canBranchChecklistItem: canUpdate,
+            canEdit: !!task.capabilities?.canEditDefinition,
+            canBranchChecklistItem: !!task.checklistItems?.some(
+              (i) => i.canBranch,
+            ),
             canCreateRequest:
               task.reportee?.userId === requestUser.id ||
               (task.assignedMembers ?? []).some(
@@ -1547,6 +1556,13 @@ export class TaskQueryService {
     item: Task['checklistItems'][number],
   ): TaskChecklistItemDetailSerializer {
     return {
+      revision: item.version,
+      capabilities: item.capabilities ?? {},
+      activeSubmission: item.activeSubmission,
+      assignedMembers: item.assignedMembers,
+      reporteeUserId: item.reporteeUserId,
+      effectiveStage: item.effectiveStage,
+      legacyCompletion: item.legacyCompletion,
       id: item.id,
       pkid: item.pkid,
       createdAt: item.createdAt,
@@ -1585,7 +1601,7 @@ export class TaskQueryService {
     const task = item.task;
     if (task)
       await this.authSvc.decorateChecklistRead(task, [item], requestUser);
-    const [canExecute, canUpdateText, canManageChecklist] = task
+    const [_canExecute, canUpdateText, canManageChecklist] = task
       ? await Promise.all([
           this.authSvc.canBranchTaskChecklistItem(
             task.projectId,
@@ -1614,6 +1630,9 @@ export class TaskQueryService {
     }));
 
     return {
+      revision: item.version,
+      capabilities: item.capabilities ?? {},
+      activeSubmission: item.activeSubmission,
       id: item.id,
       pkid: item.pkid,
       createdAt: item.createdAt,
@@ -1650,8 +1669,10 @@ export class TaskQueryService {
         : null,
       createdByUserId: task?.createdByUserId ?? '',
 
-      canMove: canExecute,
-      canUpdate: canExecute,
+      canMove: (
+        (item.capabilities?.allowedTargetStatusIds as string[]) ?? []
+      ).some((id) => id !== item.statusId),
+      canUpdate: canManageChecklist,
       canUpdateText,
       canManageChecklist,
     };

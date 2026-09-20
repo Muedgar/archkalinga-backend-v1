@@ -31,3 +31,5 @@ export * from './task-wbs-code.entity';
 export * from './task-activity-log.entity';
 
 export * from './checklist-dependency.entity';
+
+export * from './checklist-submission.entity';

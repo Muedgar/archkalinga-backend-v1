@@ -1,11 +1,14 @@
+import { isDeepStrictEqual } from 'node:util';
+import { TaskAuthService } from './task-auth.service';
+import { ForbiddenException } from '@nestjs/common';
+import { conflict, lockWorkflow } from '../workflow/workflow-domain';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import { User } from 'src/users/entities';
 import {
   Task,
   TaskActionType,
-  TaskChecklistItem,
   TaskComment,
   TaskLocation,
   TaskLocationProgress,
@@ -46,6 +49,7 @@ export class TaskSyncEventsService {
     private readonly taskRepo: Repository<Task>,
     private readonly activitySvc: TaskActivityService,
     private readonly progressSvc: TaskProgressService,
+    private readonly authSvc: TaskAuthService,
   ) {}
 
   async process(
@@ -53,6 +57,12 @@ export class TaskSyncEventsService {
     dto: TaskSyncEventsDto,
     actorUser: User,
   ): Promise<TaskSyncEventsResponse> {
+    if (
+      dto.events.some(
+        (e) => e.type === TaskSyncEventType.CHECKLIST_ITEM_TOGGLED,
+      )
+    )
+      conflict('WORKFLOW_COMMAND_REQUIRED');
     const clientEventIds = dto.events.map((event) =>
       event.clientEventId.trim(),
     );
@@ -62,23 +72,9 @@ export class TaskSyncEventsService {
       );
     }
 
-    const existing = await this.syncEventRepo.find({
-      where: { projectId, clientEventId: In(clientEventIds) },
-    });
-    const existingMap = new Map(
-      existing.map((event) => [event.clientEventId, event]),
-    );
-
     const processed: TaskSyncEventResult[] = [];
-    for (const event of dto.events) {
-      const duplicate = existingMap.get(event.clientEventId);
-      if (duplicate) {
-        processed.push(this.toResult(duplicate, true));
-        continue;
-      }
-
+    for (const event of dto.events)
       processed.push(await this.processOne(projectId, event, actorUser));
-    }
 
     return {
       processed,
@@ -102,6 +98,27 @@ export class TaskSyncEventsService {
     actorUser: User,
   ): Promise<TaskSyncEventResult> {
     return this.syncEventRepo.manager.transaction(async (tx) => {
+      await lockWorkflow(tx, projectId);
+      await this.authSvc.verifyProjectPermission(projectId, actorUser, 'view');
+      const existing = await tx.findOne(TaskSyncEvent, {
+        where: { projectId, clientEventId: event.clientEventId.trim() },
+      });
+      if (existing) {
+        if (
+          existing.actorUserId !== actorUser.id ||
+          existing.taskId !== event.taskId ||
+          existing.type !== event.type ||
+          !isDeepStrictEqual(existing.payload, event.payload)
+        )
+          conflict('IDEMPOTENCY_KEY_REUSED');
+        const owner = await tx.findOne(Task, {
+          where: { id: event.taskId, projectId, deletedAt: IsNull() },
+          relations: ['assignees'],
+        });
+        if (!owner || !(await this.authSvc.canViewTask(owner, actorUser)))
+          throw new ForbiddenException('TASK_ACTION_FORBIDDEN');
+        return this.toResult(existing, true);
+      }
       const syncEvent = tx.create(TaskSyncEvent, {
         projectId,
         taskId: null,
@@ -117,12 +134,24 @@ export class TaskSyncEventsService {
       });
       let linkedTaskId: string | null = null;
 
+      await tx.query('SAVEPOINT sync_event_mutation');
       try {
         const task = await tx.findOne(Task, {
           where: { id: event.taskId, projectId, deletedAt: IsNull() },
-          relations: ['project'],
+          relations: ['project', 'assignees'],
         });
         if (!task) throw new BadRequestException(TASK_NOT_FOUND);
+        if (!(await this.authSvc.canViewTask(task, actorUser)))
+          throw new ForbiddenException('TASK_ACTION_FORBIDDEN');
+        if (
+          !task.assignees.some((a) => a.userId === actorUser.id) &&
+          !(await this.authSvc.canManageTaskOwnedChecklist(
+            projectId,
+            task.id,
+            actorUser.id,
+          ))
+        )
+          throw new ForbiddenException('TASK_ACTION_FORBIDDEN');
         linkedTaskId = task.id;
         syncEvent.task = task;
         syncEvent.taskId = task.id;
@@ -132,6 +161,7 @@ export class TaskSyncEventsService {
         const saved = await tx.save(TaskSyncEvent, syncEvent);
         return this.toResult(saved, false);
       } catch (error) {
+        await tx.query('ROLLBACK TO SAVEPOINT sync_event_mutation');
         syncEvent.status = TaskSyncEventStatus.FAILED;
         syncEvent.taskId = linkedTaskId;
         syncEvent.errorMessage =
@@ -150,7 +180,7 @@ export class TaskSyncEventsService {
   ): Promise<Record<string, unknown>> {
     switch (event.type) {
       case TaskSyncEventType.CHECKLIST_ITEM_TOGGLED:
-        return this.applyChecklistToggle(tx, task, event, actorUser);
+        return conflict('WORKFLOW_COMMAND_REQUIRED');
       case TaskSyncEventType.TASK_PROGRESS_UPDATED:
         return this.applyTaskProgress(tx, task, event, actorUser);
       case TaskSyncEventType.SITE_NOTE_ADDED:
@@ -160,43 +190,6 @@ export class TaskSyncEventsService {
       default:
         throw new BadRequestException(INVALID_TASK_SYNC_EVENT);
     }
-  }
-
-  private async applyChecklistToggle(
-    tx: EntityManager,
-    task: Task,
-    event: TaskSyncEventDto,
-    actorUser: User,
-  ): Promise<Record<string, unknown>> {
-    const checklistItemId = this.stringPayload(
-      event.payload,
-      'checklistItemId',
-    );
-    const completed = this.booleanPayload(event.payload, 'completed');
-    const item = await tx.findOne(TaskChecklistItem, {
-      where: { id: checklistItemId, taskId: task.id },
-    });
-    if (!item) throw new BadRequestException(INVALID_TASK_SYNC_EVENT);
-
-    item.completed = completed;
-    item.completedByUserId = completed ? actorUser.id : null;
-    item.completedAt = completed ? new Date(event.occurredAt) : null;
-    const saved = await tx.save(TaskChecklistItem, item);
-
-    await this.activitySvc.log(
-      tx,
-      task,
-      actorUser,
-      TaskActionType.CHECKLIST_UPDATED,
-      {
-        operation: 'offline_checklist_item_toggled',
-        checklistItemId: saved.id,
-        completed: saved.completed,
-        clientEventId: event.clientEventId,
-      },
-    );
-
-    return { checklistItemId: saved.id, completed: saved.completed };
   }
 
   private async applyTaskProgress(

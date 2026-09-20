@@ -29,7 +29,8 @@
     "seed:project-roles": "ts-node -r tsconfig-paths/register src/config/seeds/seed-project-roles.ts",
     "seed:all": "ts-node -r tsconfig-paths/register src/config/seeds/seed-all.ts",
     "db:reset": "ts-node -r tsconfig-paths/register src/config/db/reset-db.ts",
-    "db:fresh": "npm run db:reset && npm run migration:run && npm run seed:all"
+    "db:fresh": "npm run db:reset && npm run migration:run && npm run seed:all",
+    "workflow:backfill": "ts-node -r tsconfig-paths/register src/scripts/task-workflow-backfill.ts"
   },
   "dependencies": {
     "@nestjs-modules/mailer": "^2.0.2",

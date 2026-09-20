@@ -33,6 +33,12 @@ class TaskDocumentSourceAttachmentRelationSerializer extends BaseSerializer {
 }
 
 export class TaskDocumentAttachmentSerializer extends BaseSerializer {
+  @Expose() deletedAt: Date | null;
+  @Expose() deletedByUserId: string | null;
+  @Expose() fileAvailable: boolean;
+  @Expose() originalName: string | null;
+  @Expose() mimeType: string | null;
+  @Expose() sizeBytes: string | null;
   @Expose()
   @Transform(({ obj }) => obj?.documentId ?? obj?.document?.id ?? null)
   documentId: string | null;
@@ -69,6 +75,8 @@ export class TaskDocumentAttachmentSerializer extends BaseSerializer {
 }
 
 export class TaskDocumentSerializer extends BaseSerializer {
+  @Expose() deletedAt: Date | null;
+  @Expose() deletedByUserId: string | null;
   @Expose() checklistItemId: string | null;
   @Expose()
   @Transform(({ obj }) => obj?.taskId ?? obj?.task?.id ?? null)
